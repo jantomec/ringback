@@ -14,8 +14,12 @@ and on mobile data.
 2. **One call per session.** The phone shows the call as "Claude from \<project\>", so the
    voice doesn't repeat it. It opens with what's new, then what needs your attention.
    Your replies, including permission approvals, go to that session.
-3. **Busy line.** If you're already on a call (a phone call or another session's), the
-   session waits a few minutes and tries again.
+3. **Not now.** You can decline or leave unanswered any call, including one that comes
+   in as call waiting during another call. The switchboard then tries again 5 min,
+   20 min, 1 h, 2½ h and 6 h after the first ring, and holds every other call
+   meanwhile. If the 6-hour try isn't answered either, the call is marked declined and
+   all calls stay held until you call that session back from the app. Sessions' own
+   calls never overlap: they wait in one queue.
 4. **Understanding you.** Recognition copes with non-native accents. When a reply is
    unclear, the call asks instead of guessing, and a permission is only granted on a
    clear yes.
@@ -49,7 +53,9 @@ queue, and each call's audio goes to the Mac whose session is calling.
    lighthouse):
    - keeps one FIFO queue for the sessions on every Mac and places one call at a time;
    - starts a call with a VoIP push through APNs that names the Mac taking the call;
-   - on busy, declined or unanswered, retries after a few minutes.
+   - on "not now" (declined or unanswered), retries on the schedule in requirement 3,
+     with the whole queue paused in between. After a final decline it holds all calls
+     until the app calls that session back.
 4. **Voice pipeline** (on the Mac running the calling session). That Mac must be awake
    anyway, and this keeps the always-on Mac light. It holds a sleep assertion while its
    call is queued or in progress.
@@ -125,10 +131,12 @@ queue, and each call's audio goes to the Mac whose session is calling.
      over Nebula (WebRTC,
      using the voice-processing audio session for echo cancellation). The Mac can't open
      it, because on mobile data only the phone can start a Nebula tunnel (see Stage 0);
-   - `CXCallObserver` detects an active call. The app then reports "busy" and ends the
-     new call, because Apple requires every VoIP push to report a call.
+   - During another call (phone, WhatsApp, FaceTime), a ringback call rings as call
+     waiting, with iOS's own Hold & Accept, End & Accept and Decline. The app doesn't
+     end it by itself. `CXCallObserver` only records that you were on another call.
+     (Apps can't add buttons to that screen.)
    - It reports each call's events to the switchboard: ringing, answered, ended (with
-     its duration), declined, missed and busy. Each report is stamped with when it
+     its duration), declined and missed. Each report is stamped with when it
      happened on the phone, and retried for about a minute. After the phone changes
      network, Nebula can take a while to reach the Mac again. The "ringing" report also
      brings the tunnel up while the phone rings.
@@ -142,6 +150,8 @@ queue, and each call's audio goes to the Mac whose session is calling.
    - **Call back** (Stage 3). Tapping a declined or missed call starts a call to that
      session straight away, without ringing. The voice has the same context the missed
      call had. If the session has moved on since, it says what changed first.
+   - **Held calls.** While all calls are held after a final decline, the app says so and
+     shows which call to call back. Calling it back releases them.
    - **Settings:**
      - **Switchboard:** the switchboard's Nebula address. The app registers its push
        token there.
@@ -163,8 +173,6 @@ queue, and each call's audio goes to the Mac whose session is calling.
 ## Open questions
 
 - **When should sessions call?** An "away" toggle, or the Mac's idle time.
-- **Retry timing:** a fixed few minutes, or ~30 s after hang-up when the wait was only for
-  another session.
 - **Authentication:** whether the app ↔ Mac and session ↔ switchboard links need more
   than Nebula certificates. This must be settled before the permission relay is enabled.
 - **The voice's context:** a fork of the calling session gives the whole history. But a
@@ -175,7 +183,6 @@ queue, and each call's audio goes to the Mac whose session is calling.
 
 - On a locked phone woken by a push, the time until the app's first packet brings the
   Nebula tunnel up is unmeasured, both normally and right after a Wi-Fi → mobile switch.
-- Reporting and ending a call during a real phone call may flash or beep.
 - Pipecat's iOS client (`pipecat-client-ios-small-webrtc`) always sets its own audio
   session: play-and-record, mixed with other audio, on the speaker. That will probably
   clash with CallKit, so expect a fork or our own WebRTC audio code.
@@ -206,17 +213,21 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
      or the carrier's NAT timing out.
 1. **Ring + audio.** A VoIP push rings the locked phone, you answer from the headphones,
    and audio flows both ways over Nebula. Measure the time from answering to two-way
-   audio, also right after a Wi-Fi → mobile switch. Check busy detection during a real
+   audio, also right after a Wi-Fi → mobile switch. Check call waiting during a real
    call.
    - Ringing works: a locked phone on mobile data rang, showed the caller, and was
      answered from AirPods.
    - In that test the phone had just left Wi-Fi, and its first packets reached the Mac
      about 16 s after the push (one measurement).
+   - During a real phone call, a push showed iOS's call-waiting screen with all the
+     caller details. The first version ended that call by itself after about a second,
+     and the screen disappeared cleanly. That's replaced by "not now" (requirement 3).
 2. **Conversation.** To pick speech-to-text for a new voice, record
    `tools/stt-eval/sentences.txt` and score the candidates (see `tools/stt-eval/README.md`).
    Then interrupt mid-sentence, measure how quickly speech stops when you start talking
    and how long a reply takes, and test with gym-like noise.
 3. **One session.** The session finishes and calls, you reply, it acts and calls again.
    Approve a permission prompt by voice.
-4. **Several sessions + retries.** A second session waits for the first call to end. A
-   real phone call makes a session retry.
+4. **Several sessions + retries.** A second session waits for the first call to end.
+   "Not now" retries on schedule while the queue waits. A final decline holds all calls
+   until a call back releases them.

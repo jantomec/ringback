@@ -26,15 +26,18 @@ final class CallService: NSObject, CXProviderDelegate {
         provider.setDelegate(self, queue: nil)  // main queue
     }
 
-    /// Reports the call a VoIP push announced. Apple requires a call for every push, so when
-    /// another call is already active the new one is reported and ended at once, as "busy".
+    /// Reports the call a VoIP push announced; Apple requires a call for every push. During
+    /// another call it rings as call waiting and you choose: answering, declining and not
+    /// answering all work as usual, and the switchboard retries a "not now".
     func reportIncoming(_ payload: [AnyHashable: Any], completion: @escaping () -> Void) {
         let callID = payload["call_id"] as? String ?? UUID().uuidString
         let project = payload["project"] as? String ?? "Claude Code"
         let subject = payload["subject"] as? String
-        let busy = observer.calls.contains { !$0.hasEnded }
+        let onAnotherCall = observer.calls.contains { !$0.hasEnded }
         let uuid = UUID()
-        let record = CallRecord(id: callID, project: project, subject: subject, ringAt: .now, outcome: .ringing)
+        let record = CallRecord(
+            id: callID, project: project, subject: subject, ringAt: .now, outcome: .ringing,
+            onAnotherCall: onAnotherCall)
 
         // The lock screen shows who's calling, so the voice doesn't have to say it.
         let update = CXCallUpdate()
@@ -52,12 +55,10 @@ final class CallService: NSObject, CXProviderDelegate {
             defer { completion() }
             if let error {
                 finish(uuid, .failed, event: "failed", extra: ["error": error.localizedDescription])
-            } else if busy {
-                provider.reportCall(with: uuid, endedAt: nil, reason: .unanswered)
-                finish(uuid, .busy, event: "busy")
             } else {
                 // Also brings up the Nebula tunnel to the Mac while the phone rings.
-                Switchboard.report(callID: callID, event: "ringing")
+                Switchboard.report(
+                    callID: callID, event: "ringing", extra: onAnotherCall ? ["on_another_call": "yes"] : [:])
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.ringTimeout) { [self] in
                     guard let id = callIDs[uuid], state.calls.first(where: { $0.id == id })?.outcome == .ringing
                     else { return }

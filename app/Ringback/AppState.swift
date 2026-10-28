@@ -4,7 +4,9 @@ import Observation
 /// One call as the phone saw it.
 struct CallRecord: Codable, Identifiable {
     enum Outcome: String, Codable {
-        case ringing, onCall, answered, declined, missed, busy, failed
+        case ringing, onCall, answered, declined, missed, failed
+        /// Only in history from the first version, which ended calls itself during another call.
+        case busy
     }
 
     let id: String  // the switchboard's call ID
@@ -15,6 +17,8 @@ struct CallRecord: Codable, Identifiable {
     var answeredAt: Date?
     var endedAt: Date?
     var outcome: Outcome
+    /// It rang as call waiting during another call (phone, WhatsApp, FaceTime…).
+    var onAnotherCall: Bool?
 
     var callerName: String { "Claude from \(project)" }
 

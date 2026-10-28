@@ -76,6 +76,11 @@ private struct CallRow: View {
     }
 
     private var detail: String {
+        let waiting = call.onAnotherCall == true ? " · while on another call" : ""
+        return outcomeText + waiting
+    }
+
+    private var outcomeText: String {
         switch call.outcome {
         case .ringing: "Ringing…"
         case .onCall: "On call"
