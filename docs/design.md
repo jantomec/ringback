@@ -55,13 +55,18 @@ queue, and each call's audio goes to the Mac whose session is calling.
    - starts a call with a VoIP push through APNs that names the Mac taking the call;
    - on "not now" (declined or unanswered), retries on the schedule in requirement 3,
      with the whole queue paused in between. After a final decline it holds all calls
-     until the app calls that session back.
+     until the app calls that session back;
+   - is one Swift binary of about 385 KB that needs nothing but macOS 13 or later (Intel
+     or Apple silicon), so an old Mac can run it. On an old Intel Mac it used about
+     4 MB of memory. It handles requests one at a time, so a stalled connection holds up
+     the next request for up to 5 s, which is within the app's 10 s timeout.
 4. **Voice pipeline** (on the Mac running the calling session). That Mac must be awake
    anyway, and this keeps the always-on Mac light. It holds a sleep assertion while its
    call is queued or in progress.
-   - Pipecat, with Parakeet TDT 0.6B v2 (MLX) for speech-to-text, Kokoro-82M with the
-     `af_heart` voice for speech, and Claude Haiku 5.5. Pipecat has no Parakeet service,
-     so we write a small one.
+   - Pipecat, with Parakeet TDT 0.6B v2 (MLX) for speech-to-text, Kokoro-82M (MLX, through
+     mlx-audio) with the `af_heart` voice for speech, and Claude Haiku 5.5. Pipecat has no
+     Parakeet service, and its own Kokoro service is too slow (see rejected
+     alternatives), so we write a small service for each.
    - The phone posts its WebRTC offer to `/offer` on the voice server (`voice/`), which
      answers it with Pipecat's SmallWebRTC connection.
    - **Speaking a reply.** Haiku streams its reply, and Kokoro speaks it in pieces:
@@ -77,9 +82,15 @@ queue, and each call's audio goes to the Mac whose session is calling.
      test.
 
      In that test, speaking each sentence separately left about 0.75 s of silence
-     between sentences, against 0.24–0.5 s in one continuous passage. Kokoro generated a
-     15 s passage in about 0.6 s with MLX. Its speed inside Pipecat hasn't been measured,
-     and the one-second lead depends on it.
+     between sentences, against 0.24–0.5 s in one continuous passage.
+
+     The one-second lead holds because Kokoro through MLX generates speech about 27×
+     faster than real time on a recent Apple silicon Mac (`tools/tts-speed`): 0.14 s for
+     one sentence (about 4 s of speech) and 0.77 s for a 22 s reply. So it covers pieces
+     of up to about 25 s of speech. Not yet measured: its speed inside our Pipecat
+     service, and with Parakeet running at the same time. Its text-to-phoneme package
+     (`misaki[en]`) pulls in torch (about 540 MB) through spaCy, though Kokoro doesn't use
+     it.
    - **Interruptions.** Playback stops as soon as you speak, and only for your voice.
      Everything queued is dropped. The voice then waits until you've finished and always
      answers what you said, including a short "yeah" or "mhm".
@@ -217,6 +228,12 @@ Each entry says why it lost and what would make it worth retrying.
 - **Apple's voices for speech, and Pocket TTS.** In a listening test the standard Apple
   voices sounded poor, and Kokoro `af_heart` was preferred over Pocket TTS. Apple's
   Premium voices weren't tried. Retry with a Premium voice.
+- **Pipecat's own Kokoro service (kokoro-onnx).** On the CPU, its default, it ran 8×
+  faster than real time, against 27× for MLX: 1.54 s for 12 s of speech, against 0.45 s
+  (`tools/tts-speed`). Pieces longer than about 7 s of speech would leave gaps, and the
+  first sentence would start about 0.35 s later. CoreML made it no faster, because it
+  took only about half of the model's operations. Retry if kokoro-onnx gets much faster
+  on Apple silicon.
 - **One sentence per Kokoro piece.** It left about 0.75 s of silence between sentences.
   It's replaced by growing pieces.
 - **Trimming the silence between Kokoro pieces.** It sounded worse than untrimmed pieces.
@@ -230,6 +247,14 @@ Each entry says why it lost and what would make it worth retrying.
   Retry if the client gains a CallKit or manual-audio mode.
 - **Ending a call as "busy" during another call.** You want to choose, so it's replaced by
   call waiting and "not now" (requirement 3).
+- **The switchboard in Python** (aiohttp, run with uv). On an old Intel Mac it used
+  about 50 MB of memory, and uv, its cache and the virtual environment took about 280 MB
+  of disk on top of Python. The Swift binary uses about 4 MB and 385 KB. Retry if the
+  switchboard needs a library that only Python has.
+- **The switchboard in C.** Swift already brings it down to about 4 MB of memory. C would
+  also need hand-written JSON and HTTP parsing on a network port, and its own decoding of
+  the APNs key; macOS gives Swift all of these. Retry if a few MB on the always-on Mac
+  ever matter.
 - **A switchboard on every Mac.** That gives no single queue, so calls from two Macs could
   overlap.
 - **The voice pipeline on the always-on Mac.** It would load that Mac. The calling Mac

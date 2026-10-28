@@ -19,7 +19,7 @@ conversation comes next. See [docs/design.md](docs/design.md).
 - `app/`: the iPhone app (generate the Xcode project with `xcodegen` in `app/`);
 - `switchboard/`: rings the phone and logs what happened to each call;
 - `voice/`: the audio side of a call, on the Mac whose session is calling;
-- `tools/`: checks for Nebula and for choosing speech-to-text.
+- `tools/`: checks for Nebula, and for choosing speech-to-text and speech.
 
 ## License
 

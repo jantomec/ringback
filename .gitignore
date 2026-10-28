@@ -8,6 +8,7 @@ app/Ringback/Ringback.entitlements
 
 # Build output
 app/build/
+switchboard/.build/
 
 # Python
 __pycache__/
