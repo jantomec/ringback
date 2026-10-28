@@ -31,13 +31,15 @@ final class CallService: NSObject, CXProviderDelegate {
     func reportIncoming(_ payload: [AnyHashable: Any], completion: @escaping () -> Void) {
         let callID = payload["call_id"] as? String ?? UUID().uuidString
         let project = payload["project"] as? String ?? "Claude Code"
+        let subject = payload["subject"] as? String
         let busy = observer.calls.contains { !$0.hasEnded }
         let uuid = UUID()
+        let record = CallRecord(id: callID, project: project, subject: subject, ringAt: .now, outcome: .ringing)
 
         // The lock screen shows who's calling, so the voice doesn't have to say it.
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: project)
-        update.localizedCallerName = "Claude from \(project)"
+        update.localizedCallerName = record.callerName
         update.hasVideo = false
         update.supportsHolding = false
         update.supportsGrouping = false
@@ -45,7 +47,7 @@ final class CallService: NSObject, CXProviderDelegate {
         update.supportsDTMF = false
 
         callIDs[uuid] = callID
-        state.add(CallRecord(id: callID, project: project, ringAt: .now, outcome: .ringing))
+        state.add(record)
         provider.reportNewIncomingCall(with: uuid, update: update) { [self] error in
             defer { completion() }
             if let error {

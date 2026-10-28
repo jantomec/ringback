@@ -9,10 +9,14 @@ struct CallRecord: Codable, Identifiable {
 
     let id: String  // the switchboard's call ID
     let project: String
+    /// A few words on what the call is about, written on the calling Mac.
+    var subject: String?
     let ringAt: Date
     var answeredAt: Date?
     var endedAt: Date?
     var outcome: Outcome
+
+    var callerName: String { "Claude from \(project)" }
 
     var duration: TimeInterval? {
         guard let answeredAt, let endedAt else { return nil }
@@ -24,21 +28,19 @@ struct CallRecord: Codable, Identifiable {
 /// deliver there).
 @Observable
 final class AppState {
-    private static let callsKey = "recentCalls"
-    private static let keep = 20
+    /// The whole call history, kept on the phone. (Moving it to iCloud comes later.)
+    private static let historyFile = URL.applicationSupportDirectory.appending(path: "calls.json")
+    /// Where the first version kept its last 20 calls; imported once.
+    private static let oldDefaultsKey = "recentCalls"
 
     var token: String?
     var registration = "Not registered yet"
     var registering = false
-    /// Most recent first; kept across launches.
-    private(set) var calls: [CallRecord] = {
-        guard let data = UserDefaults.standard.data(forKey: callsKey) else { return [] }
-        return (try? JSONDecoder().decode([CallRecord].self, from: data)) ?? []
-    }()
+    /// Most recent first.
+    private(set) var calls: [CallRecord] = AppState.loadHistory()
 
     func add(_ call: CallRecord) {
         calls.insert(call, at: 0)
-        calls = Array(calls.prefix(Self.keep))
         save()
     }
 
@@ -49,6 +51,20 @@ final class AppState {
     }
 
     private func save() {
-        UserDefaults.standard.set(try? JSONEncoder().encode(calls), forKey: Self.callsKey)
+        try? FileManager.default.createDirectory(at: .applicationSupportDirectory, withIntermediateDirectories: true)
+        try? JSONEncoder().encode(calls).write(to: Self.historyFile, options: .atomic)
+    }
+
+    private static func loadHistory() -> [CallRecord] {
+        if let data = try? Data(contentsOf: historyFile) {
+            return (try? JSONDecoder().decode([CallRecord].self, from: data)) ?? []
+        }
+        guard let old = UserDefaults.standard.data(forKey: oldDefaultsKey) else { return [] }
+        let calls = (try? JSONDecoder().decode([CallRecord].self, from: old)) ?? []
+        try? FileManager.default.createDirectory(at: .applicationSupportDirectory, withIntermediateDirectories: true)
+        if (try? JSONEncoder().encode(calls).write(to: historyFile, options: .atomic)) != nil {
+            UserDefaults.standard.removeObject(forKey: oldDefaultsKey)
+        }
+        return calls
     }
 }

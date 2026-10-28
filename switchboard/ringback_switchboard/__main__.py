@@ -11,7 +11,8 @@ def main() -> None:
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("serve", help="listen for phone registrations and call events")
     ring = sub.add_parser("ring", help="ring every registered phone")
-    ring.add_argument("--project", default="ringback", help="name shown as the caller")
+    ring.add_argument("--project", default="ringback", help="shown as 'Claude from <project>'")
+    ring.add_argument("--subject", help="a few words on what the call is about")
     sub.add_parser("devices", help="list registered phones")
     args = p.parse_args()
 
@@ -41,7 +42,10 @@ def main() -> None:
                 c = config["apns"]
                 clients[env] = APNs(c["team_id"], c[env]["key_id"], c[env]["key_file"], c["bundle_id"])
             call_id = str(uuid.uuid4())
-            status, reason = clients[env].push(token, env, {"call_id": call_id, "project": args.project})
+            payload = {"call_id": call_id, "project": args.project}
+            if args.subject:
+                payload["subject"] = args.subject
+            status, reason = clients[env].push(token, env, payload)
             print(f"call {call_id[:8]} → {d['device']}: APNs {status} {reason}".rstrip())
             if reason in ("BadDeviceToken", "Unregistered"):
                 devices.forget(token)

@@ -24,7 +24,7 @@ struct SettingsView: View {
                 } footer: {
                     Text(state.token == nil ? "Waiting for a push token from iOS…" : state.registration)
                 }
-                Section("Recent calls") {
+                Section("Calls") {
                     if state.calls.isEmpty {
                         Text("No calls yet").foregroundStyle(.secondary)
                     }
@@ -42,13 +42,22 @@ private struct CallRow: View {
     var body: some View {
         HStack {
             Image(systemName: icon).foregroundStyle(color).frame(width: 24)
-            VStack(alignment: .leading) {
-                Text(call.project)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(call.callerName).font(.body.weight(.medium))
+                if let subject = call.subject {
+                    Text(subject).font(.subheadline)
+                }
                 Text(detail).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            Text(call.ringAt, format: .dateTime.hour().minute()).foregroundStyle(.secondary)
+            Text(when).font(.caption).foregroundStyle(.secondary)
         }
+    }
+
+    private var when: String {
+        Calendar.current.isDateInToday(call.ringAt)
+            ? call.ringAt.formatted(date: .omitted, time: .shortened)
+            : call.ringAt.formatted(date: .abbreviated, time: .shortened)
     }
 
     private var icon: String {

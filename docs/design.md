@@ -132,8 +132,16 @@ queue, and each call's audio goes to the Mac whose session is calling.
      happened on the phone, and retried for about a minute. After the phone changes
      network, Nebula can take a while to reach the Mac again. The "ringing" report also
      brings the tunnel up while the phone rings.
-   - **Recent calls:** a green phone and the duration for an answered call, or a red one
-     for a declined, missed or busy call, with the time.
+   - **Calls:** the whole call history.
+     - Each call shows its caller ("Claude from \<project\>") and a 3–8 word subject.
+       Before the call is queued, the calling Mac asks Haiku for that subject, based on
+       the session's last message, and the push carries it.
+     - A green phone and the duration mean answered. A red one means declined, missed
+       or busy.
+     - The history is stored on the phone for now and will move to iCloud later.
+   - **Call back** (Stage 3). Tapping a declined or missed call starts a call to that
+     session straight away, without ringing. The voice has the same context the missed
+     call had. If the session has moved on since, it says what changed first.
    - **Settings:**
      - **Switchboard:** the switchboard's Nebula address. The app registers its push
        token there.
