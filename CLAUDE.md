@@ -4,13 +4,32 @@ Claude Code sessions call the user's iPhone when they're done, talk the result t
 take spoken replies. `docs/design.md` is the source of truth for requirements,
 architecture, rejected alternatives, risks and the stage plan. Read it first.
 
-Status: Stages 0 (Nebula) and 1 (ring + audio) are done; results are in `docs/design.md`.
-Next step: **Stage 2 (conversation)**: speech-to-text, Haiku and speech in the voice
-pipeline.
+Status (2026-10-28, `e42b14e`): Stages 0 (Nebula) and 1 (ring + audio) are done, with
+results in `docs/design.md`. Next is **Stage 2 (conversation)**. Resume by replacing the
+test pipeline in `voice/ringback_voice/__main__.py`, which greets you and plays your words
+back, with Parakeet v2 → Haiku → Kokoro `af_heart`:
+- Haiku runs in a Claude Code session that stays open for the call;
+- Kokoro speaks in the growing pieces described under "Voice pipeline" in the design;
+- new code: a Parakeet STT service for Pipecat, and a Pipecat service around the Claude
+  Code process.
 
 Code: `app/` (iPhone app, generated with XcodeGen), `switchboard/` (push and call
 events), `voice/` (the calling Mac's audio and voice), `tools/` (Nebula and
-speech-to-text checks).
+speech-to-text checks). How to set it all up and place a test call: `docs/setup.md`.
+
+## Checks
+
+Run before every commit; together they take a few seconds:
+
+```sh
+(cd app && xcodegen generate && xcodebuild -project Ringback.xcodeproj -scheme Ringback \
+  -destination 'generic/platform=iOS' -derivedDataPath build -allowProvisioningUpdates build)  # 0 Swift warnings
+(cd switchboard && uv run python -m compileall -q ringback_switchboard && uv run ringback-switchboard --help)
+(cd voice && uv run python -m compileall -q ringback_voice && uv run python -c 'import ringback_voice.__main__')
+```
+
+They prove the code builds, not that calls work. Ringing, push and audio count only when
+verified on the phone (see working rules), with the user answering a real call.
 
 ## Environment
 
@@ -29,3 +48,10 @@ on a Claude subscription.
   Simulator runs and unit tests don't count for ringing, push or audio.
 - Facts marked unverified in `docs/design.md` must be checked against current docs
   before building on them.
+- Before every commit, scan the full content of every staged file and the commit message
+  for personal details. The list of strings to look for is in Claude's private memory,
+  because the list itself is personal.
+- Git: work on a short branch, merge it fast-forward into `main`, delete the branch, and
+  push when the user asks.
+- Installing on the phone over the network needs it unlocked and on the same Wi-Fi as the
+  Mac. Ask the user for that before installing, and for the test setup before a test call.

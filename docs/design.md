@@ -190,6 +190,51 @@ queue, and each call's audio goes to the Mac whose session is calling.
    direct tunnels to the phone fail, and Mobile Nebula (0.12.0) has no setting to list
    relays of its own.
 
+## Rejected alternatives
+
+Each entry says why it lost and what would make it worth retrying.
+
+- **Calling through the phone network (e.g. Twilio) instead of an app.** Per-minute and
+  number costs are hard to justify for a personal tool. Retry if those costs become
+  negligible.
+- **The Mac opening the Nebula tunnel to the phone.** It can't reach a phone on mobile
+  data, and Mobile Nebula 0.12.0 can't list relays of its own (Stage 0). Retry if Mobile
+  Nebula gains `relay.relays`.
+- **Speech-to-text on the phone (Apple SpeechTranscriber).**
+  - It takes no vocabulary.
+  - It was weaker on accented English in the one published comparison.
+  - Whether it runs on a locked phone during a call is undocumented.
+
+  Retry if Apple adds vocabulary biasing to SpeechTranscriber, or it beats Parakeet on
+  your own recordings (`tools/stt-eval`).
+- **Whisper large-v3-turbo.** It was about as accurate as Parakeet v2, but about 12×
+  slower (about 0.5 s per utterance), and it invented words on short clips. Retry if a
+  build without the per-clip overhead appears.
+- **Qwen3-ASR 1.7B and Parakeet v3.** Neither did better on the test voice, and v3's extra
+  languages aren't needed for English-only calls. Retry for speakers of other languages.
+- **Granite Speech 5.0 2B.** Untested: mlx-audio 0.6.2 doesn't expose its keyword list,
+  which was the reason to try it. Retry once it does.
+- **Apple's voices for speech, and Pocket TTS.** In a listening test the standard Apple
+  voices sounded poor, and Kokoro `af_heart` was preferred over Pocket TTS. Apple's
+  Premium voices weren't tried. Retry with a Premium voice.
+- **One sentence per Kokoro piece.** It left about 0.75 s of silence between sentences.
+  It's replaced by growing pieces.
+- **Trimming the silence between Kokoro pieces.** It sounded worse than untrimmed pieces.
+  Retry only with crossfades or a gentler trim.
+- **A one-off `claude -p` call per turn.** It took about 3.2 s, 1.7 s of it start-up.
+  It's replaced by a Claude Code session that stays open for the call.
+- **Haiku through the API.** Calls run on the Claude subscription instead, because this
+  is a personal tool. Retry if replies through Claude Code prove too slow in Stage 2.
+- **Pipecat's iOS client.** It always takes over the audio session (speaker, mixing),
+  which clashes with CallKit. It's replaced by Google's WebRTC in manual-audio mode.
+  Retry if the client gains a CallKit or manual-audio mode.
+- **Ending a call as "busy" during another call.** You want to choose, so it's replaced by
+  call waiting and "not now" (requirement 3).
+- **A switchboard on every Mac.** That gives no single queue, so calls from two Macs could
+  overlap.
+- **The voice pipeline on the always-on Mac.** It would load that Mac. The calling Mac
+  must be awake anyway.
+
 ## Open questions
 
 - **When should sessions call?** An "away" toggle, or the Mac's idle time.
