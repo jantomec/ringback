@@ -27,7 +27,7 @@ async def event(request: web.Request) -> web.Response:
     STATE.mkdir(parents=True, exist_ok=True)
     with EVENTS.open("a") as f:
         f.write(json.dumps(record) + "\n")
-    extra = "".join(f", {k} {body[k]}" for k in ("on_another_call", "duration_s", "error") if k in body)
+    extra = "".join(f", {k} {body[k]}" for k in ("on_another_call", "duration_s", "since_answer_s", "error", "note") if k in body)
     at = f" (on the phone at {datetime.fromisoformat(body['at']).astimezone():%H:%M:%S})" if "at" in body else ""
     log(f"call {body.get('call_id', '?')[:8]}: {body.get('event')}{extra}{at}")
     return web.json_response({"ok": True})

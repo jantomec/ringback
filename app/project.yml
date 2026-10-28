@@ -7,11 +7,17 @@ options:
 configFiles:
   Debug: Config/Local.xcconfig
   Release: Config/Local.xcconfig
+packages:
+  WebRTC:
+    url: https://github.com/stasel/WebRTC
+    exactVersion: 156.0.0
 targets:
   Ringback:
     type: application
     platform: iOS
     sources: [Ringback]
+    dependencies:
+      - package: WebRTC
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(RINGBACK_BUNDLE_ID)

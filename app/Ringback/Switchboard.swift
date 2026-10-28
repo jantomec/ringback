@@ -46,11 +46,11 @@ enum Switchboard {
     /// Reports a call event, stamped with when it happened here, and retries until the
     /// switchboard confirms it. Asks iOS for background time so a report from a locked phone
     /// can finish.
-    static func report(callID: String, event: String, extra: [String: String] = [:]) {
+    static func report(callID: String, event: String, extra: [String: String] = [:], at: Date = .now) {
         var body = extra
         body["call_id"] = callID
         body["event"] = event
-        body["at"] = Date.now.ISO8601Format()
+        body["at"] = at.ISO8601Format()
         Task { @MainActor in
             let task = UIApplication.shared.beginBackgroundTask(withName: "report \(event)")
             defer { UIApplication.shared.endBackgroundTask(task) }

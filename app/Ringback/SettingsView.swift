@@ -1,14 +1,21 @@
+import AVFoundation
 import SwiftUI
+import UIKit
 
 struct SettingsView: View {
     let state: AppState
     let push: PushService
+    let calls: CallService
     @AppStorage(Switchboard.urlKey) private var switchboardURL = ""
     @Environment(\.scenePhase) private var scenePhase
+    @State private var microphoneOff = false
 
     var body: some View {
         NavigationStack {
             Form {
+                if microphoneOff {
+                    MicrophoneBanner()
+                }
                 Section {
                     if switchboardURL.isEmpty {
                         // First run: nothing to glance at yet, so ask for the address right here.
@@ -39,8 +46,45 @@ struct SettingsView: View {
         }
         // Once, for both screens: only checks you started, never the automatic one on opening.
         .sensoryFeedback(.success, trigger: state.confirmations)
+        .fullScreenCover(isPresented: .constant(state.activeCall != nil)) {
+            InCallView(state: state, calls: calls)
+        }
         .onChange(of: scenePhase, initial: true) { _, phase in
-            if phase == .active { Task { await push.connect() } }
+            guard phase == .active else { return }
+            checkMicrophone()  // also after coming back from Settings
+            Task { await push.connect() }
+        }
+        // Ask now: a locked phone in a call can't show the permission prompt.
+        .task {
+            _ = await AVAudioApplication.requestRecordPermission()
+            checkMicrophone()
+        }
+    }
+
+    private func checkMicrophone() {
+        microphoneOff = AVAudioApplication.shared.recordPermission == .denied
+    }
+}
+
+/// Shown while microphone access is off. Settings opens on Ringback's own page, where the
+/// Microphone switch is; apps can't link any deeper than that.
+private struct MicrophoneBanner: View {
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        Section {
+            HStack(spacing: 14) {
+                Image(systemName: "mic.slash.fill").font(.title2).foregroundStyle(.orange).frame(width: 36)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Microphone is off").font(.headline)
+                    Text("Claude can't hear you on calls. Turn on Microphone in Ringback's settings.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 6)
+            Button("Open Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+            }
         }
     }
 }

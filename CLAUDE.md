@@ -4,8 +4,13 @@ Claude Code sessions call the user's iPhone when they're done, talk the result t
 take spoken replies. `docs/design.md` is the source of truth for requirements,
 architecture, rejected alternatives, risks and the stage plan. Read it first.
 
-Status: Stage 0 (Nebula) is done; its results are in `docs/design.md`. Next step:
-**Stage 1 (ring + audio)**, the first code.
+Status: Stages 0 (Nebula) and 1 (ring + audio) are done; results are in `docs/design.md`.
+Next step: **Stage 2 (conversation)**: speech-to-text, Haiku and speech in the voice
+pipeline.
+
+Code: `app/` (iPhone app, generated with XcodeGen), `switchboard/` (push and call
+events), `voice/` (the calling Mac's audio and voice), `tools/` (Nebula and
+speech-to-text checks).
 
 ## Environment
 

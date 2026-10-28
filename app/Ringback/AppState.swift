@@ -28,6 +28,22 @@ struct CallRecord: Codable, Identifiable {
     }
 }
 
+/// The call you're on, while it lasts; the in-call screen shows it.
+struct ActiveCall: Equatable {
+    enum Audio: Equatable {
+        case none, connecting, connected
+        case failed(String)
+    }
+
+    let uuid: UUID
+    let id: String
+    let callerName: String
+    let subject: String?
+    let answeredAt: Date
+    var audio: Audio
+    var muted = false
+}
+
 /// Whether calls can reach this phone: it has a push token and the switchboard has it.
 enum Connection: Equatable {
     case notSetUp
@@ -49,6 +65,7 @@ final class AppState {
 
     var token: String?
     var connection: Connection = .notSetUp
+    var activeCall: ActiveCall?
     /// Counts successful checks you started yourself; the haptic tap plays on each.
     var confirmations = 0
     /// The last time the switchboard confirmed this phone, kept across launches.

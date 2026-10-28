@@ -7,7 +7,7 @@ struct RingbackApp: App {
 
     var body: some Scene {
         WindowGroup {
-            SettingsView(state: delegate.state, push: delegate.push)
+            SettingsView(state: delegate.state, push: delegate.push, calls: delegate.calls)
         }
     }
 }
@@ -24,5 +24,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // A VoIP push relaunches the app in the background, so PushKit must be set up at launch.
         _ = push
         return true
+    }
+
+    func applicationWillTerminate(_ application: UIApplication) {
+        calls.appWillTerminate()
     }
 }

@@ -13,6 +13,7 @@ def main() -> None:
     ring = sub.add_parser("ring", help="ring every registered phone")
     ring.add_argument("--project", default="ringback", help="shown as 'Claude from <project>'")
     ring.add_argument("--subject", help="a few words on what the call is about")
+    ring.add_argument("--voice", help="the calling Mac's voice server, e.g. http://10.0.0.1:8788")
     sub.add_parser("devices", help="list registered phones")
     args = p.parse_args()
 
@@ -45,6 +46,8 @@ def main() -> None:
             payload = {"call_id": call_id, "project": args.project}
             if args.subject:
                 payload["subject"] = args.subject
+            if args.voice:
+                payload["voice"] = args.voice
             status, reason = clients[env].push(token, env, payload)
             print(f"call {call_id[:8]} → {d['device']}: APNs {status} {reason}".rstrip())
             if reason in ("BadDeviceToken", "Unregistered"):

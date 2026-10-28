@@ -62,6 +62,8 @@ queue, and each call's audio goes to the Mac whose session is calling.
    - Pipecat, with Parakeet TDT 0.6B v2 (MLX) for speech-to-text, Kokoro-82M with the
      `af_heart` voice for speech, and Claude Haiku 5.5. Pipecat has no Parakeet service,
      so we write a small one.
+   - The phone posts its WebRTC offer to `/offer` on the voice server (`voice/`), which
+     answers it with Pipecat's SmallWebRTC connection.
    - **Speaking a reply.** Haiku streams its reply, and Kokoro speaks it in pieces:
      1. As soon as the first sentence is complete, it's spoken on its own, so the voice
         starts fast.
@@ -127,10 +129,15 @@ queue, and each call's audio goes to the Mac whose session is calling.
 6. **iPhone app** (Swift):
    - a PushKit VoIP push triggers CallKit, which rings on the lock screen and in your
      headphones;
-   - when you answer, the app opens the audio connection to the Mac named in the push,
-     over Nebula (WebRTC,
-     using the voice-processing audio session for echo cancellation). The Mac can't open
-     it, because on mobile data only the phone can start a Nebula tunnel (see Stage 0);
+   - when you answer, the app opens the audio connection to the voice server named in the
+     push (`voice` in its payload), over Nebula. The Mac can't open it, because on mobile
+     data only the phone can start a Nebula tunnel (see Stage 0).
+     - The audio is WebRTC, using Google's WebRTC library directly. Pipecat's iOS client
+       would take over the audio session.
+     - WebRTC runs in manual-audio mode: CallKit activates the voice-processing audio
+       session, which provides echo cancellation, and hands it to WebRTC.
+     - The offer carries all ICE candidates at once, because the Mac's server doesn't
+       take them one by one;
    - During another call (phone, WhatsApp, FaceTime), a ringback call rings as call
      waiting, with iOS's own Hold & Accept, End & Accept and Decline. The app doesn't
      end it by itself. `CXCallObserver` only records that you were on another call.
@@ -140,6 +147,19 @@ queue, and each call's audio goes to the Mac whose session is calling.
      happened on the phone, and retried for about a minute. After the phone changes
      network, Nebula can take a while to reach the Mac again. The "ringing" report also
      brings the tunnel up while the phone rings.
+   - **Call screens.** iOS decides which screens you see, the same for every calling app:
+     - On a locked phone: slide to answer, then iOS's own call screen.
+     - On an unlocked phone: Accept and Decline, then the app's own call screen.
+
+     Ours copies iOS's style (timer above the name, round glass buttons) with only Audio
+     (iOS's route picker), End and Mute. End and Mute go through CallKit, so iOS and
+     AirPods stay in step.
+   - **If the app is closed during a call** (killed or crashed), the call is recorded as
+     ended at the last heartbeat, which is saved every 2 s, and reported to the
+     switchboard at the next launch.
+   - **Microphone access** is asked for when you open the app, because a locked phone in a
+     call can't show the prompt. While access is off, a banner links to Ringback's page in
+     Settings.
    - **Calls:** the whole call history.
      - Each call shows its caller ("Claude from \<project\>") and a 3–8 word subject.
        Before the call is queued, the calling Mac asks Haiku for that subject, based on
@@ -181,11 +201,11 @@ queue, and each call's audio goes to the Mac whose session is calling.
 
 ## Risks (unverified)
 
-- On a locked phone woken by a push, the time until the app's first packet brings the
-  Nebula tunnel up is unmeasured, both normally and right after a Wi-Fi → mobile switch.
-- Pipecat's iOS client (`pipecat-client-ios-small-webrtc`) always sets its own audio
-  session: play-and-record, mixed with other audio, on the speaker. That will probably
-  clash with CallKit, so expect a fork or our own WebRTC audio code.
+- Right after the phone leaves Wi-Fi, its first packets once took about 16 s to reach
+  the Mac. If that happens just before you answer, audio takes that long to start.
+  Answer-to-audio has been measured on mobile data only once (2.6 s).
+- Pipecat expects a WebRTC data channel and logs a warning without one. The app will
+  need one anyway, for live settings such as interruption sensitivity.
 - Xcode needs device support for the phone's iOS version to install development builds.
 - The voice filtering may not be perfect:
   - gym noise or other people's voices could still stop the voice;
@@ -211,17 +231,22 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
    - that tunnel stopped answering within 30 s of locking the phone, so a locked, idle
      phone can only be reached by push. The cause is unconfirmed: iOS suspending Nebula,
      or the carrier's NAT timing out.
-1. **Ring + audio.** A VoIP push rings the locked phone, you answer from the headphones,
-   and audio flows both ways over Nebula. Measure the time from answering to two-way
-   audio, also right after a Wi-Fi → mobile switch. Check call waiting during a real
-   call.
-   - Ringing works: a locked phone on mobile data rang, showed the caller, and was
+1. **Ring + audio** (done). A VoIP push rings the locked phone, you answer from the
+   headphones, and audio flows both ways over Nebula. Results:
+   - **Ringing:** a locked phone on mobile data rang as "Claude from \<project\>" and was
      answered from AirPods.
-   - In that test the phone had just left Wi-Fi, and its first packets reached the Mac
-     about 16 s after the push (one measurement).
-   - During a real phone call, a push showed iOS's call-waiting screen with all the
-     caller details. The first version ended that call by itself after about a second,
-     and the screen disappeared cleanly. That's replaced by "not now" (requirement 3).
+   - **Two-way audio:** a test pipeline greeted you and played your words back a second
+     later. The sound in AirPods was clear.
+   - **Answer to two-way audio:**
+     - 2.6 s on a locked phone on mobile data, just after Wi-Fi was turned off (one call);
+     - 1.2–1.8 s on Wi-Fi (five calls).
+   - **After leaving Wi-Fi:** in an early test the phone's first packets took about 16 s
+     to reach the Mac. In the final test, the ringing report arrived 4 s after the push.
+   - **Call waiting during a real phone call:** the call-waiting screen stayed until you
+     declined. (The first version ended the call by itself after about a second; that's
+     replaced by "not now", requirement 3.)
+   - **Closing the app during a call:** the call is recorded as ended within 2 s of the
+     real end, and reported at the next launch.
 2. **Conversation.** To pick speech-to-text for a new voice, record
    `tools/stt-eval/sentences.txt` and score the candidates (see `tools/stt-eval/README.md`).
    Then interrupt mid-sentence, measure how quickly speech stops when you start talking
