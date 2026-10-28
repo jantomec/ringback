@@ -5,6 +5,30 @@ import UIKit
 /// what happened to each call.
 enum Switchboard {
     static let urlKey = "switchboardURL"
+    static let defaultPort = 8787
+
+    static var url: URL? {
+        UserDefaults.standard.string(forKey: urlKey).flatMap { URL(string: $0) }
+    }
+
+    /// The address as you'd type it: no http://, and no port when it's the default.
+    static var displayHost: String? {
+        guard let url, let host = url.host() else { return nil }
+        guard let port = url.port, port != defaultPort else { return host }
+        return "\(host):\(port)"
+    }
+
+    /// Turns what you type ("10.0.0.1", "10.0.0.1:9000" or a full URL) into the switchboard's
+    /// URL, adding http:// and the default port. Nil if there's no host.
+    static func normalize(_ input: String) -> URL? {
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, var parts = URLComponents(string: text.contains("://") ? text : "http://\(text)"),
+            let host = parts.host, !host.isEmpty
+        else { return nil }
+        parts.port = parts.port ?? defaultPort
+        parts.path = ""
+        return parts.url
+    }
 
     /// Waits between attempts to report an event. After the phone changes network, Nebula can
     /// take a while to reach the Mac again (16 s in one test), so a report keeps trying for
@@ -47,9 +71,7 @@ enum Switchboard {
     }
 
     private static func post(_ path: String, _ body: [String: String]) async throws {
-        guard let text = UserDefaults.standard.string(forKey: urlKey), let base = URL(string: text) else {
-            throw URLError(.badURL)
-        }
+        guard let base = url else { throw URLError(.badURL) }
         var request = URLRequest(url: base.appending(path: path), timeoutInterval: 10)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

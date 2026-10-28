@@ -16,28 +16,30 @@ final class PushService: NSObject, PKPushRegistryDelegate {
         registry.desiredPushTypes = [.voIP]
     }
 
-    /// Sends the token to the switchboard. On the main actor, because it updates what the
-    /// settings screen shows.
+    /// Sends the token to the switchboard, which is also how the app checks that calls can
+    /// reach it. On the main actor, because it updates what the settings screen shows.
+    /// Automatic checks (app opened, token arrived) skip a check that just succeeded; things
+    /// you do yourself (Try Again, pull to refresh, Connect) always check.
     @MainActor
-    func register() async {
-        guard let token = state.token else { return }
-        guard !(UserDefaults.standard.string(forKey: Switchboard.urlKey) ?? "").isEmpty else {
-            state.registration = "Enter the switchboard's address above."
-            return
-        }
-        state.registering = true
-        defer { state.registering = false }
+    func connect(force: Bool = false) async {
+        guard Switchboard.url != nil else { state.connection = .notSetUp; return }
+        guard let token = state.token else { state.connection = .waitingForToken; return }
+        guard state.connection != .connecting else { return }
+        if !force, case .connected(let at) = state.connection, Date.now.timeIntervalSince(at) < 10 { return }
+        state.connection = .connecting
         do {
             try await Switchboard.register(token: token)
-            state.registration = "Registered at \(Date.now.formatted(date: .omitted, time: .standard))"
+            state.lastConnected = .now
+            state.connection = .connected(at: .now)
+            if force { state.confirmations += 1 }
         } catch {
-            state.registration = "Couldn't reach the switchboard: \(error.localizedDescription)"
+            state.connection = .failed(reason: error.localizedDescription)
         }
     }
 
     func pushRegistry(_ registry: PKPushRegistry, didUpdate credentials: PKPushCredentials, for type: PKPushType) {
         state.token = credentials.token.map { String(format: "%02x", $0) }.joined()
-        Task { await register() }
+        Task { await connect() }
     }
 
     func pushRegistry(

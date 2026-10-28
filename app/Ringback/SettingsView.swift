@@ -4,25 +4,28 @@ struct SettingsView: View {
     let state: AppState
     let push: PushService
     @AppStorage(Switchboard.urlKey) private var switchboardURL = ""
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("http://10.0.0.1:8787", text: $switchboardURL)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .submitLabel(.join)  // iOS has no custom labels; "Join" is closest to registering
-                        .onSubmit { Task { await push.register() } }
-                    Button(state.registering ? "Registering…" : "Register this phone") {
-                        Task { await push.register() }
+                    if switchboardURL.isEmpty {
+                        // First run: nothing to glance at yet, so ask for the address right here.
+                        StatusRow(connection: state.connection, lastConnected: nil, detailed: true)
+                        AddressFields(push: push)
+                    } else {
+                        NavigationLink {
+                            SwitchboardView(state: state, push: push)
+                        } label: {
+                            StatusRow(connection: state.connection, lastConnected: state.lastConnected, detailed: false)
+                        }
+                        if case .failed = state.connection {
+                            Button("Try Again") { Task { await push.connect(force: true) } }
+                        }
                     }
-                    .disabled(switchboardURL.isEmpty || state.token == nil || state.registering)
-                } header: {
-                    Text("Switchboard")
                 } footer: {
-                    Text(state.token == nil ? "Waiting for a push token from iOS…" : state.registration)
+                    if switchboardURL.isEmpty { AddressFields.footer }
                 }
                 Section("Calls") {
                     if state.calls.isEmpty {
@@ -32,7 +35,147 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Ringback")
+            .refreshable { await push.connect(force: true) }
         }
+        // Once, for both screens: only checks you started, never the automatic one on opening.
+        .sensoryFeedback(.success, trigger: state.confirmations)
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            if phase == .active { Task { await push.connect() } }
+        }
+    }
+}
+
+/// Status and address of the switchboard, opened from the main screen's status row.
+private struct SwitchboardView: View {
+    let state: AppState
+    let push: PushService
+
+    var body: some View {
+        Form {
+            Section {
+                StatusRow(connection: state.connection, lastConnected: state.lastConnected, detailed: true)
+            }
+            Section {
+                AddressFields(push: push)
+            } footer: {
+                AddressFields.footer
+            }
+        }
+        .navigationTitle("Switchboard")
+        .navigationBarTitleDisplayMode(.inline)
+        .refreshable { await push.connect(force: true) }
+    }
+}
+
+/// The address field and its button: "Connect" for a new address, "Check Now" for the
+/// current one.
+private struct AddressFields: View {
+    let push: PushService
+    @AppStorage(Switchboard.urlKey) private var switchboardURL = ""
+    @State private var draft = Switchboard.displayHost ?? ""
+
+    static let footer = Text(
+        "The switchboard's Nebula address. Port \(Switchboard.defaultPort) is used unless you add another.")
+
+    var body: some View {
+        LabeledContent("Address") {
+            TextField("10.0.0.1", text: $draft)
+                .multilineTextAlignment(.trailing)
+                .keyboardType(.numbersAndPunctuation)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.join)  // iOS has no custom labels; "Join" is closest to connecting
+                .onSubmit(apply)
+        }
+        Button(isNew ? "Connect" : "Check Now", action: apply)
+            .disabled(Switchboard.normalize(draft) == nil)
+    }
+
+    private var isNew: Bool {
+        Switchboard.normalize(draft)?.absoluteString != switchboardURL
+    }
+
+    private func apply() {
+        guard let url = Switchboard.normalize(draft) else { return }
+        switchboardURL = url.absoluteString
+        draft = Switchboard.displayHost ?? draft
+        Task { await push.connect(force: true) }
+    }
+}
+
+/// The answer to "can calls reach me right now?". The main screen's row is short; the
+/// switchboard screen says more.
+private struct StatusRow: View {
+    let connection: Connection
+    let lastConnected: Date?
+    let detailed: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Group {
+                if connection == .connecting || connection == .waitingForToken {
+                    ProgressView()
+                } else {
+                    Image(systemName: icon).font(.title).foregroundStyle(color)
+                }
+            }
+            .frame(width: 36)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.headline)
+                Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
+    private var host: String { Switchboard.displayHost ?? "the switchboard" }
+
+    private var icon: String {
+        switch connection {
+        case .connected: "checkmark.circle.fill"
+        case .failed: "exclamationmark.triangle.fill"
+        default: "circle.dashed"
+        }
+    }
+
+    private var color: Color {
+        switch connection {
+        case .connected: .green
+        case .failed: .orange
+        default: .secondary
+        }
+    }
+
+    private var title: String {
+        switch connection {
+        case .notSetUp: "Not set up"
+        case .waitingForToken: "Getting ready…"
+        case .connecting: "Connecting…"
+        case .connected: "Ready for calls"
+        case .failed: "Can't reach the switchboard"
+        }
+    }
+
+    private var subtitle: String {
+        switch connection {
+        case .notSetUp:
+            return "Enter your switchboard's address."
+        case .waitingForToken:
+            return "Waiting for iOS to enable calls."
+        case .connecting:
+            return "Switchboard \(host)"
+        case .connected(let at):
+            return detailed ? "Checked \(Self.when(at))" : "Switchboard \(host)"
+        case .failed(let reason):
+            let last = lastConnected.map { " Last connected \(Self.when($0))." } ?? ""
+            return detailed ? "\(reason) Is Nebula connected?\(last)" : "Is Nebula connected?\(last)"
+        }
+    }
+
+    private static func when(_ date: Date) -> String {
+        Calendar.current.isDateInToday(date)
+            ? "at \(date.formatted(date: .omitted, time: .shortened))"
+            : date.formatted(date: .abbreviated, time: .shortened)
     }
 }
 

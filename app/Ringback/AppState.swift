@@ -28,6 +28,15 @@ struct CallRecord: Codable, Identifiable {
     }
 }
 
+/// Whether calls can reach this phone: it has a push token and the switchboard has it.
+enum Connection: Equatable {
+    case notSetUp
+    case waitingForToken
+    case connecting
+    case connected(at: Date)
+    case failed(reason: String)
+}
+
 /// What the settings screen shows. Changed only on the main queue (PushKit and CallKit both
 /// deliver there).
 @Observable
@@ -36,10 +45,16 @@ final class AppState {
     private static let historyFile = URL.applicationSupportDirectory.appending(path: "calls.json")
     /// Where the first version kept its last 20 calls; imported once.
     private static let oldDefaultsKey = "recentCalls"
+    private static let lastConnectedKey = "lastConnected"
 
     var token: String?
-    var registration = "Not registered yet"
-    var registering = false
+    var connection: Connection = .notSetUp
+    /// Counts successful checks you started yourself; the haptic tap plays on each.
+    var confirmations = 0
+    /// The last time the switchboard confirmed this phone, kept across launches.
+    var lastConnected: Date? = UserDefaults.standard.object(forKey: lastConnectedKey) as? Date {
+        didSet { UserDefaults.standard.set(lastConnected, forKey: Self.lastConnectedKey) }
+    }
     /// Most recent first.
     private(set) var calls: [CallRecord] = AppState.loadHistory()
 
