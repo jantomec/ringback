@@ -4,17 +4,18 @@ Claude Code sessions call the user's iPhone when they're done, talk the result t
 take spoken replies. `docs/design.md` is the source of truth for requirements,
 architecture, rejected alternatives, risks and the stage plan. Read it first.
 
-Status: design only. Next step: **Stage 0 (Nebula test)**. It needs the phone's Nebula IP
-from the user; the Mobile Nebula app shows it on the network's details screen.
+Status: Stage 0 (Nebula) is done; its results are in `docs/design.md`. Next step:
+**Stage 1 (ring + audio)**, the first code.
 
 ## Environment
 
-This repo is public. Machine-specific facts (hardware, Nebula addresses, accounts) are
-kept in Claude's private memory for this project, never in the repo. Don't commit IP
-addresses, hostnames, keys or certificates.
+This repo is public and holds only what someone else needs to install ringback. The
+user's personal setup and info (hardware, machines, Nebula addresses, accounts, location)
+stay in Claude's private memory for this project. Don't commit IP addresses, hostnames,
+keys or certificates.
 
 Requirements: a Mac with Xcode, a paid Apple Developer Program account, an iPhone, and
-Nebula on both the Mac and the iPhone.
+Nebula on both the Mac and the iPhone, with a lighthouse that acts as a relay.
 
 ## Working rules
 

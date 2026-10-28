@@ -48,10 +48,16 @@ sessions ──hooks──▶ switchboard (Mac) ──VoIP push via APNs──�
 5. **iPhone app** (Swift):
    - a PushKit VoIP push triggers CallKit, which rings on the lock screen and in your
      headphones;
-   - audio goes to the Mac over Nebula (WebRTC, using the voice-processing audio session
-     for echo cancellation);
+   - when you answer, the app opens the audio connection to the Mac over Nebula (WebRTC,
+     using the voice-processing audio session for echo cancellation). The Mac can't open
+     it, because on mobile data only the phone can start a Nebula tunnel (see Stage 0);
    - `CXCallObserver` detects an active call. The app then reports "busy" and ends the
      new call, because Apple requires every VoIP push to report a call.
+6. **Nebula** carries only the call; the push reaches the phone through Apple. The
+   lighthouse must be a relay (`relay.am_relay: true`) and the Mac must list it in
+   `relay.relays`. On mobile data the phone reaches the Mac only through that relay:
+   direct tunnels to the phone fail, and Mobile Nebula (0.12.0) has no setting to list
+   relays of its own.
 
 ## Open questions
 
@@ -63,8 +69,8 @@ sessions ──hooks──▶ switchboard (Mac) ──VoIP push via APNs──�
 
 ## Risks (unverified)
 
-- Nebula on the iPhone may not stay connected while the phone is locked, or may reconnect
-  slowly after a Wi-Fi → mobile switch.
+- On a locked phone woken by a push, the time until the app's first packet brings the
+  Nebula tunnel up is unmeasured, both normally and right after a Wi-Fi → mobile switch.
 - Reporting and ending a call during a real phone call may flash or beep.
 - The Pipecat details (local Whisper, TTS options, WebRTC transport) haven't been checked
   against current docs.
@@ -77,11 +83,20 @@ sessions ──hooks──▶ switchboard (Mac) ──VoIP push via APNs──�
 Verify each stage on the real phone (locked, on mobile data, with headphones) before the
 next. A simulator run or a unit test isn't evidence for ringing, push or audio.
 
-0. **Nebula.** Ping the phone's Nebula IP from the Mac every 30 s for ~20 min, with the
-   phone locked and Wi-Fi off. Then measure the reconnect time after a Wi-Fi → mobile
-   switch.
+0. **Nebula** (done). With the phone on mobile data, the phone loads a page served by the
+   Mac at its Nebula IP, then `tools/nebula_check.py` pings the phone from the Mac.
+   Mobile Nebula drops all inbound traffic by default, so the ping needs an inbound ICMP
+   rule for the Mac. Results:
+   - the Mac can't open a tunnel to the phone, whether it's locked or not;
+   - when the phone sends to the Mac, a tunnel comes up through the lighthouse relay in
+     about 0.2 s, and the Mac can then reach the phone (about 60 ms round trip);
+   - that tunnel stopped answering within 30 s of locking the phone, so a locked, idle
+     phone can only be reached by push. The cause is unconfirmed: iOS suspending Nebula,
+     or the carrier's NAT timing out.
 1. **Ring + audio.** A VoIP push rings the locked phone, you answer from the headphones,
-   and audio flows both ways over Nebula. Check busy detection during a real call.
+   and audio flows both ways over Nebula. Measure the time from answering to two-way
+   audio, also right after a Wi-Fi → mobile switch. Check busy detection during a real
+   call.
 2. **Conversation.** Interrupt mid-sentence, measure the reply latency, and test with
    gym-like noise.
 3. **One session.** The session finishes and calls, you reply, it acts and calls again.
