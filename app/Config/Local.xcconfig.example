@@ -1,0 +1,7 @@
+// Copy to Local.xcconfig (git ignores it) and fill in your own values.
+
+// Your Apple Developer team ID (Xcode → Settings → Accounts, or developer.apple.com → Membership).
+RINGBACK_TEAM_ID = ABCDE12345
+
+// A bundle ID you own, e.g. com.yourname.ringback. VoIP pushes are sent to <bundle ID>.voip.
+RINGBACK_BUNDLE_ID = com.example.ringback

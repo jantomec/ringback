@@ -1,0 +1,36 @@
+# Generates Ringback.xcodeproj:  cd app && xcodegen generate
+# Personal values (team, bundle ID) come from Config/Local.xcconfig; see the .example file.
+name: Ringback
+options:
+  deploymentTarget:
+    iOS: "26.0"
+configFiles:
+  Debug: Config/Local.xcconfig
+  Release: Config/Local.xcconfig
+targets:
+  Ringback:
+    type: application
+    platform: iOS
+    sources: [Ringback]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(RINGBACK_BUNDLE_ID)
+        DEVELOPMENT_TEAM: $(RINGBACK_TEAM_ID)
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+    entitlements:
+      path: Ringback/Ringback.entitlements
+      properties:
+        aps-environment: development
+    info:
+      path: Ringback/Info.plist
+      properties:
+        CFBundleDisplayName: Ringback
+        UILaunchScreen: {}
+        UIBackgroundModes: [voip, audio]
+        NSMicrophoneUsageDescription: Ringback uses the microphone so you can talk to your Claude Code sessions.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true

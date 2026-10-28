@@ -1,0 +1,21 @@
+# Copy to ~/.config/ringback/switchboard.toml and fill in your own values.
+
+# Where the switchboard listens: this Mac's Nebula address, so only Nebula peers can reach it.
+listen = "10.0.0.1:8787"
+
+[apns]
+team_id = "ABCDE12345"
+# The app's bundle ID (RINGBACK_BUNDLE_ID in app/Config/Local.xcconfig).
+bundle_id = "com.example.ringback"
+
+# One APNs key per environment (developer.apple.com → Certificates, Identifiers & Profiles
+# → Keys). Builds installed from Xcode get their pushes from the sandbox, so that key is
+# the one you need.
+[apns.sandbox]
+key_id = "XYZ9876543"
+key_file = "~/.config/ringback/AuthKey_XYZ9876543.p8"
+
+# Only for TestFlight or App Store builds:
+# [apns.production]
+# key_id = "..."
+# key_file = "~/.config/ringback/AuthKey_....p8"

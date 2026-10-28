@@ -1,0 +1,17 @@
+[project]
+name = "ringback-switchboard"
+version = "0.1.0"
+description = "Places ringback calls: registers the phone and rings it through APNs"
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp>=3.10",
+    "httpx[http2]>=0.27",
+    "pyjwt[crypto]>=2.9",
+]
+
+[project.scripts]
+ringback-switchboard = "ringback_switchboard.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

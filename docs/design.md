@@ -11,9 +11,9 @@ and on mobile data.
 1. **Conversation.** Real back-and-forth in one call. You can interrupt Claude
    mid-sentence. It stops talking the moment it hears you and waits for you to finish,
    and it answers everything you say.
-2. **One call per session.** A call opens with the project name, then what's new, then
-   what needs your attention. Your replies, including permission approvals, go to that
-   session.
+2. **One call per session.** The phone shows the call as "Claude from \<project\>", so the
+   voice doesn't repeat it. It opens with what's new, then what needs your attention.
+   Your replies, including permission approvals, go to that session.
 3. **Busy line.** If you're already on a call (a phone call or another session's), the
    session waits a few minutes and tries again.
 4. **Understanding you.** Recognition copes with non-native accents. When a reply is
@@ -80,7 +80,8 @@ queue, and each call's audio goes to the Mac whose session is calling.
      1. on the phone, voice processing and the Voice Isolation mic mode remove background
         noise (you switch Voice Isolation on once, in Control Center);
      2. on the Mac, the VoxLock filter keeps only your voice and removes other people's.
-        It's given a sample of your voice, so it works from your first word;
+        It's given the voice sample recorded in the app's settings, so it works from your
+        first word;
      3. voice-activity detection then triggers the stop.
 
      If a stop happens anyway and no words are recognised, the voice carries on, starting
@@ -126,6 +127,25 @@ queue, and each call's audio goes to the Mac whose session is calling.
      it, because on mobile data only the phone can start a Nebula tunnel (see Stage 0);
    - `CXCallObserver` detects an active call. The app then reports "busy" and ends the
      new call, because Apple requires every VoIP push to report a call.
+   - It reports each call's events to the switchboard: ringing, answered, ended (with
+     its duration), declined, missed and busy. Each report is stamped with when it
+     happened on the phone, and retried for about a minute. After the phone changes
+     network, Nebula can take a while to reach the Mac again. The "ringing" report also
+     brings the tunnel up while the phone rings.
+   - **Recent calls:** a green phone and the duration for an answered call, or a red one
+     for a declined, missed or busy call, with the time.
+   - **Settings:**
+     - **Switchboard:** the switchboard's Nebula address. The app registers its push
+       token there.
+     - **Your voice:** a guided recording of you reading a few sentences, about 30 s. The
+       app keeps it and sends it to the Mac at the start of each call, where VoxLock uses
+       it to recognise you. Until it's recorded, the app shows a reminder, and VoxLock
+       learns your voice from your first 3 seconds of speech instead.
+     - **Interruption sensitivity:** a slider. Higher stops the voice at quieter or
+       shorter speech, which suits quiet places. Lower needs clearer, longer speech,
+       which suits noisy ones. The app sends the value at the start of each call and
+       whenever you change it during one. On the Mac it sets the thresholds of the
+       voice-activity detection.
 7. **Nebula** carries only the call; the push reaches the phone through Apple. The
    lighthouse must be a relay (`relay.am_relay: true`) and the Mac must list it in
    `relay.relays`. On mobile data the phone reaches the Mac only through that relay:
@@ -180,6 +200,10 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
    and audio flows both ways over Nebula. Measure the time from answering to two-way
    audio, also right after a Wi-Fi → mobile switch. Check busy detection during a real
    call.
+   - Ringing works: a locked phone on mobile data rang, showed the caller, and was
+     answered from AirPods.
+   - In that test the phone had just left Wi-Fi, and its first packets reached the Mac
+     about 16 s after the push (one measurement).
 2. **Conversation.** To pick speech-to-text for a new voice, record
    `tools/stt-eval/sentences.txt` and score the candidates (see `tools/stt-eval/README.md`).
    Then interrupt mid-sentence, measure how quickly speech stops when you start talking
