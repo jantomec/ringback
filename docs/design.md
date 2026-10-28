@@ -9,7 +9,8 @@ and on mobile data.
 ## Requirements
 
 1. **Conversation.** Real back-and-forth in one call. You can interrupt Claude
-   mid-sentence.
+   mid-sentence. It stops talking the moment it hears you and waits for you to finish,
+   and it answers everything you say.
 2. **One call per session.** A call opens with the project name, then what's new, then
    what needs your attention. Your replies, including permission approvals, go to that
    session.
@@ -52,9 +53,41 @@ queue, and each call's audio goes to the Mac whose session is calling.
 4. **Voice pipeline** (on the Mac running the calling session). That Mac must be awake
    anyway, and this keeps the always-on Mac light. It holds a sleep assertion while its
    call is queued or in progress.
-   - Pipecat, with Parakeet TDT 0.6B v2 (MLX) for speech-to-text, a local TTS (Kokoro
-     first) and Claude Haiku 5.5. Pipecat has no Parakeet service, so we write a small
-     one.
+   - Pipecat, with Parakeet TDT 0.6B v2 (MLX) for speech-to-text, Kokoro-82M with the
+     `af_heart` voice for speech, and Claude Haiku 5.5. Pipecat has no Parakeet service,
+     so we write a small one.
+   - **Speaking a reply.** Haiku streams its reply, and Kokoro speaks it in pieces:
+     1. As soon as the first sentence is complete, it's spoken on its own, so the voice
+        starts fast.
+     2. One second before the current piece finishes playing, everything Haiku has
+        completed since, up to the last finished sentence, becomes the next piece. If no
+        sentence has finished yet, the next piece waits for the first one that does.
+     3. This repeats until the reply ends.
+
+     Larger pieces keep intonation and pauses natural. Pieces play exactly as Kokoro
+     generates them: trimming the silence between pieces sounded worse in the listening
+     test.
+
+     In that test, speaking each sentence separately left about 0.75 s of silence
+     between sentences, against 0.24–0.5 s in one continuous passage. Kokoro generated a
+     15 s passage in about 0.6 s with MLX. Its speed inside Pipecat hasn't been measured,
+     and the one-second lead depends on it.
+   - **Interruptions.** Playback stops as soon as you speak, and only for your voice.
+     Everything queued is dropped. The voice then waits until you've finished and always
+     answers what you said, including a short "yeah" or "mhm".
+
+     Only your voice reaches the detector that stops it, through three layers:
+     1. on the phone, voice processing and the Voice Isolation mic mode remove background
+        noise (you switch Voice Isolation on once, in Control Center);
+     2. on the Mac, the VoxLock filter keeps only your voice and removes other people's.
+        It's given a sample of your voice, so it works from your first word;
+     3. voice-activity detection then triggers the stop.
+
+     If a stop happens anyway and no words are recognised, the voice carries on, starting
+     again from the sentence it was in.
+
+     Haiku's session already holds the whole reply it wrote. So the next message tells it
+     where it was cut off, giving the last words you actually heard.
    - Haiku runs as a Claude Code session on the Claude subscription, with no API key.
      - It starts while the phone rings and stays open until hang-up (`claude -p
        --input-format stream-json --output-format stream-json`), so it holds the whole
@@ -65,8 +98,7 @@ queue, and each call's audio goes to the Mac whose session is calling.
      - Measured: the first words come about 1.6 s after each of your turns (1.1–2.0 s),
        and 2.2–2.6 s on the first turn, which includes start-up.
    - The voice is a fast front end that holds the session's report as context, because a
-     Claude Code turn is too slow for live conversation. Voice-activity detection and
-     turn detection let you interrupt.
+     Claude Code turn is too slow for live conversation.
    - It delivers your replies to its session's channel. It forwards questions it can't
      answer to the session and waits for the reply.
    - Speech-to-text was chosen by measuring on accented English with `tools/stt-eval`
@@ -120,7 +152,12 @@ queue, and each call's audio goes to the Mac whose session is calling.
   session: play-and-record, mixed with other audio, on the speaker. That will probably
   clash with CallKit, so expect a fork or our own WebRTC audio code.
 - Xcode needs device support for the phone's iOS version to install development builds.
-- Gym noise may trigger false interruptions.
+- The voice filtering may not be perfect:
+  - gym noise or other people's voices could still stop the voice;
+  - the filters could swallow your own quiet speech.
+
+  VoxLock is community-maintained and Pipecat doesn't test it. Stage 2 tests the filtering
+  with real noise.
 - Channels are a research preview, so APIs and flags may change.
 - Development builds use the APNs sandbox, and provisioning profiles expire.
 
@@ -145,7 +182,8 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
    call.
 2. **Conversation.** To pick speech-to-text for a new voice, record
    `tools/stt-eval/sentences.txt` and score the candidates (see `tools/stt-eval/README.md`).
-   Then interrupt mid-sentence, measure the reply latency, and test with gym-like noise.
+   Then interrupt mid-sentence, measure how quickly speech stops when you start talking
+   and how long a reply takes, and test with gym-like noise.
 3. **One session.** The session finishes and calls, you reply, it acts and calls again.
    Approve a permission prompt by voice.
 4. **Several sessions + retries.** A second session waits for the first call to end. A
