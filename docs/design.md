@@ -1,0 +1,90 @@
+# ringback — design
+
+## Goal
+
+Your Claude Code sessions call your iPhone when they finish or need you. Each one tells
+you what it did, and you talk it through hands-free, with the phone locked in your pocket
+and on mobile data.
+
+## Requirements
+
+1. **Conversation.** Real back-and-forth in one call. You can interrupt Claude
+   mid-sentence.
+2. **One call per session.** A call opens with the project name, then what's new, then
+   what needs your attention. Your replies, including permission approvals, go to that
+   session.
+3. **Busy line.** If you're already on a call (a phone call or another session's), the
+   session waits a few minutes and tries again.
+
+## Architecture
+
+```
+sessions ──hooks──▶ switchboard (Mac) ──VoIP push via APNs──▶ iPhone app rings (CallKit)
+   ▲                    │ voice pipeline: Whisper + local TTS + Claude Haiku
+   └─channel: replies───┘◀──────────── call audio over Nebula ───────── iPhone app
+```
+
+1. **Hooks** (in each session). A Stop hook, plus a Notification hook for
+   `permission_prompt`/`idle_prompt`, sends `session_id`, `cwd`,
+   `last_assistant_message` and `transcript_path` to the switchboard and returns at once.
+2. **Channel** (a custom MCP channel server in each session):
+   - delivers your replies into its session (on the next turn if the session is busy);
+   - relays permission prompts (`experimental['claude/channel/permission']`, needs
+     Claude Code ≥ 2.1.234).
+
+   Channels are a research preview, so sessions start with
+   `--dangerously-load-development-channels server:<name>`.
+   Docs: https://code.claude.com/docs/en/channels-reference.md
+3. **Switchboard** (a daemon on the Mac):
+   - keeps a FIFO queue of sessions waiting to call and places one call at a time;
+   - starts a call with a VoIP push through APNs;
+   - on busy, declined or unanswered, retries after a few minutes;
+   - routes your replies to the calling session's channel;
+   - forwards questions the voice can't answer to the session and waits for its reply.
+4. **Voice pipeline** (on the Mac): Pipecat with local Whisper for speech-to-text, local
+   TTS, and Claude Haiku 5.5 through the API. The voice is a fast front end that holds the
+   session's report as context, because a Claude Code turn is too slow for live
+   conversation. Voice-activity detection lets you interrupt.
+5. **iPhone app** (Swift):
+   - a PushKit VoIP push triggers CallKit, which rings on the lock screen and in your
+     headphones;
+   - audio goes to the Mac over Nebula (WebRTC, using the voice-processing audio session
+     for echo cancellation);
+   - `CXCallObserver` detects an active call. The app then reports "busy" and ends the
+     new call, because Apple requires every VoIP push to report a call.
+
+## Open questions
+
+- **When should sessions call?** An "away" toggle, or the Mac's idle time.
+- **Retry timing:** a fixed few minutes, or ~30 s after hang-up when the wait was only for
+  another session.
+- **Authentication:** whether the app ↔ Mac link needs more than Nebula certificates. This
+  must be settled before the permission relay is enabled.
+
+## Risks (unverified)
+
+- Nebula on the iPhone may not stay connected while the phone is locked, or may reconnect
+  slowly after a Wi-Fi → mobile switch.
+- Reporting and ending a call during a real phone call may flash or beep.
+- The Pipecat details (local Whisper, TTS options, WebRTC transport) haven't been checked
+  against current docs.
+- Gym noise may trigger false interruptions.
+- Channels are a research preview, so APIs and flags may change.
+- Development builds use the APNs sandbox, and provisioning profiles expire.
+
+## Stages
+
+Verify each stage on the real phone (locked, on mobile data, with headphones) before the
+next. A simulator run or a unit test isn't evidence for ringing, push or audio.
+
+0. **Nebula.** Ping the phone's Nebula IP from the Mac every 30 s for ~20 min, with the
+   phone locked and Wi-Fi off. Then measure the reconnect time after a Wi-Fi → mobile
+   switch.
+1. **Ring + audio.** A VoIP push rings the locked phone, you answer from the headphones,
+   and audio flows both ways over Nebula. Check busy detection during a real call.
+2. **Conversation.** Interrupt mid-sentence, measure the reply latency, and test with
+   gym-like noise.
+3. **One session.** The session finishes and calls, you reply, it acts and calls again.
+   Approve a permission prompt by voice.
+4. **Several sessions + retries.** A second session waits for the first call to end. A
+   real phone call makes a session retry.
