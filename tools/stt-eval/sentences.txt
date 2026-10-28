@@ -1,0 +1,30 @@
+Yes, go ahead.
+No, wait.
+Stop.
+Hold on, say that again.
+Approve it.
+Deny that one, it shouldn't touch the database.
+Yes, allow it once, but ask me next time.
+Commit the changes and push them to a new branch.
+Run the test suite again and tell me only what failed.
+Revert the last commit, it broke the build.
+What did you change in the configuration file?
+Skip the documentation for now and fix the failing test first.
+How long did the build take this time?
+Is the latency below two hundred milliseconds?
+Use the Haiku model for the voice and keep Opus for the session.
+Check whether the WebRTC connection goes through the relay.
+The push notification never arrived on the phone.
+Rename the function to parse config and update every caller.
+Open a pull request but don't merge it yet.
+Which of the three options would you recommend?
+That's too much detail, just give me the summary.
+Remind me what the next step was.
+Install ffmpeg with Homebrew and try again.
+The JSON response is missing the session ID field.
+Move the switchboard to the always-on server.
+Add a retry after thirty seconds if the line is busy.
+Delete the temporary files, but keep the logs.
+Read me the error message, slowly.
+I'm busy, call me back in an hour.
+Thanks, that's all for now.

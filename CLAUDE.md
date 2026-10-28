@@ -15,7 +15,8 @@ stay in Claude's private memory for this project. Don't commit IP addresses, hos
 keys or certificates.
 
 Requirements: a Mac with Xcode, a paid Apple Developer Program account, an iPhone, and
-Nebula on both the Mac and the iPhone, with a lighthouse that acts as a relay.
+Nebula on both the Mac and the iPhone, with a lighthouse that acts as a relay, and Claude Code
+on a Claude subscription.
 
 ## Working rules
 

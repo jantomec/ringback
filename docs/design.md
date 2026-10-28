@@ -15,18 +15,27 @@ and on mobile data.
    session.
 3. **Busy line.** If you're already on a call (a phone call or another session's), the
    session waits a few minutes and tries again.
+4. **Understanding you.** Recognition copes with non-native accents. When a reply is
+   unclear, the call asks instead of guessing, and a permission is only granted on a
+   clear yes.
 
 ## Architecture
 
 ```
-sessions ──hooks──▶ switchboard (Mac) ──VoIP push via APNs──▶ iPhone app rings (CallKit)
-   ▲                    │ voice pipeline: Whisper + local TTS + Claude Haiku
-   └─channel: replies───┘◀──────────── call audio over Nebula ───────── iPhone app
+ Mac running the session          always-on Mac              iPhone
+ sessions ──hooks─────────────▶ switchboard ──VoIP push───▶ app rings (CallKit)
+    ▲                           (queue, retries) via APNs        │
+    └─channel── voice pipeline ◀───── call audio over Nebula ────┘
+                (STT, TTS, Haiku)
 ```
+
+Sessions can run on several Macs. All of them share one switchboard, so there is one
+queue, and each call's audio goes to the Mac whose session is calling.
 
 1. **Hooks** (in each session). A Stop hook, plus a Notification hook for
    `permission_prompt`/`idle_prompt`, sends `session_id`, `cwd`,
-   `last_assistant_message` and `transcript_path` to the switchboard and returns at once.
+   `last_assistant_message` and `transcript_path` to the switchboard over Nebula and
+   returns at once.
 2. **Channel** (a custom MCP channel server in each session):
    - delivers your replies into its session (on the next turn if the session is busy);
    - relays permission prompts (`experimental['claude/channel/permission']`, needs
@@ -35,25 +44,57 @@ sessions ──hooks──▶ switchboard (Mac) ──VoIP push via APNs──�
    Channels are a research preview, so sessions start with
    `--dangerously-load-development-channels server:<name>`.
    Docs: https://code.claude.com/docs/en/channels-reference.md
-3. **Switchboard** (a daemon on the Mac):
-   - keeps a FIFO queue of sessions waiting to call and places one call at a time;
-   - starts a call with a VoIP push through APNs;
-   - on busy, declined or unanswered, retries after a few minutes;
-   - routes your replies to the calling session's channel;
-   - forwards questions the voice can't answer to the session and waits for its reply.
-4. **Voice pipeline** (on the Mac): Pipecat with local Whisper for speech-to-text, local
-   TTS, and Claude Haiku 5.5 through the API. The voice is a fast front end that holds the
-   session's report as context, because a Claude Code turn is too slow for live
-   conversation. Voice-activity detection lets you interrupt.
-5. **iPhone app** (Swift):
+3. **Switchboard** (a daemon on one always-on Mac on the Nebula network, such as the
+   lighthouse):
+   - keeps one FIFO queue for the sessions on every Mac and places one call at a time;
+   - starts a call with a VoIP push through APNs that names the Mac taking the call;
+   - on busy, declined or unanswered, retries after a few minutes.
+4. **Voice pipeline** (on the Mac running the calling session). That Mac must be awake
+   anyway, and this keeps the always-on Mac light. It holds a sleep assertion while its
+   call is queued or in progress.
+   - Pipecat, with Parakeet TDT 0.6B v2 (MLX) for speech-to-text, a local TTS (Kokoro
+     first) and Claude Haiku 5.5. Pipecat has no Parakeet service, so we write a small
+     one.
+   - Haiku runs as a Claude Code session on the Claude subscription, with no API key.
+     - It starts while the phone rings and stays open until hang-up (`claude -p
+       --input-format stream-json --output-format stream-json`), so it holds the whole
+       call.
+     - It can start as a fork of the calling session (`--resume <id> --fork-session`) to
+       get that session's full context.
+     - Pipecat has no Claude Code service, so we write one around that process.
+     - Measured: the first words come about 1.6 s after each of your turns (1.1–2.0 s),
+       and 2.2–2.6 s on the first turn, which includes start-up.
+   - The voice is a fast front end that holds the session's report as context, because a
+     Claude Code turn is too slow for live conversation. Voice-activity detection and
+     turn detection let you interrupt.
+   - It delivers your replies to its session's channel. It forwards questions it can't
+     answer to the session and waits for the reply.
+   - Speech-to-text was chosen by measuring on accented English with `tools/stt-eval`
+     (464 scripted words plus 519 of free speech):
+     - Parakeet v2 got about 6% of words wrong at about 40 ms per utterance.
+     - Whisper large-v3-turbo was about as accurate, but took about 0.5 s and invented
+       words on short clips.
+     - Letting Haiku repair the transcript from context cut Parakeet's errors on the
+       scripted commands from 31 to 18, but changed nothing in the free speech.
+5. **Conversation rules**, in the voice's instructions and in a skill for the session:
+   - spoken style: short sentences, rounded numbers, no tables, lists or code read
+     aloud; offer detail instead of reciting it; stop at once when interrupted;
+   - your words come from speech recognition, so expect similar-sounding wrong words,
+     especially technical terms. Read them in context, and ask when a reply is too
+     garbled to be sure;
+   - act on a permission prompt only after a clear yes or no, otherwise ask again;
+   - the session writes its call briefing (project, what's new, what needs you) in a
+     form that can be spoken, and answers forwarded questions the same way.
+6. **iPhone app** (Swift):
    - a PushKit VoIP push triggers CallKit, which rings on the lock screen and in your
      headphones;
-   - when you answer, the app opens the audio connection to the Mac over Nebula (WebRTC,
+   - when you answer, the app opens the audio connection to the Mac named in the push,
+     over Nebula (WebRTC,
      using the voice-processing audio session for echo cancellation). The Mac can't open
      it, because on mobile data only the phone can start a Nebula tunnel (see Stage 0);
    - `CXCallObserver` detects an active call. The app then reports "busy" and ends the
      new call, because Apple requires every VoIP push to report a call.
-6. **Nebula** carries only the call; the push reaches the phone through Apple. The
+7. **Nebula** carries only the call; the push reaches the phone through Apple. The
    lighthouse must be a relay (`relay.am_relay: true`) and the Mac must list it in
    `relay.relays`. On mobile data the phone reaches the Mac only through that relay:
    direct tunnels to the phone fail, and Mobile Nebula (0.12.0) has no setting to list
@@ -64,16 +105,21 @@ sessions ──hooks──▶ switchboard (Mac) ──VoIP push via APNs──�
 - **When should sessions call?** An "away" toggle, or the Mac's idle time.
 - **Retry timing:** a fixed few minutes, or ~30 s after hang-up when the wait was only for
   another session.
-- **Authentication:** whether the app ↔ Mac link needs more than Nebula certificates. This
-  must be settled before the permission relay is enabled.
+- **Authentication:** whether the app ↔ Mac and session ↔ switchboard links need more
+  than Nebula certificates. This must be settled before the permission relay is enabled.
+- **The voice's context:** a fork of the calling session gives the whole history. But a
+  long history slows the first turn and uses more of the subscription than starting
+  fresh with the session's briefing.
 
 ## Risks (unverified)
 
 - On a locked phone woken by a push, the time until the app's first packet brings the
   Nebula tunnel up is unmeasured, both normally and right after a Wi-Fi → mobile switch.
 - Reporting and ending a call during a real phone call may flash or beep.
-- The Pipecat details (local Whisper, TTS options, WebRTC transport) haven't been checked
-  against current docs.
+- Pipecat's iOS client (`pipecat-client-ios-small-webrtc`) always sets its own audio
+  session: play-and-record, mixed with other audio, on the speaker. That will probably
+  clash with CallKit, so expect a fork or our own WebRTC audio code.
+- Xcode needs device support for the phone's iOS version to install development builds.
 - Gym noise may trigger false interruptions.
 - Channels are a research preview, so APIs and flags may change.
 - Development builds use the APNs sandbox, and provisioning profiles expire.
@@ -97,8 +143,9 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
    and audio flows both ways over Nebula. Measure the time from answering to two-way
    audio, also right after a Wi-Fi → mobile switch. Check busy detection during a real
    call.
-2. **Conversation.** Interrupt mid-sentence, measure the reply latency, and test with
-   gym-like noise.
+2. **Conversation.** To pick speech-to-text for a new voice, record
+   `tools/stt-eval/sentences.txt` and score the candidates (see `tools/stt-eval/README.md`).
+   Then interrupt mid-sentence, measure the reply latency, and test with gym-like noise.
 3. **One session.** The session finishes and calls, you reply, it acts and calls again.
    Approve a permission prompt by voice.
 4. **Several sessions + retries.** A second session waits for the first call to end. A
