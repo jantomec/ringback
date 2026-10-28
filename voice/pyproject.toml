@@ -6,7 +6,15 @@ requires-python = ">=3.12"
 dependencies = [
     "pipecat-ai[webrtc]==1.14.0",
     "aiohttp>=3.10",
+    "mlx-audio==0.6.2",
+    "misaki[en]==0.9.4",
+    # Kokoro's text-to-phoneme step needs spaCy's English model, and would otherwise
+    # download it on first use.
+    "en-core-web-sm==3.8.0",
 ]
+
+[tool.uv.sources]
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
 
 [project.scripts]
 ringback-voice = "ringback_voice.__main__:main"

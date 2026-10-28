@@ -87,10 +87,14 @@ queue, and each call's audio goes to the Mac whose session is calling.
      The one-second lead holds because Kokoro through MLX generates speech about 27×
      faster than real time on a recent Apple silicon Mac (`tools/tts-speed`): 0.14 s for
      one sentence (about 4 s of speech) and 0.77 s for a 22 s reply. So it covers pieces
-     of up to about 25 s of speech. Not yet measured: its speed inside our Pipecat
-     service, and with Parakeet running at the same time. Its text-to-phoneme package
-     (`misaki[en]`) pulls in torch (about 540 MB) through spaCy, though Kokoro doesn't use
-     it.
+     of up to about 25 s of speech. Inside the voice, pieces of 1–24 s took 0.07–0.9 s.
+     In five scripted calls (`tools/call-check`), no silence inside a reply was longer
+     than the 0.6–0.8 s that Kokoro leaves where one piece ends and the next begins.
+     Parakeet and Kokoro share one thread, so they never run at the same time.
+
+     Kokoro's text-to-phoneme package (`misaki[en]`) pulls in torch through spaCy, though
+     Kokoro doesn't use it. With it, the voice's environment takes about 1.6 GB of disk,
+     against 0.5 GB before.
    - **Interruptions.** Playback stops as soon as you speak, and only for your voice.
      Everything queued is dropped. The voice then waits until you've finished and always
      answers what you said, including a short "yeah" or "mhm".
@@ -115,8 +119,9 @@ queue, and each call's audio goes to the Mac whose session is calling.
      - It can start as a fork of the calling session (`--resume <id> --fork-session`) to
        get that session's full context.
      - Pipecat has no Claude Code service, so we write one around that process.
-     - Measured: the first words come about 1.6 s after each of your turns (1.1–2.0 s),
-       and 2.2–2.6 s on the first turn, which includes start-up.
+     - Measured (`tools/reply-speed`): the first words come about 1.2 s after each of
+       your turns (0.9–3.2 s), and 1.0–3.2 s on the first turn, which includes start-up.
+       Neither lower effort nor turning thinking off made a clear difference.
    - The voice is a fast front end that holds the session's report as context, because a
      Claude Code turn is too slow for live conversation.
    - It delivers your replies to its session's channel. It forwards questions it can't
@@ -317,10 +322,44 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
      replaced by "not now", requirement 3.)
    - **Closing the app during a call:** the call is recorded as ended within 2 s of the
      real end, and reported at the next launch.
-2. **Conversation.** To pick speech-to-text for a new voice, record
+   - **Swift switchboard on an old Intel Mac** (the lighthouse): a locked phone on mobile
+     data rang 5 s after the push and was answered from AirPods; two-way audio came up
+     2.7 s after answering, and ringing, answered, audio connected and ended all reached
+     the switchboard (one call).
+2. **Conversation** (in progress). To pick speech-to-text for a new voice, record
    `tools/stt-eval/sentences.txt` and score the candidates (see `tools/stt-eval/README.md`).
    Then interrupt mid-sentence, measure how quickly speech stops when you start talking
-   and how long a reply takes, and test with gym-like noise.
+   and how long a reply takes, and test with gym-like noise. Results so far:
+   - **The conversation works** on a locked phone on mobile data, with AirPods (two
+     calls). The voice opened with the report in pieces. It stopped whenever interrupted,
+     Haiku knew which words had been heard, and it answered a lone "mm-hmm".
+   - **Answer to first words:** 2.9 s. Haiku writes its opening while audio connects
+     (2.8 s), so the voice started 0.09 s after connecting. In the first call, which
+     started Haiku only once audio was connected, it took 6.1 s.
+   - **After your turn:** the voice answered 1.5–2.4 s after Pipecat noticed you'd
+     stopped, with Haiku's first words after 1.1–1.5 s. A short turn ("mm-hmm", "wait")
+     took about 4.9 s instead (on the phone and offline): Pipecat's end-of-turn model
+     (Smart Turn v3) sometimes judges it unfinished and then waits its full 3 s for more.
+     With that wait cut to 1.5 s (below), the second call answered "okay", "mm-hmm",
+     "wait" and a short sentence in 1.4–1.8 s.
+   - **Waiting for the end of your turn** (offline, `tools/call-check`, your own
+     recordings): Smart Turn kept two 18–19 s stretches of free speech, with pauses of
+     up to 0.67 s, as one turn whether it waited 3, 1.5 or 1 s. In five minutes of free
+     speech, no pause was longer than 0.74 s, apart from one 3.2 s hesitation. So the
+     voice now waits 1.5 s, which halves the wait after a turn Smart Turn misjudges.
+     A pause after a complete sentence ends the turn, as it should. If you then go on,
+     the reply is dropped before it's spoken, and Haiku is told you heard none of it
+     (on the phone, and offline with pauses of 0.5–1 s).
+   - **Very short words can go unheard.** Your recorded "Great." (about 0.3 s) never
+     triggered voice-activity detection offline. On the phone, one "wait" said while the
+     voice talked wasn't heard either; said again, it was. Unknown: whether that was its
+     length alone, or the phone's echo cancellation softening speech over the voice.
+   - **Stopping when you talk:** 0.36–0.44 s after your speech starts, measured offline
+     with `tools/call-check` (two calls), so without the network and the phone's buffer.
+   - **Noise:** coughing and clapping while the voice talked didn't stop it (one call).
+   - **Not yet tested:** a stop where no words are recognised (the voice should carry
+     on; the cough and clap didn't cause one), gym-like noise, and VoxLock with the app's
+     voice sample and sensitivity setting.
 3. **One session.** The session finishes and calls, you reply, it acts and calls again.
    Approve a permission prompt by voice.
 4. **Several sessions + retries.** A second session waits for the first call to end.

@@ -13,13 +13,15 @@ Everything runs on your own Macs and phone:
 The voice runs Claude Haiku through Claude Code on your Claude subscription, so it needs no
 API key.
 
-Status: early. Ringing a locked iPhone and two-way audio over Nebula work (Stage 1); the
-conversation comes next. See [docs/design.md](docs/design.md).
+Status: early. A locked iPhone rings, and the voice talks about a report you give it,
+answers you and stops when you interrupt (Stage 2, in progress). Sessions don't call yet.
+See [docs/design.md](docs/design.md).
 
 - `app/`: the iPhone app (generate the Xcode project with `xcodegen` in `app/`);
 - `switchboard/`: rings the phone and logs what happened to each call;
-- `voice/`: the audio side of a call, on the Mac whose session is calling;
-- `tools/`: checks for Nebula, and for choosing speech-to-text and speech.
+- `voice/`: the voice of a call, on the Mac whose session is calling;
+- `tools/`: checks for Nebula, for choosing speech-to-text and speech, for how fast Haiku
+  replies, and for playing a scripted call without the phone.
 
 ## License
 

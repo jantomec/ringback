@@ -1,12 +1,14 @@
 # Setup
 
-How to run ringback as built so far (Stage 1: ringing and two-way audio, with a test voice
-that greets you and plays your words back). Replace the example addresses with your own.
+How to run ringback as built so far (Stage 2 in progress: the call rings, and the voice
+talks about a report you give it and answers you). Replace the example addresses with your
+own.
 
 ## You need
 
-- **Macs with Xcode** that can build for your phone's iOS version (Xcode 27 for iOS 27),
-  **XcodeGen** and **uv** (`brew install xcodegen uv`), for the Macs that run sessions.
+- **Macs with Apple silicon and Xcode** that can build for your phone's iOS version
+  (Xcode 27 for iOS 27), **XcodeGen** and **uv** (`brew install xcodegen uv`), for the
+  Macs that run sessions.
   The always-on Mac needs none of these: the switchboard is one binary, built elsewhere.
 - **A paid Apple Developer Program account.** VoIP pushes need it.
 - **An iPhone** on iOS 26 or later.
@@ -71,11 +73,19 @@ events at `/events`. Those are kept in `~/.local/state/ringback/` (`devices.json
 ## 4. The voice server (every Mac that runs sessions)
 
 ```sh
-cd voice && uv run ringback-voice serve --listen 10.0.0.1:8788   # this Mac's Nebula address
+cd voice && uv run ringback-voice serve --listen 10.0.0.1:8788 --report report.txt   # this Mac's Nebula address
 ```
 
-For now it greets you with `~/.local/state/ringback/greeting.wav` (any 24 kHz mono 16-bit
-WAV), then plays back what you say a second later.
+It needs a Mac with Apple silicon, and Claude Code signed in to your Claude subscription:
+the voice runs Haiku through `claude`. The first start downloads the speech models
+(Parakeet v2 and Kokoro) from Hugging Face. After that, loading them takes a few seconds.
+
+Until sessions call (Stage 3), the voice talks about `report.txt`: a few plain sentences
+on what a session did and what needs you. It's read again for every call, so you can
+change it between calls. Without `--report`, the voice says there's nothing to report.
+
+To try a change without the phone, `tools/call-check` plays a scripted call through the
+same pipeline.
 
 ## 5. A test call
 

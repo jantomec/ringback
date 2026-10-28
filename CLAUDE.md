@@ -4,18 +4,22 @@ Claude Code sessions call the user's iPhone when they're done, talk the result t
 take spoken replies. `docs/design.md` is the source of truth for requirements,
 architecture, rejected alternatives, risks and the stage plan. Read it first.
 
-Status (2026-10-28, `e42b14e`): Stages 0 (Nebula) and 1 (ring + audio) are done, with
-results in `docs/design.md`. Next is **Stage 2 (conversation)**. Resume by replacing the
-test pipeline in `voice/ringback_voice/__main__.py`, which greets you and plays your words
-back, with Parakeet v2 → Haiku → Kokoro `af_heart`:
-- Haiku runs in a Claude Code session that stays open for the call;
-- Kokoro speaks in the growing pieces described under "Voice pipeline" in the design;
-- new code: Pipecat services for Parakeet (speech-to-text), for Kokoro through mlx-audio
-  (Pipecat's own Kokoro service is too slow) and around the Claude Code process.
+Status (2026-10-28): Stages 0 (Nebula) and 1 (ring + audio) are done. **Stage 2
+(conversation) is in progress.** Parakeet v2 → Haiku → Kokoro `af_heart` works on the
+phone, interruptions included (`voice/ringback_voice/`, results under Stage 2 in
+`docs/design.md`). Still to do in Stage 2:
+- very short words can go unheard: a recorded "Great." offline, and once "wait" on the
+  phone while the voice talked (Silero needs 0.2 s of speech to start a turn);
+- a stop where no words are recognised should make the voice carry on (untested);
+- VoxLock with the app's voice sample, the interruption sensitivity setting, and tests
+  with gym-like noise.
+
+Try a change offline with `tools/call-check` before calling the phone.
 
 Code: `app/` (iPhone app, generated with XcodeGen), `switchboard/` (push and call
 events; one Swift binary that needs nothing but macOS), `voice/` (the calling Mac's audio
-and voice), `tools/` (Nebula, speech-to-text and speech-speed checks). How to set it all
+and voice), `tools/` (checks for Nebula, speech-to-text, speech speed, reply speed and whole
+calls). How to set it all
 up and place a test call: `docs/setup.md`.
 
 ## Checks
@@ -39,7 +43,7 @@ user's personal setup and info (hardware, machines, Nebula addresses, accounts, 
 stay in Claude's private memory for this project. Don't commit IP addresses, hostnames,
 keys or certificates.
 
-Requirements: a Mac with Xcode, a paid Apple Developer Program account, an iPhone, and
+Requirements: a Mac with Apple silicon and Xcode, a paid Apple Developer Program account, an iPhone, and
 Nebula on both the Mac and the iPhone, with a lighthouse that acts as a relay, and Claude Code
 on a Claude subscription.
 
