@@ -243,6 +243,12 @@ Each entry says why it lost and what would make it worth retrying.
   It's replaced by growing pieces.
 - **Trimming the silence between Kokoro pieces.** It sounded worse than untrimmed pieces.
   Retry only with crossfades or a gentler trim.
+- **Pipecat's default end-of-turn wait (3 s).** When Smart Turn judged a short turn
+  ("mm-hmm", "wait") unfinished, the reply came about 4.9 s after it. Replaced by 1.5 s
+  (Stage 2). Retry if calls show the voice answering the first half of your sentences.
+- **A 1 s end-of-turn wait.** It split none of the recorded turns, but leaves little room
+  over pauses of up to 0.74 s in free speech. Retry if short turns still feel slow and
+  calls show no pauses over 1 s.
 - **A one-off `claude -p` call per turn.** It took about 3.2 s, 1.7 s of it start-up.
   It's replaced by a Claude Code session that stays open for the call.
 - **Haiku through the API.** Calls run on the Claude subscription instead, because this

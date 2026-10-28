@@ -4,7 +4,7 @@ Claude Code sessions call the user's iPhone when they're done, talk the result t
 take spoken replies. `docs/design.md` is the source of truth for requirements,
 architecture, rejected alternatives, risks and the stage plan. Read it first.
 
-Status (2026-10-28): Stages 0 (Nebula) and 1 (ring + audio) are done. **Stage 2
+Status (2026-10-28, `de00ed5`): Stages 0 (Nebula) and 1 (ring + audio) are done. **Stage 2
 (conversation) is in progress.** Parakeet v2 → Haiku → Kokoro `af_heart` works on the
 phone, interruptions included (`voice/ringback_voice/`, results under Stage 2 in
 `docs/design.md`). Still to do in Stage 2:
