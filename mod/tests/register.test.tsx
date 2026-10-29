@@ -75,39 +75,42 @@ function engine(on: On, voice: Voice = {}) {
   return asked
 }
 
-// Stands for core's side of a tool call: its verdict (`decision`), the permission prompt in the
-// terminal (`prompted`, the tools it was shown for; it answers no), and the tool running (`ran`).
-function tools(on: On, decision: 'allow' | 'ask' | 'deny' = 'ask') {
-  const seen = { prompted: [] as string[], ran: [] as string[] }
+// Stands for core's side of a tool call: its verdict (`decision`), the settings hooks on a
+// permission request (`asked`, the tools they were asked about; they decide nothing, unless
+// `settled` says what they decide), and the tool running (`ran`). A request nothing decides
+// would show the prompt in the terminal; here, with nobody to show it to, it's refused.
+function tools(on: On, decision: 'allow' | 'ask' | 'deny' = 'ask', settled?: object) {
+  const seen = { asked: [] as string[], ran: [] as string[] }
   on('tool.check', () => ({ decision, reason: 'Claude Code asks before a shell command changes files.' }))
-  on('classic.PermissionRequest', (_, e) => {
-    seen.prompted.push(e.tool_name)
-    return { decision: { behavior: 'deny', message: 'The developer said no in the terminal.' } }
-  })
+  on('classic.PermissionRequest', (_, e) => (seen.asked.push(e.tool_name), settled ? { decision: settled } : {}) as any)
   on('tool.call', (_, e) => (seen.ran.push(e.tool), { result: { stdout: '', stderr: '', interrupted: false } }) as any)
   return seen
 }
 
-// A plugin above the mod, which runs on its own: it logs the verdict the mod gave, which
-// `verdicts` reads back from the debug lines.
+// A plugin above the mod, which runs on its own: it logs the answer the mod gave a permission
+// request, which `answers` reads back from the debug lines. `{}`, no decision, shows the
+// prompt in the terminal.
 const observing: Register = on => {
-  on('tool.check', async ($, e, next) => {
-    const verdict = await next(e)
-    $.ui.log(`verdict ${JSON.stringify(verdict)}`, { to: 'debug' })
-    return verdict
+  on('classic.PermissionRequest', async ($, e, next) => {
+    const answer = await next(e)
+    $.ui.log(`answer ${JSON.stringify(answer)}`, { to: 'debug' })
+    return answer
   })
 }
 // One that stops waiting for the mod after a minute and refuses the call itself, which
-// abandons the mod's check, as your interrupt does.
+// abandons the mod's request, as your interrupt does.
 const impatient: Register = on => {
-  on('tool.check', ($, e, next) =>
-    Promise.race([next(e), $.clock.sleep(60_000).then(() => ({ decision: 'deny' as const, reason: 'Gave up waiting.' }))]),
+  on('classic.PermissionRequest', ($, e, next) =>
+    Promise.race([
+      next(e),
+      $.clock.sleep(60_000).then(() => ({ decision: { behavior: 'deny' as const, message: 'Gave up waiting.' } })),
+    ]),
   )
 }
 const above = (register: Register) => ({ plugins: [{ name: 'above', tier: 'prepend' as const, register }] })
-const verdicts = (debug: string[]) => debug.filter(l => l.startsWith('verdict ')).map(l => JSON.parse(l.slice(8)))
+const answers = (debug: string[]) => debug.filter(l => l.startsWith('answer ')).map(l => JSON.parse(l.slice(7)))
 
-const bash = { tool: 'Bash', command: 'sed -i "" s/autumn/fall/ poem.md', description: 'Change autumn to fall in the poem' } as const
+const bash ={ tool: 'Bash', command: 'sed -i "" s/autumn/fall/ poem.md', description: 'Change autumn to fall in the poem' } as const
 
 const question = {
   question: 'Which rhyme scheme should the second stanza use?',
@@ -314,12 +317,9 @@ const created = (fetches: { url: string; init: any }[], kind: string) =>
 const polls = (fetches: { url: string; init: any }[]) => fetches.filter(f => f.url.includes('?wait=25'))
 const withdrawn = (fetches: { url: string; init: any }[]) => fetches.filter(f => f.init.method === 'DELETE').map(f => f.url)
 
-const coreAsks = { decision: 'ask', reason: 'Claude Code asks before a shell command changes files.' }
-
 test('a permission prompt is put to you on a call, and your yes allows it', above(observing), async ($, on) => {
   mock.clock(on)
-  const answers = [{ verdict: 'pending', said: null }, { verdict: 'allow', said: 'Yes, go ahead.' }]
-  const asked = engine(on, { answers })
+  const asked = engine(on, { answers: [{ verdict: 'pending', said: null }, { verdict: 'allow', said: 'Yes, go ahead.' }] })
   const core = tools(on)
   await start($)
   await $.tool.call(bash)
@@ -342,12 +342,15 @@ test('a permission prompt is put to you on a call, and your yes allows it', abov
     'http://voice/sessions/session-1234/permissions/p1?wait=25',
   ])
   expect(withdrawn(asked.fetches)).toEqual([])
-  expect(verdicts(asked.debug)).toEqual([
-    { decision: 'allow', reason: 'The developer allowed it on a ringback call: "Yes, go ahead."' },
-  ])
+  // The settings hooks were asked first, and decided nothing.
+  expect(core.asked).toEqual(['Bash'])
+  expect(answers(asked.debug)).toEqual([{ decision: { behavior: 'allow' } }])
   expect(core.ran).toEqual(['Bash'])
-  expect(core.prompted).toEqual([])
-  expect(asked.logs).toEqual(['Asking you on the phone: Permission to run a shell command'])
+  // An allow carries no reason, so what you said is shown to you.
+  expect(asked.logs).toEqual([
+    'Asking you on the phone: Permission to run a shell command',
+    'You allowed it on a ringback call: "Yes, go ahead."',
+  ])
 })
 
 test('your no on the call refuses it, and the session reads what you said', above(observing), async ($, on) => {
@@ -356,12 +359,11 @@ test('your no on the call refuses it, and the session reads what you said', abov
   const core = tools(on)
   await start($)
   const result = await $.tool.call(bash)
-  expect(verdicts(asked.debug)).toEqual([
-    { decision: 'deny', reason: 'The developer said no on a ringback call: "No, keep autumn."' },
+  expect(answers(asked.debug)).toEqual([
+    { decision: { behavior: 'deny', message: 'The developer said no on a ringback call: "No, keep autumn."' } },
   ])
   expect(result.text).toContain('The developer said no on a ringback call: "No, keep autumn."')
   expect(core.ran).toEqual([])
-  expect(core.prompted).toEqual([])
 })
 
 test("with no answer from the call, it's withdrawn and the terminal asks", above(observing), async ($, on) => {
@@ -374,29 +376,40 @@ test("with no answer from the call, it's withdrawn and the terminal asks", above
   // `none` ends the wait: no more polls.
   expect(polls(asked.fetches).length).toBe(1)
   expect(withdrawn(asked.fetches)).toEqual(['http://voice/sessions/session-1234/permissions/p1'])
-  // What the terminal asks is core's own verdict, unchanged.
-  expect(verdicts(asked.debug)).toEqual([coreAsks])
-  expect(core.prompted).toEqual(['Bash'])
+  // No decision: the prompt shows in the terminal.
+  expect(answers(asked.debug)).toEqual([{}])
+  expect(core.ran).toEqual([])
   expect(asked.logs.at(-1)).toBe("No answer from the phone, so it's asked here.")
 })
 
-test('a hook that fails leaves the verdict without the mod, never an allow', above(observing), async ($, on) => {
+test('a hook that fails leaves the prompt to the terminal, never an allow', above(observing), async ($, on) => {
   mock.clock(on)
   const asked = engine(on, { isCwdBroken: true, answers: [{ verdict: 'allow', said: 'Yes.' }] })
   const core = tools(on)
   await start($)
   await $.tool.call(bash)
-  expect(verdicts(asked.debug)).toEqual([coreAsks])
-  expect(core.prompted).toEqual(['Bash'])
+  expect(answers(asked.debug)).toEqual([{}])
   expect(core.ran).toEqual([])
 })
 
-test("a verdict that isn't ask is left alone", async ($, on) => {
+test("a call that's allowed without asking you rings nothing", async ($, on) => {
   mock.clock(on)
   const asked = engine(on)
   const core = tools(on, 'allow')
   await start($)
   await $.tool.call(bash)
+  expect(core.asked).toEqual([])
+  expect(core.ran).toEqual(['Bash'])
+  expect(asked.fetches.length).toBe(0)
+})
+
+test("a settings hook's decision is left alone", above(observing), async ($, on) => {
+  mock.clock(on)
+  const asked = engine(on)
+  const core = tools(on, 'ask', { behavior: 'allow' })
+  await start($)
+  await $.tool.call(bash)
+  expect(answers(asked.debug)).toEqual([{ decision: { behavior: 'allow' } }])
   expect(core.ran).toEqual(['Bash'])
   expect(asked.fetches.length).toBe(0)
 })
@@ -408,17 +421,17 @@ test('off, a permission prompt shows in the terminal at once', above(observing),
   await start($)
   await $.command.run({ command: 'ringback', args: '' })
   await $.tool.call(bash)
-  expect(verdicts(asked.debug)).toEqual([coreAsks])
-  expect(core.prompted).toEqual(['Bash'])
+  expect(core.asked).toEqual(['Bash'])
+  expect(answers(asked.debug)).toEqual([{}])
   expect(asked.fetches.length).toBe(0)
 })
 
-test('a query, with no tool call to hold, is left alone', async ($, on) => {
+test('a query rings nothing', async ($, on) => {
   mock.clock(on)
   const asked = engine(on)
   tools(on)
   await start($)
-  expect(await $.tool.check({ tool: 'Bash', input: { command: bash.command } })).toEqual(coreAsks)
+  expect((await $.tool.check({ tool: 'Bash', input: { command: bash.command } })).decision).toBe('ask')
   expect(asked.fetches.length).toBe(0)
 })
 
@@ -435,58 +448,57 @@ test("a subagent's permission prompt is put to you too", async ($, on) => {
 test("when the voice server can't reach you, the terminal asks at once", above(observing), async ($, on) => {
   mock.clock(on)
   const asked = engine(on, { created: { status: 502, body: { error: "the switchboard didn't answer" } } })
-  const core = tools(on)
+  tools(on)
   await start($)
   await $.tool.call(bash)
   await settle()
   expect(created(asked.fetches, 'permissions').length).toBe(1)
   expect(polls(asked.fetches).length).toBe(0)
   expect(withdrawn(asked.fetches)).toEqual([])
-  expect(verdicts(asked.debug)).toEqual([coreAsks])
-  expect(core.prompted).toEqual(['Bash'])
+  expect(answers(asked.debug)).toEqual([{}])
   expect(asked.logs.at(-1)).toBe("Couldn't ask you on the phone: the switchboard didn't answer, so it's asked here.")
 })
 
 test('switching ringback off while it waits withdraws it, and the terminal asks', above(observing), async ($, on) => {
   const clock = mock.clock(on)
   const asked = engine(on, { clock })
-  const core = tools(on)
+  tools(on)
   await start($)
   const ran = $.tool.call(bash)
   await clock.advance(60_000)
   expect(polls(asked.fetches).length).toBe(3)
-  expect(core.prompted).toEqual([])
+  expect(answers(asked.debug)).toEqual([])
 
   // The long-poll in flight isn't waited for.
   await $.command.run({ command: 'ringback', args: '' })
   await ran
   await settle()
   expect(withdrawn(asked.fetches)).toEqual(['http://voice/sessions/session-1234/permissions/p1'])
-  expect(verdicts(asked.debug)).toEqual([coreAsks])
-  expect(core.prompted).toEqual(['Bash'])
+  expect(answers(asked.debug)).toEqual([{}])
   expect(asked.logs.at(-1)).toBe("Ringback is off, so it's asked here.")
 })
 
 // 15 min of collecting once a second takes about 4 s.
-test('after 15 min with no answer, the terminal asks', { timeoutMs: 30_000 }, async ($, on) => {
+test('after 15 min with no answer, the terminal asks', { timeoutMs: 30_000, ...above(observing) }, async ($, on) => {
   const clock = mock.clock(on)
   // Long-polls of 10 min, so the 15 min end while one is in flight.
   const asked = engine(on, { clock, pollMs: 10 * 60_000 })
-  const core = tools(on)
+  tools(on)
   await start($)
   const ran = $.tool.call(bash)
   await clock.advance(14 * 60_000)
-  expect(core.prompted).toEqual([])
+  expect(answers(asked.debug)).toEqual([])
   await clock.advance(60_000)
   await ran
   await settle()
   expect(polls(asked.fetches).length).toBe(2)
   expect(withdrawn(asked.fetches)).toEqual(['http://voice/sessions/session-1234/permissions/p1'])
-  expect(core.prompted).toEqual(['Bash'])
+  expect(answers(asked.debug)).toEqual([{}])
   expect(asked.logs.at(-1)).toBe("No answer from the phone in 15 min, so it's asked here.")
 })
 
-test('an abandoned tool call is withdrawn', above(impatient), async ($, on) => {
+// As when you answer the prompt in the terminal first.
+test('an abandoned permission request is withdrawn, from a timer', above(impatient), async ($, on) => {
   const clock = mock.clock(on)
   const asked = engine(on, { clock })
   const core = tools(on)
@@ -494,17 +506,19 @@ test('an abandoned tool call is withdrawn', above(impatient), async ($, on) => {
   const ran = $.tool.call(bash)
   await clock.advance(60_000)
   expect((await ran).text).toContain('Gave up waiting.')
-  await settle()
+  await clock.settle()
+  // Sent from a timer: in a real session, a call on `$` made for the abandoned request never
+  // left. The test kit sends either, so only a real session tells them apart.
   expect(withdrawn(asked.fetches)).toEqual(['http://voice/sessions/session-1234/permissions/p1'])
-  expect(core.prompted).toEqual([])
-  // Nothing asks here: the call was abandoned.
+  expect(core.ran).toEqual([])
+  // Nothing asks here: the request was abandoned.
   expect(asked.logs).toEqual(['Asking you on the phone: Permission to run a shell command'])
 })
 
 test('while a permission waits, the line under the prompt says so', async ($, on) => {
   const clock = mock.clock(on)
-  const answers: object[] = []
-  engine(on, { clock, answers })
+  const waiting: object[] = []
+  engine(on, { clock, answers: waiting })
   tools(on)
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e)
@@ -526,7 +540,7 @@ test('while a permission waits, the line under the prompt says so', async ($, on
   const ran = $.tool.call(bash)
   await clock.settle()
   expect(await line()).toBe('esc to interrupt · ☎ asking you on the phone…')
-  answers.push({ verdict: 'allow', said: 'Yes.' })
+  waiting.push({ verdict: 'allow', said: 'Yes.' })
   await clock.advance(25_000)
   await ran
   expect(await line()).toBe('esc to interrupt · ☎ ringback on')
@@ -535,8 +549,8 @@ test('while a permission waits, the line under the prompt says so', async ($, on
 test('while a permission waits, its turn runs on: outcomes wait, messages queue as prompts', async ($, on) => {
   const clock = mock.clock(on)
   const waiting: object[] = []
-  const answers: object[] = []
-  const asked = engine(on, { clock, waiting, answers })
+  const verdicts: object[] = []
+  const asked = engine(on, { clock, waiting, answers: verdicts })
   const session = mock.session(on)
   tools(on)
   await start($)
@@ -553,7 +567,7 @@ test('while a permission waits, its turn runs on: outcomes wait, messages queue 
   expect(asked.prompts[0]).toContain('The developer says: also fix the title.')
   expect(session.appended().length).toBe(0)
 
-  answers.push({ verdict: 'allow', said: 'Yes.' })
+  verdicts.push({ verdict: 'allow', said: 'Yes.' })
   await clock.advance(25_000)
   await ran
   await $.turn.complete(turn('Added the stanza.'))
@@ -567,8 +581,8 @@ const asking = { tool: 'AskUserQuestion', questions: [question] } as const
 
 test('a question is answered on the call, as from the dialog', async ($, on) => {
   mock.clock(on)
-  const answers = [{ status: 'answered', answers: { [question.question]: 'ABAB' }, said: 'Alternating, like the first.' }]
-  const asked = engine(on, { answers })
+  const reply = { status: 'answered', answers: { [question.question]: 'ABAB' }, said: 'Alternating, like the first.' }
+  const asked = engine(on, { answers: [reply] })
   const core = tools(on)
   await start($)
   const result = await $.tool.call(asking)
@@ -588,7 +602,7 @@ test('a question is answered on the call, as from the dialog', async ($, on) => 
   expect(result.context).toEqual([expect.stringContaining('"Alternating, like the first."')])
   expect((result.context as string[])[0]).toStartWith('A note from ringback')
   // The dialog never showed.
-  expect(core.prompted).toEqual([])
+  expect(core.asked).toEqual([])
   expect(withdrawn(asked.fetches)).toEqual([])
 })
 
@@ -601,7 +615,7 @@ test('a question with no answer from the call shows the dialog', async ($, on) =
   await settle()
   expect(polls(asked.fetches).length).toBe(1)
   expect(withdrawn(asked.fetches)).toEqual(['http://voice/sessions/session-1234/questions/q1'])
-  expect(core.prompted).toEqual(['AskUserQuestion'])
+  expect(core.asked).toEqual(['AskUserQuestion'])
   // Not put to you again as a permission.
   expect(created(asked.fetches, 'permissions').length).toBe(0)
 })
@@ -613,7 +627,7 @@ test('off, a question shows the dialog untouched', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await $.tool.call(asking)
   expect(asked.fetches.length).toBe(0)
-  expect(core.prompted).toEqual(['AskUserQuestion'])
+  expect(core.asked).toEqual(['AskUserQuestion'])
 })
 
 test("when the voice server can't reach you, a question shows the dialog", async ($, on) => {
@@ -625,7 +639,7 @@ test("when the voice server can't reach you, a question shows the dialog", async
   await settle()
   expect(created(asked.fetches, 'questions').length).toBe(1)
   expect(withdrawn(asked.fetches)).toEqual([])
-  expect(core.prompted).toEqual(['AskUserQuestion'])
+  expect(core.asked).toEqual(['AskUserQuestion'])
 })
 
 test('switching ringback off while a question waits shows the dialog', async ($, on) => {
@@ -636,10 +650,10 @@ test('switching ringback off while a question waits shows the dialog', async ($,
   const ran = $.tool.call(asking)
   await clock.advance(30_000)
   expect(polls(asked.fetches).length).toBe(2)
-  expect(core.prompted).toEqual([])
+  expect(core.asked).toEqual([])
   await $.command.run({ command: 'ringback', args: '' })
   await ran
   await settle()
   expect(withdrawn(asked.fetches)).toEqual(['http://voice/sessions/session-1234/questions/q1'])
-  expect(core.prompted).toEqual(['AskUserQuestion'])
+  expect(core.asked).toEqual(['AskUserQuestion'])
 })

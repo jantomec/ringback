@@ -45,12 +45,12 @@ const answeredNote = (said: string) =>
   `A note from ringback, the mod that calls the developer's phone about this session: the \
 developer answered these questions on a call. Their words, as speech recognition heard them: "${said}"`
 
-// Why a held tool call was allowed or refused: the model reads it on a refusal.
+// Why a held tool call was allowed (shown to you) or refused (read by Claude).
 const onCall = (what: string, said?: string | null) =>
   said ? `${what} on a ringback call: "${said}"` : `${what} on a ringback call.`
 
-// Tools whose dialog an allow from a hook doesn't dismiss: a question put to you, which goes
-// to the call through `tool.call` instead, and a plan to approve.
+// Tools whose dialog a hook's allow doesn't dismiss: a question put to you, which goes to the
+// call through `tool.call` instead, and a plan to approve.
 const PERSON_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
 
 // How long a permission or a question waits for your answer from a call before the terminal
@@ -106,18 +106,26 @@ export const register: Register = on => {
       : next(e),
   )
 
-  // A permission prompt, while it's on, is put to you on a call first: your yes or no there
-  // decides it. Without one, the prompt appears in the terminal as usual. A failure here
-  // leaves `decided`, the verdict without the mod, so it never allows by mistake.
-  on('tool.check', async ($, e, next) => {
+  // A permission prompt, while it's on, is also put to you on a call: your yes or no there
+  // decides it. Claude Code shows the prompt in the terminal at once, beside this hook, and
+  // whichever answers first decides (tried in a real session); answered in the terminal, the
+  // call's question is withdrawn. PermissionRequest fires only when you'd be asked, after the
+  // permission mode has had its say: in auto mode, what the classifier allows never rings
+  // (`tool.check` fires before it, so it would). A failure here leaves `decided`, which has no
+  // decision, so it never allows by mistake.
+  on('classic.PermissionRequest', async ($, e, next) => {
+    // The settings hooks' answer, if they have one.
     const decided = await next(e)
-    // A query (`$.tool.check`) has no `tool_use_id`: there's no call to hold.
-    if (!isOn || decided.decision !== 'ask' || e.tool_use_id === undefined || PERSON_TOOLS.has(e.tool)) {
-      return decided
+    if (!isOn || decided.decision || PERSON_TOOLS.has(e.tool_name)) return decided
+    const answer = await hold($, 'permissions', await permission($, e.tool_name, e.tool_input), next.signal)
+    if (answer?.verdict === 'allow') {
+      // An allow carries no reason: you see it here, and Claude needs none.
+      $.ui.log(onCall('You allowed it', answer.said))
+      return { ...decided, decision: { behavior: 'allow' } }
     }
-    const answer = await hold($, 'permissions', await permission($, e.tool, e.input, decided.reason), next.signal)
-    if (answer?.verdict === 'allow') return { decision: 'allow', reason: onCall('The developer allowed it', answer.said) }
-    if (answer?.verdict === 'deny') return { decision: 'deny', reason: onCall('The developer said no', answer.said) }
+    if (answer?.verdict === 'deny') {
+      return { ...decided, decision: { behavior: 'deny', message: onCall('The developer said no', answer.said) } }
+    }
     return decided
   })
 
@@ -247,9 +255,10 @@ type Answer = { verdict?: string; status?: string; answers?: Record<string, stri
 
 // Puts a permission or a question to you on a call, and waits for your answer: long-polls the
 // voice server until it has one, ringback is switched off, the tool call is abandoned or
-// 15 min pass. Unanswered, it's withdrawn, and the terminal asks instead (undefined). A
+// 15 min pass. Unanswered, it's withdrawn, and it's left to the terminal (undefined). A
 // long-poll is a call on `$`, so its wait doesn't count against the hook's 10 s; a
-// `$.clock.sleep` would, so there's none.
+// `$.clock.sleep` would, so there's none. Each poll waits 25 s at most, inside the 30 s
+// that one `$.http.fetch` may take.
 async function hold(
   $: EngineInterface,
   kind: 'permissions' | 'questions',
@@ -303,8 +312,15 @@ async function hold(
     if (!answer) {
       // Withdrawn where it was made, once it's made: switched off while the voice server was
       // still placing the call, it's withdrawn when that answers.
-      void created?.then(({ value }) => value && voice($, `${path}/${value[id]}`, undefined, 'DELETE').catch(() => {}))
-      if (!signal.aborted) $.ui.log(`${why}, so it's asked here.`)
+      const withdraw = () =>
+        void created?.then(({ value }) => value && voice($, `${path}/${value[id]}`, undefined, 'DELETE').catch(() => {}))
+      // Abandoned, as when you answer the prompt in the terminal first, a call on `$` made now
+      // never leaves (seen in a real session); one made from a timer does.
+      if (signal.aborted) $.clock.after(0, withdraw)
+      else {
+        withdraw()
+        $.ui.log(`${why}, so it's asked here.`)
+      }
     }
   }
 }
@@ -324,7 +340,7 @@ async function reply(response: Promise<HttpResponse>): Promise<Reply> {
 
 // A permission as the voice puts it to you: what the tool would do, and what the session was
 // doing.
-async function permission($: EngineInterface, tool: string, input: unknown, reason?: string) {
+async function permission($: EngineInterface, tool: string, input: unknown) {
   const args = (input ?? {}) as Record<string, unknown>
   const path = [args.file_path, args.notebook_path].find(p => typeof p === 'string') as string | undefined
   const file = path?.split('/').pop() || 'a file'
@@ -338,7 +354,8 @@ async function permission($: EngineInterface, tool: string, input: unknown, reas
   const json = JSON.stringify(input, null, 2) ?? ''
   return {
     tool,
-    description: (tool === 'Bash' && typeof args.description === 'string' && args.description) || reason || '',
+    // The tool's own, where it has one (Bash, Agent): a permission request carries no reason.
+    description: typeof args.description === 'string' ? args.description : '',
     input: json.length > 2000 ? `${json.slice(0, 2000)}…` : json,
     ...(await doing($)),
     subject: (subjects[tool] ?? `Permission to use ${tool.replace(/^mcp__/, '').replace(/__/g, ' ')}`).slice(0, 80),
