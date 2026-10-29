@@ -57,6 +57,8 @@ on a Claude subscription.
 
 ## Working rules
 
+- Build a rough version, say what's untested, and move on: tuning and edge cases wait
+  until testers report a real problem (the list under Status).
 - Verify every stage on the real phone (locked, on mobile data, with headphones).
   Simulator runs and unit tests don't count for ringing, push or audio.
 - Facts marked unverified in `docs/design.md` must be checked against current docs

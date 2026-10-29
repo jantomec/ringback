@@ -229,8 +229,8 @@ queue, and each call's audio goes to the Mac whose session is calling.
        Pipecat's default, which all phone calls so far used), and from 0.62 to 0.8
        (-30 LUFS) when on, 0.7 in the middle (the default). The strongest would ignore
        some of your own quieter speech.
-     - The sliders show words, not numbers. The app sends both settings with each call's
-       offer, so a change applies from the next call.
+     - Like iOS's own Settings, the sliders show words, not numbers. The app sends both
+       settings with each call's offer, so a change applies from the next call.
 7. **Nebula** carries only the call; the push reaches the phone through Apple. The
    lighthouse must be a relay (`relay.am_relay: true`) and the Mac must list it in
    `relay.relays`. On mobile data the phone reaches the Mac only through that relay:
@@ -369,8 +369,10 @@ Each entry says why it lost and what would make it worth retrying.
   until you open it again. So a warning can come late or not at all. Without notification
   permission, only the banner shows, when you open the app.
 - Nebula on the phone went off by itself once (2026-10-29, between 10:26 and 10:42), with
-  Always On set. It wasn't killed for memory, and Mobile Nebula's log starts afresh with
-  each connection, so the cause is unknown.
+  Always On set. It wasn't killed for memory: its extension was running in all of the
+  phone's memory-pressure reports that morning, the last at 10:26 (read from a paired Mac
+  with `xcrun devicectl device info files --device <UDID> --domain-type systemCrashLogs`).
+  Mobile Nebula's log starts afresh with each connection, so the cause is unknown.
 
 ## Stages
 
