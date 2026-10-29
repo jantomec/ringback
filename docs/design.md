@@ -517,10 +517,10 @@ Each entry says why it lost and what would make it worth retrying.
   the Mac, and on 2026-10-29 its offer didn't reach the Mac within the app's 15 s at all.
   The Mac's Nebula log showed no new handshake from the phone during the call, and its
   only tunnel to the phone was hours old, from when the phone was on the same Wi-Fi. The
-  app now tries to reach the Mac from the moment it rings (reaching the Mac first), but
-  that hasn't yet met a stale tunnel: in the next call the Mac answered the first try,
-  0.8 s into ringing. If it's still too slow, audio takes that long to start, up to the
-  45 s the app waits.
+  app now tries to reach the Mac from the moment it rings (reaching the Mac first). When
+  it met a stale tunnel later that day, the call worked, but the Mac answered only the
+  fourth try, 12.2 s into ringing, and audio started 10.5 s after you answered: you can
+  wait that long, up to the 45 s the app waits.
 - Every placed call now costs a Haiku opening on the subscription, even if you decline
   it, and a declined call keeps its Haiku and the Mac awake until it's forgotten after
   90 s.
@@ -731,8 +731,8 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
           the second started very quickly and sounded clean. Both calls' "answered"
           outcomes were queued for the session; whether the dim line showed wasn't
           checked. Not tried: answering the instant it rings, before audio connects.
-   3. Permissions by voice, and the session's questions. Built, and tried offline, not
-      yet on the phone:
+   3. Permissions by voice, and the session's questions. Built, tried offline, and on the
+      phone:
       - The voice (`tools/call-check`, scripted calls): a clear yes was allow and a clear
         no deny; "what does that do exactly?" got an explanation and the question again;
         cutting the voice off while it announced a verdict dropped it, twice; a question
@@ -751,8 +751,27 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         an Esc in the terminal withdrew the call's question; a question was answered with
         no dialog shown. The session's questions can't be tried in `claude -p`, which
         doesn't offer that tool.
-      - Open: answering takes longer when Haiku calls the tool before speaking, 2.5–4.4 s
-        after your words against about 1.1 s; and the split-answer case above.
+      - On the phone (2026-10-29, a session in default mode, the phone on mobile data,
+        AirPods, two calls):
+        - A permission: the call was placed as the prompt appeared, and the voice asked
+          "…a command that writes the current date into a file called now.txt…, then
+          shows you what it wrote. Is that okay, yes or no?". "Uh yes, it's okay." allowed
+          it once you'd heard the voice confirm, the command ran, and the session's
+          answer came back to the call.
+        - A question came to the call instead of the terminal. Speech recognition heard
+          "color.txt" as "Colour Jxty"; the voice worked out what you meant, explained,
+          and asked again, and "Okay, blue." went to the session as the answer. Writing
+          the file then asked a permission, which reached the call you were on 1.2 s
+          later. "Okay, bye" wasn't taken as an answer; "yeah, you can write" allowed it,
+          and the file held "blue".
+        - The voice once told you how answers reach the session ("The answer goes to it
+          once you've heard this."); its instructions now say not to, and three scripted
+          calls after had no such line.
+        - The first call met a stale Nebula tunnel: the phone reached the Mac after 4
+          tries, 12.2 s into ringing, and audio started 10.5 s after you answered.
+      - Open: answering takes longer when Haiku calls the tool before speaking, 2.1–3.6 s
+        after your words on the phone, against about 1.1 s; and the split-answer case
+        above.
    4. A better model on the line.
    5. Call back from the app's call history.
 4. **Several sessions + retries.** A second session waits for the first call to end.

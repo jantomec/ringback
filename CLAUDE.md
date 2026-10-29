@@ -14,14 +14,14 @@ with `tools/phone-check`): Haiku starts when the call is placed and thinks of it
 while the phone rings, the app connects the audio while it rings, only over Nebula, and
 tells the Mac when you answer, which sends nothing until then; the voice started 0.2–0.4 s
 after the Mac heard you answer, and sounded clean. The session is told how each call went
-in a note that starts no turn. Step 3 is built and tried offline (`tools/session-check
---asks`, `tools/ask-check`, `tools/call-check`), not yet on the phone: a permission prompt
-shows in the terminal and goes to the call at once, whichever answers first decides; the
-session's questions (AskUserQuestion) go to the call instead of the terminal. How it
-works: the ringback mod (`mod/`) adds `/ringback`; while it's on, each finished turn has
-the session write a call briefing, and the voice server places the call through the
-switchboard's `/call`. On the call, the voice passes what you say to the session with its
-one tool, held until you've heard it announced; the session's answer comes back to the
+in a note that starts no turn. Step 3 is built, tried offline (`tools/session-check
+--asks`, `tools/ask-check`, `tools/call-check`) and on the phone (two calls): a permission
+prompt shows in the terminal and goes to the call at once, whichever answers first
+decides; the session's questions (AskUserQuestion) go to the call instead of the terminal.
+How it works: the ringback mod (`mod/`) adds `/ringback`; while it's on, each finished
+turn has the session write a call briefing, and the voice server places the call through
+the switchboard's `/call`. On the call, the voice passes what you say to the session with
+its one tool, held until you've heard it announced; the session's answer comes back to the
 call, or the session calls again if you've hung up; the transcript goes to the project's
 `.ringback/calls/`. Mods replaced the planned hooks and MCP channel, and a tool replaced
 tags in Haiku's reply (rejected alternatives). Stage 2 (conversation) works: Parakeet v2 →

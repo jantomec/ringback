@@ -2,8 +2,7 @@
 
 How to run ringback as built so far (Stage 3 in progress: a session with `/ringback` on
 calls you when it finishes, what you tell the voice reaches the session, and you can
-answer its permission prompts and questions on the call, so far tried only without the
-phone). Replace the example addresses with your own.
+answer its permission prompts and questions on the call). Replace the example addresses with your own.
 
 ## You need
 
