@@ -16,8 +16,7 @@ as it rings. After a blank line, write for the voice that will talk the develope
 in at most 300 words:
 - what you did and what's new since the developer last heard from you;
 - what needs them: decisions, questions, anything blocked, and what you'd do next;
-- what the voice needs to answer likely questions, such as why you chose something and what \
-you didn't check in your work.
+- what the voice needs to answer likely questions, such as why you chose something.
 
 Leave out the call itself, such as whether it will reach the developer: you'll be told \
 afterwards how it went. It will be spoken, so write plain sentences: no lists, headings, \

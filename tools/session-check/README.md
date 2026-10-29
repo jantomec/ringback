@@ -52,3 +52,16 @@ failure that was the check's own: it didn't match call IDs that contain a `-`.)
 Result on 2026-10-29 with the message and the second call (one run): all 12 checks passed.
 The first call was placed 6 s after the session's first prompt, and the second 5 s after
 the message was left; its briefing mentioned the message and the answer.
+
+Result on 2026-10-29 with the calls' outcomes (four runs, the third with `--unanswered 3`):
+all 14 checks passed each time, in 38–86 s (the voice's models took 32 s to load in the
+first run, 5–9 s after). Each outcome was queued when its call's time was up, 10.0 s (or
+3.0 s) after it was placed, and shown in the session. In the 3 s run, the first outcome
+came while the session was answering the message and writing its next briefing, and was
+added only when that turn ended. Asked what it was told, the session quoted both outcomes
+word for word each time, and one later briefing said "Earlier updates may not have reached
+you, so here is the full picture." Before the mod said who wrote the note, Haiku read it
+as part of the prompt and said it hadn't been told anything (outside this check, one
+session). In the first three runs, whose briefing prompt still asked what the session
+didn't check, 6 of 9 briefings said the call or the phone wasn't confirmed; in the last,
+with the prompt the mod uses now, none of 3 did (see `tools/briefing-check`).
