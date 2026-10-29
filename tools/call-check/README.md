@@ -24,7 +24,17 @@ with both sides of the call, so keep it outside the repo:
   the voice can pass messages to the session, which are listed with the timings, and the
   call's transcript goes to `OUT_DIR/.ringback/calls/`. A `TURN` written `!TEXT` is the
   session's answer arriving as news, instead of your speech; it's due when a spoken turn
-  would be.
+  would be. So is what the session asks you, as its mod sends it to the voice server:
+  - `?TOOL: INPUT // CONTEXT` asks your permission for a tool call, such as
+    `?Bash: rm -rf build // I'm cleaning up before the release.` (`TOOL: ` and
+    ` // CONTEXT` can be left out; the tool is then Bash);
+  - `??QUESTION | LABEL: DESCRIPTION | LABEL: DESCRIPTION` asks you a question with its
+    options (`??*` if you can choose several).
+
+  As the first `TURN`, either makes the call one placed to ask it: its briefing asks it,
+  instead of `--report`'s. Each answer the voice gives is listed with the timings: when
+  Haiku gave it, held until you've heard it said, and when it was given to the session, or
+  dropped because you cut the voice off first. The answers the session got close the list.
 - `--turn-wait` overrides how long the voice waits for the end of your turn when Pipecat's
   end-of-turn model thinks you haven't finished (`TURN_WAIT` in the voice).
 - `--sensitivity` is the app's interruption sensitivity, from 0 to 1 (0.5 by default), and
@@ -45,6 +55,12 @@ up:
 
     uv run --project voice tools/call-check/call_check.py OUT_DIR --session --report briefing.txt \
       "Yes, push it and open the pull request." "!Pushed it and opened pull request 42." "Thanks, that's all."
+
+For a session asking permission mid-call, then you saying yes:
+
+    uv run --project voice tools/call-check/call_check.py OUT_DIR --session --report briefing.txt \
+      "Okay, sounds good." "?Bash: git push --force origin fix-parser // I rebased it onto main." \
+      "Yes, go ahead." "Thanks, that's all."
 
 It prints the voice's log as the server would, then the timing measured on its own clock,
 from where your speech starts and ends in each clip:

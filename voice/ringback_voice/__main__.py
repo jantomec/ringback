@@ -156,12 +156,17 @@ def call_task(
         async def notify(text: str) -> None:
             # Through the assistant's side, Pipecat holds it until the voice has finished
             # speaking and you aren't, then runs Haiku on it.
-            say(f"news from the session: {text[:80]!r}")
-            await assistant.queue_frame(
-                LLMMessagesAppendFrame([{"role": "developer", "content": f"The session: {text}"}], run_llm=True)
-            )
+            say(f"note from the session: {text[:80]!r}")
+            await assistant.queue_frame(LLMMessagesAppendFrame([{"role": "developer", "content": text}], run_llm=True))
 
-        link.notify = notify
+        link.listen(notify)
+        task.add_reached_downstream_filter((BotStartedSpeakingFrame,))
+
+        @task.event_handler("on_frame_reached_downstream")
+        async def opened(task, frame):
+            # Notes for the voice wait until it has started its opening.
+            if isinstance(frame, BotStartedSpeakingFrame):
+                link.opened()
 
     @latency.event_handler("on_first_bot_speech_latency")
     async def first_words(observer, secs):

@@ -8,7 +8,11 @@ Each TURN is what you say: text, which another Kokoro voice speaks ("[1.2]" in i
 pause of that many seconds), or a CLIP: a 16 kHz mono WAV file, optionally cut to a span
 ("file.wav:12.5-19"). With --session, the call is for a session: what the voice passes to
 it is printed, the transcript goes to OUT_DIR/.ringback/calls/, and a TURN written "!TEXT"
-is the session's answer arriving as news instead of your speech. A turn starts 1 s after
+is the session's answer arriving as news instead of your speech. "?TOOL: INPUT // CONTEXT"
+is the session asking your permission for a tool call, and "??QUESTION | LABEL: DESCRIPTION
+| ..." asking you a question ("??*" if you can choose several). As the first TURN, either
+makes the call one placed to ask it. The answers the voice gives are printed, held and
+given or dropped. A turn starts 1 s after
 the voice stops talking. A turn written "@S:..." starts S seconds after the voice starts its reply
 instead, to interrupt it. The call's audio connects CONNECT seconds after it starts, as on
 the phone. A background SOUND (text spoken by a third Kokoro voice, or a CLIP) plays under
@@ -34,7 +38,7 @@ from pipecat.transports.base_transport import BaseTransport, TransportParams
 
 from ringback_voice import hearing, models
 from ringback_voice.__main__ import TURN_WAIT, call_task
-from ringback_voice.sessions import Link
+from ringback_voice.sessions import Ask, Link, new_id, permission, questions
 from ringback_voice.transcript import Transcript
 
 YOUR_VOICE = "am_michael"  # Kokoro voice for text turns
@@ -67,6 +71,8 @@ class Call:
         self.timings: list[str] = []
         self.done = asyncio.Event()
         self.link: Link | None = None  # to the session, on a call for one
+        self.asks: dict[str, Ask] = {}  # what the session asked you
+        self._watching: set[asyncio.Task] = set()
 
     def now(self) -> float:
         return time.monotonic() - self.t0
@@ -75,6 +81,21 @@ class Call:
         """Whether you're speaking, or just stopped."""
         now = self.now()
         return any(start <= now <= end + AFTER_YOU for start, end in self.yours)
+
+    def ask(self, ask: Ask, briefed: bool = False) -> None:
+        """The session asks you something: the voice is told, unless the call was placed to ask
+        it. When the voice answers, it's noted."""
+        self.asks[ask.id] = ask
+        self.timings.append(f"the session asks at {self.now():.1f} s: {ask.details().splitlines()[0]}")
+        self.link.ask(ask, briefed)
+
+        async def answered():
+            await ask.settled.wait()
+            self.timings.append(f"the session got its answer at {self.now():.1f} s: {ask.answered()}")
+
+        watching = asyncio.create_task(answered())
+        self._watching.add(watching)
+        watching.add_done_callback(self._watching.discard)
 
 
 class ScriptedInput(BaseInputTransport):
@@ -121,12 +142,15 @@ class ScriptedInput(BaseInputTransport):
         while True:
             if playing is None and (turns or not c.done.is_set()) and self._unanswered():
                 c.timings.append(f"the voice didn't answer within {UNANSWERED} s")
-            if playing is None and turns and isinstance(turns[0][1], str) and self._due(None):
-                news = turns.pop(0)[1]
-                c.timings.append(f"news from the session at {c.now():.1f} s: {news!r}")
+            if playing is None and turns and isinstance(turns[0][1], tuple) and self._due(None):
+                kind, what = turns.pop(0)[1]
                 c.your_end = c.now()  # the next turn waits for the voice to answer it
-                await c.link.news(news)
-            if playing is None and turns and not isinstance(turns[0][1], str) and self._due(turns[0][0]):
+                if kind == "news":
+                    c.timings.append(f"news from the session at {c.now():.1f} s: {what!r}")
+                    await c.link.news(what)
+                else:
+                    c.ask(Ask(new_id(c.asks), kind, "call-check", what))
+            if playing is None and turns and not isinstance(turns[0][1], tuple) and self._due(turns[0][0]):
                 at, playing, onset, offset = turns.pop(0)
                 pos, started = 0, c.now()
                 c.recording.append((started, soxr.resample(playing, models.HEARING_RATE, models.SPEAKING_RATE)))
@@ -239,11 +263,30 @@ async def sound(spec: str, voice: str) -> np.ndarray:
     return (np.clip(speech, -1, 1) * 32767).astype(np.int16)
 
 
-async def your_turn(turn: str) -> tuple[float | None, np.ndarray | str, float, float]:
+def asked(turn: str) -> tuple[str, dict] | None:
+    """What the session asks in a turn written "?TOOL: INPUT // CONTEXT" (a permission) or
+    "??QUESTION | LABEL: DESCRIPTION | ..." (a question; "??*" if you can choose several), as
+    its mod would send it; None for other turns."""
+    if turn.startswith("??"):
+        text, several = turn[2:], turn.startswith("??*")
+        question, *options = [part.strip() for part in text.lstrip("*").split("|")]
+        options = [dict(zip(("label", "description"), [*map(str.strip, o.split(":", 1)), ""])) for o in options]
+        body = {"questions": [{"question": question, "header": "", "options": options, "multiSelect": several}]}
+        return "question", questions(body)
+    if turn.startswith("?"):
+        text, _, context = turn[1:].partition(" // ")
+        tool, _, input = text.partition(": ") if re.match(r"\w+: ", text) else ("Bash", "", text)
+        return "permission", permission({"tool": tool, "input": input, "context": context})
+    return None
+
+
+async def your_turn(turn: str) -> tuple[float | None, np.ndarray | tuple, float, float]:
     """When it's due, its audio, and where in it your speech starts and ends (s); or, for
-    the session's news, its text."""
+    the session's news or what it asks, its kind and what it says."""
     if turn.startswith("!"):
-        return None, turn[1:], 0.0, 0.0
+        return None, ("news", turn[1:]), 0.0, 0.0
+    if ask := asked(turn):
+        return None, ask, 0.0, 0.0
     at = None
     if turn.startswith("@"):
         head, turn = turn[1:].split(":", 1)
@@ -280,7 +323,7 @@ async def run(turns: list[str], report: str | None, turn_wait: float, out: Path,
     if args.background:
         b = (await sound(args.background, SOMEONE_ELSE)).astype(np.float64) * 10 ** (args.background_db / 20)
         background = np.clip(b, -32768, 32767).astype(np.int16)
-        yours = np.concatenate([t[1] for t in turns if not isinstance(t[1], str)])
+        yours = np.concatenate([t[1] for t in turns if not isinstance(t[1], tuple)])
         print(f"background {level(background)}, your turns {level(yours)} (RMS while there's sound)")
     call = Call()
 
@@ -288,14 +331,24 @@ async def run(turns: list[str], report: str | None, turn_wait: float, out: Path,
         print(f"{datetime.now():%H:%M:%S.%f}"[:-3] + f"  {call.now():5.1f} s  {line}", flush=True)
         if line.startswith(("interrupted", "you (")) and not call.you_spoke():
             call.timings.append(f"NOT YOU at {call.now():.1f} s: {line}")
+        if line.startswith(("Haiku answers the session", "answered the session", "not answered", "not given")):
+            call.timings.append(f"{line} (at {call.now():.1f} s)")
 
     if args.session:
 
         def send(text: str):
             call.timings.append(f"passed to the session at {call.now():.1f} s: {text!r}")
 
+        first = None
+        if turns and isinstance(turns[0][1], tuple) and turns[0][1][0] != "news":
+            # A call placed to ask it: its briefing does.
+            kind, what = turns.pop(0)[1]
+            first = Ask(new_id({}), kind, "call-check", what)
+            report = first.briefing()
         out.mkdir(parents=True, exist_ok=True)
         call.link = Link(send, Transcript(out, "call-check", report or ""))
+        if first:
+            call.ask(first, briefed=True)
         print(f"transcript: {call.link.transcript.path}")
     task = call_task(
         ScriptedTransport(turns, background, call), report, say, turn_wait, args.sensitivity, args.background_filter,
@@ -314,6 +367,10 @@ async def run(turns: list[str], report: str | None, turn_wait: float, out: Path,
     print("\nmeasured here:")
     for line in call.timings:
         print(f"  {line}")
+    if call.asks:
+        print("\nwhat the session asked, and the answers it got:")
+        for ask in call.asks.values():
+            print(f"  {ask.answered() if ask.outcome else f'{ask.name}: no answer'}")
     if background is not None:
         played = np.take(background, range(call.background_len), mode="wrap")
         call.recording.append((call.background_at, soxr.resample(played, models.HEARING_RATE, models.SPEAKING_RATE)))
@@ -327,7 +384,7 @@ def main():
     p.add_argument("out", type=Path)
     p.add_argument("turns", nargs="+")
     p.add_argument("--report", type=Path)
-    p.add_argument("--session", action="store_true", help="a call for a session; !TEXT turns are its news")
+    p.add_argument("--session", action="store_true", help="a call for a session; !TEXT turns are its news, ?TEXT and ??TEXT what it asks")
     p.add_argument("--turn-wait", type=float, default=TURN_WAIT)
     p.add_argument("--sensitivity", type=float, default=hearing.SENSITIVITY, help="0 to 1, as in the app")
     p.add_argument("--background-filter", type=float, default=hearing.GATE, help="0 (off) to 1, as in the app")

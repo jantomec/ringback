@@ -7,9 +7,10 @@ come back as they're written (stream-json), and the first words arrive about 1.2
 your turn (see tools/reply-speed). A call that a session placed brings its session already
 started, with the opening written while the phone rang.
 
-On a call for a session, Haiku has one tool, pass_to_session (call_tools.py). A message it
-passes is held until you've heard the voice say it's passing it on, and dropped if you cut
-the voice off before that (see "Acting on the call" in docs/design.md).
+On a call for a session, Haiku has three tools (call_tools.py): pass_to_session, and
+answer_permission and answer_question for what the session asks you. A message it passes, or
+an answer it gives, is held until you've heard the voice say so, and dropped if you cut the
+voice off before that (see "Acting on the call" in docs/design.md).
 """
 
 import asyncio
@@ -21,6 +22,7 @@ from pipecat.frames.frames import LLMContextFrame, LLMFullResponseEndFrame, LLMF
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import LLMService
 from pipecat.services.settings import LLMSettings
+from pipecat.utils.string import match_endofsentence
 
 from ringback_voice.haiku import Haiku
 from ringback_voice.sessions import Link
@@ -31,6 +33,11 @@ HELD = (
     "if they cut you off before that, it's dropped and you'll be told. The session's answer comes "
     'later, in a note "[The session: ...]". Until then you don\'t know what it will say or do. '
     "You've told the developer already: end your reply now, unless there's something else to say."
+)
+ANSWER_HELD = (
+    "Held until the developer has heard you say what you'll answer, then given to the session; if they "
+    "cut you off before that, it's dropped and you'll be told. You've told the developer already: end "
+    "your reply now, unless there's something else to say."
 )
 # Pipecat expects every setting to be given. The session sets its own, so only the model is.
 SETTINGS = LLMSettings(
@@ -58,7 +65,7 @@ class ClaudeCodeLLMService(LLMService):
         self._link = link  # to the calling session, if there is one
         self._said = ""  # your words in the last turn sent
         self._turn = 0  # turns sent to Haiku
-        self._held: list[dict] = []  # messages for the session, until you've heard them announced
+        self._held: list[dict] = []  # messages and answers for the session, until you've heard them announced
         self._unsaid = ""  # reply text after a tool call, which isn't spoken
         self._quiet = False  # this reply passed a message after saying so: the rest isn't spoken
         self._heard_words: int | None = None  # of the last reply, if you cut it off
@@ -95,7 +102,7 @@ class ClaudeCodeLLMService(LLMService):
         if self._link:
             # You hung up: what you'd heard announced still goes.
             heard = len(self._timeline.heard(time.monotonic()).split())
-            self._pass(lambda h: max(1, h["words"]) <= heard, dropped="you hung up first")
+            self._pass(lambda h: self._needed(h) <= heard, dropped="you hung up first")
             self._write_reply()
             self._reply = ""
         if self._haiku and self._own_haiku:
@@ -125,7 +132,7 @@ class ClaudeCodeLLMService(LLMService):
             # What the last reply announced goes to the session if you heard it announced.
             heard = self._heard_words
             note += self._pass(
-                lambda h: heard is None or max(1, h["words"]) <= heard, dropped="you cut the voice off first"
+                lambda h: heard is None or self._needed(h) <= heard, dropped="you cut the voice off first"
             )
             if note:
                 self._log(f"told Haiku: {note.strip()}")
@@ -217,40 +224,109 @@ class ClaudeCodeLLMService(LLMService):
             self._written = True
 
     def _tool(self, name: str, arguments: dict) -> str:
+        if name == "answer_permission":
+            return self._answer_permission(arguments)
+        if name == "answer_question":
+            return self._answer_question(arguments)
         message = arguments.get("message")
         if name != "pass_to_session" or not isinstance(message, str) or not message.strip():
             return "Nothing passed: pass_to_session needs a message."
-        # The words of the reply so far are what you must hear before it goes.
-        self._held.append({"turn": self._turn, "words": len(self._reply.split()), "text": message.strip()})
-        self._log(f"Haiku → session, held until heard: {message.strip()!r}")
+        message = message.strip()
+        self._hold("message", message, lambda: self._link.send(message))
+        self._log(f"Haiku → session, held until heard: {message!r}")
         return HELD
 
+    def _answer_permission(self, arguments: dict) -> str:
+        ask = self._link.asks.get(arguments.get("permission"))
+        if not ask or ask.kind != "permission":
+            return f"Nothing answered: no permission {arguments.get('permission')!r} waits. {self._waiting()}"
+        if not isinstance(allow := arguments.get("allow"), bool):
+            return "Nothing answered: answer_permission needs allow, true or false."
+        verdict, said = "allow" if allow else "deny", self._words(arguments)
+        text = f"{ask.name}: {verdict} ({said!r})"
+        self._hold("answer", text, lambda: self._link.answer(ask.id, verdict, said))
+        self._log(f"Haiku answers the session, held until heard: {text}")
+        return ANSWER_HELD
+
+    def _answer_question(self, arguments: dict) -> str:
+        ask = self._link.asks.get(arguments.get("question"))
+        if not ask or ask.kind != "question":
+            return f"Nothing answered: no question {arguments.get('question')!r} waits. {self._waiting()}"
+        answers, missing = ask.match(arguments.get("answers"))
+        if missing:
+            return f"Nothing answered: answer_question needs an answer to each question. Missing: {missing}"
+        said = self._words(arguments)
+        text = f"{ask.name}: {answers} ({said!r})"
+        self._hold("answer", text, lambda: self._link.answer(ask.id, "answered", said, answers))
+        self._log(f"Haiku answers the session, held until heard: {text}")
+        return ANSWER_HELD
+
+    def _words(self, arguments: dict) -> str:
+        """Your words that Haiku gave with its answer, or else your last turn as recognised."""
+        said = arguments.get("said")
+        return said.strip() if isinstance(said, str) and said.strip() else self._said.strip()
+
+    def _waiting(self) -> str:
+        waiting = ", ".join(ask.name for ask in self._link.asks.values())
+        return f"Waiting for an answer: {waiting}." if waiting else "Nothing waits for an answer."
+
+    def _hold(self, kind: str, text: str, give: Callable[[], bool | None]) -> None:
+        """Holds a message or an answer for the session until you've heard the reply so far."""
+        # The words of the reply so far are what you must hear before it goes; None if Haiku
+        # said nothing first.
+        words = len(self._reply.split()) or None
+        self._held.append({"turn": self._turn, "words": words, "kind": kind, "text": text, "give": give})
+
+    def _needed(self, held: dict) -> int:
+        """The words of the reply you must hear before something held goes: those before
+        Haiku gave it, or if it said nothing first, the sentence that follows. Once it
+        answered your yes before saying anything, and the answer went when you'd heard
+        "Okay,"."""
+        if held["words"] is not None:
+            return held["words"]
+        end = match_endofsentence(self._reply)
+        return max(1, len(self._reply[: end or len(self._reply)].split()))
+
     async def _pass_heard(self):
-        """Passes a message on as soon as you've heard the reply up to where Haiku passed it."""
+        """Passes a message or an answer on as soon as you've heard the reply up to where
+        Haiku gave it."""
         while True:
             await asyncio.sleep(0.1)
             if self._held and not self._cut:
                 heard = len(self._timeline.heard(time.monotonic()).split())
-                self._pass(lambda h: h["turn"] == self._turn and max(1, h["words"]) <= heard)
+                self._pass(lambda h: h["turn"] == self._turn and self._needed(h) <= heard)
 
     def _pass(self, goes: Callable[[dict], bool], dropped: str | None = None) -> str:
-        """Passes on the held messages that go; drops the rest if dropped gives why. Returns a
-        note for Haiku about those dropped."""
+        """Passes on the held messages and answers that go; drops the rest if dropped gives
+        why. Returns a note for Haiku about those dropped."""
         note = ""
         for held in list(self._held):
+            message = held["kind"] == "message"
+            text = repr(held["text"]) if message else held["text"]
             if goes(held):
                 self._held.remove(held)
-                self._log(f"passed to the session: {held['text']!r}")
-                self._link.send(held["text"])
+                if held["give"]() is False:
+                    self._log(f"not given, the session no longer waits for it: {text}")
+                else:
+                    self._log(f"{'passed to' if message else 'answered'} the session: {text}")
             elif dropped:
                 self._held.remove(held)
-                self._log(f"not passed, {dropped}: {held['text']!r}")
+                self._log(f"not {'passed' if message else 'answered'}, {dropped}: {text}")
                 if self._link.transcript:
-                    self._link.transcript.add(f"Not passed to the session, {dropped}", held["text"])
-                note += (
-                    f'[Not passed to the session, because the developer cut you off before hearing you say '
-                    f'so: "{held["text"]}". Pass it again only if they still want it.]\n'
-                )
+                    what = "Not passed to the session" if message else "Not answered"
+                    self._link.transcript.add(f"{what}, {dropped}", held["text"])
+                if message:
+                    note += (
+                        f'[Not passed to the session, because the developer cut you off before hearing you say '
+                        f'so: "{held["text"]}". Pass it again only if they still want it.]\n'
+                    )
+                else:
+                    note += (
+                        f"[Your answer wasn't given, because the developer cut you off before hearing you say "
+                        f"it: {held['text']}. The session still waits. Read what they said before together "
+                        "with what they've just said: answer again only if together it's a clear answer, "
+                        "otherwise ask.]\n"
+                    )
         return note
 
     def _new_words(self, context) -> str:

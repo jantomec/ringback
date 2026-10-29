@@ -6,11 +6,12 @@ call, so Haiku writes its opening while the phone rings, and closes it when the 
 or is forgotten; other calls start and close it with their pipeline, from the phone's
 offer on. claude_code.py makes it Pipecat's LLM service.
 
-On a call for a session, Haiku has one tool, pass_to_session: a small MCP server
-(call_tools.py) that relays each tool call over a socket in the session's private folder.
-The call's voice takes the tool calls from your first words on. One made in the opening
-passes nothing: you haven't said anything yet. Once, writing its opening while the phone
-rang, Haiku passed a message nobody had said (tools/phone-check).
+On a call for a session, Haiku has three tools, pass_to_session, answer_permission and
+answer_question: a small MCP server (call_tools.py) that relays each tool call over a socket
+in the session's private folder. The call's voice takes the tool calls from your first words
+on. One made in the opening passes and answers nothing: you haven't said anything yet. Once,
+writing its opening while the phone rang, Haiku passed a message nobody had said
+(tools/phone-check).
 """
 
 import asyncio
@@ -25,18 +26,18 @@ COMMAND = [
     "claude", "-p", "--model", "haiku", "--no-session-persistence",
     "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
     "--include-partial-messages",
-    # The voice talks, and on a call for a session passes messages with its one tool (added
-    # in start): no built-in tools, no other MCP servers, no slash commands, and no
-    # settings files, whose hooks could start another call.
+    # The voice talks, and on a call for a session passes messages and answers with its own
+    # tools (added in start): no built-in tools, no other MCP servers, no slash commands, and
+    # no settings files, whose hooks could start another call.
     "--tools", "", "--strict-mcp-config", "--disable-slash-commands", "--setting-sources", "",
 ]  # fmt: skip
-TOOL = "mcp__ringback__pass_to_session"
+TOOLS = ["mcp__ringback__pass_to_session", "mcp__ringback__answer_permission", "mcp__ringback__answer_question"]
 # The first turn. A call for a session asks for it while the phone rings, but its reply is
 # spoken only once you've answered, so it says what's true when the reply is heard.
 OPENING = "[The developer has answered the call.]"
 NOTHING_YET = (
-    "Nothing passed: the developer hasn't said anything yet, so there's nothing from them for the "
-    "session. Just open the call."
+    "Nothing passed or answered: the developer hasn't said anything yet, so there's nothing from them "
+    "for the session. Just open the call."
 )
 
 
@@ -44,7 +45,7 @@ class Haiku:
     def __init__(self, instructions: str, log: Callable[[str], None], tools: bool = False):
         self._instructions = instructions
         self._log = log
-        self._with_tools = tools  # pass_to_session, on a call for a session
+        self._with_tools = tools  # its own tools, on a call for a session
         self.events: asyncio.Queue[dict | None] = asyncio.Queue()  # what it writes; None once it has ended
         self.opening: float | None = None  # when the opening was asked for
         self.first_words: float | None = None  # when the first words of the last turn's reply came
@@ -61,13 +62,13 @@ class Haiku:
         self._dir = tempfile.TemporaryDirectory(prefix="ringback-voice-")
         command = [*COMMAND, "--system-prompt", self._instructions]
         if self._with_tools:
-            # Haiku's tool reaches this call over a socket in its private folder.
+            # Haiku's tools reach this call over a socket in its private folder.
             path = str(Path(self._dir.name) / "tools.sock")
             self._tools = await asyncio.start_unix_server(self._serve_tool, path=path)
             server = {"command": sys.executable, "args": ["-m", "ringback_voice.call_tools", path]}
             command += [
                 "--mcp-config", json.dumps({"mcpServers": {"ringback": server}}),
-                "--allowedTools", TOOL, "--disallowedTools", "EndConversation",
+                "--allowedTools", ",".join(TOOLS), "--disallowedTools", "EndConversation",
             ]  # fmt: skip
         self._process = await asyncio.create_subprocess_exec(
             *command, cwd=self._dir.name, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
@@ -126,7 +127,7 @@ class Haiku:
             if self._tool:
                 text = self._tool(request.get("tool"), request.get("input") or {})
             else:
-                self._log(f"Haiku → session in its opening, not passed: {request.get('input')!r}")
+                self._log(f"Haiku's {request.get('tool')} in its opening, not passed: {request.get('input')!r}")
                 text = NOTHING_YET
         except (ValueError, AttributeError):
             text = "The call couldn't read that tool call."

@@ -15,11 +15,18 @@ again.
 
 The session also learns how each call went: when it ends, or when it isn't answered in time,
 its outcome waits here for the mod too, as a note the session reads rather than a prompt.
+
+When the session needs your permission, or asks you questions, its mod holds the tool call
+and asks here (an Ask). The call you're on with that session gets it as a note; otherwise a
+call is placed to ask it. The mod waits for the answer the voice gives, and shows its own
+prompt if the call ends without one.
 """
 
 import asyncio
 import os
+import re
 import secrets
+import string
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -36,17 +43,32 @@ SOCKET = Path("~/.local/state/ringback/voice.sock").expanduser()
 # call is forgotten. The phone rings for 30 s, and its push can take about 16 s to arrive
 # after it leaves Wi-Fi. RINGBACK_UNANSWERED overrides it, for checks.
 UNANSWERED = float(os.environ.get("RINGBACK_UNANSWERED", "90"))
+# What a session asks is kept this long after it's answered, so its mod can still read the
+# answer, then forgotten.
+KEEP = 600
+# The longest tool input and context the voice gets: the mod sends at most about this much.
+INPUT = 2000
+CONTEXT = 1500
+# Seconds a mod's request for an answer waits for one at most.
+LONGEST_WAIT = 25
 
 
 class Link:
-    """What a call's voice can do with its session: pass it messages and hear its news."""
+    """What a call's voice can do with its session: pass it messages, hear its news, and
+    answer what it asks."""
 
     def __init__(self, send: Callable[[str], None], transcript: Transcript | None = None):
         self._send = send
         self.transcript = transcript
-        # Set by the call: tells the voice the session's news, when you've both stopped
+        # Set by the call's voice: tells it a note from the session, when you've both stopped
         # talking.
         self.notify: Callable[[str], Awaitable[None]] | None = None
+        self.asks: dict[str, Ask] = {}  # what the session asks you on this call, until answered
+        # Notes kept until the voice has started talking: one appended before the opening is
+        # spoken would make Haiku answer it instead.
+        self._notes: list[tuple[Ask | None, str]] = []
+        self._open = False
+        self._telling: set[asyncio.Task] = set()
 
     def send(self, text: str) -> None:
         self._send(text)
@@ -56,8 +78,173 @@ class Link:
     async def news(self, text: str) -> None:
         if self.transcript:
             self.transcript.add("The session's answer", text)
-        if self.notify:
-            await self.notify(text)
+        self.tell(f"The session: {text}")
+
+    def listen(self, notify: Callable[[str], Awaitable[None]]) -> None:
+        """The call's voice, from an offer on: notes wait until it has started talking."""
+        self.notify = notify
+        self._open = False
+
+    def opened(self) -> None:
+        """The voice has started talking: the notes kept for it go."""
+        if not self._open:
+            self._open = True
+            notes, self._notes = self._notes, []
+            for ask, text in notes:
+                self.tell(text, ask)
+
+    def tell(self, text: str, ask: "Ask | None" = None) -> None:
+        """Tells the voice a note, or keeps it until the voice has started talking."""
+        if not (self._open and self.notify):
+            self._notes.append((ask, text))
+            return
+        if ask and self.transcript:
+            self.transcript.add("The session asks", ask.details())
+        telling = asyncio.create_task(self.notify(text))
+        self._telling.add(telling)
+        telling.add_done_callback(self._telling.discard)
+
+    def ask(self, ask: "Ask", briefed: bool = False) -> None:
+        """Puts what the session asks to this call's voice: in a note, unless the call was
+        placed to ask it, so its briefing has it."""
+        self.asks[ask.id] = ask
+        if not briefed:
+            self.tell(ask.note(), ask)
+
+    def answer(self, id: str, outcome: str, said: str, answers: dict[str, str] | None = None) -> bool:
+        """Gives the session your answer, once you've heard the voice say it; False if it no
+        longer waits for one."""
+        ask = self.asks.pop(id, None)
+        if not ask or not ask.settle(outcome, said, answers):
+            return False
+        if self.transcript:
+            self.transcript.add("Answered the session", ask.answered())
+        return True
+
+    def drop(self, ask: "Ask", why: str) -> None:
+        """Takes back what the session asked, which no longer waits for this call: withdrawn,
+        or answered elsewhere. The voice is told, if it was told of it."""
+        if self.asks.pop(ask.id, None) is None:
+            return
+        kept = [(a, t) for a, t in self._notes if a is not ask]
+        if len(kept) == len(self._notes):
+            self.tell(
+                f"The session no longer needs an answer to {ask.name}: {why}. Don't put it to the developer "
+                "any more; if you were asking it, say so briefly."
+            )
+        self._notes = kept
+        if self.transcript:
+            self.transcript.add("No longer asked", f"{ask.name}: {why}")
+
+
+@dataclass
+class Ask:
+    """A permission or questions a session asks you. Its mod holds the tool call meanwhile,
+    and shows its own prompt if the call brings no answer."""
+
+    id: str  # short and safe to speak; the voice answers with it
+    kind: str  # "permission" or "question"
+    session: str
+    request: dict  # as the mod sent it, checked
+    outcome: str | None = None  # allow, deny or answered; none if the call ended without one
+    said: str | None = None  # your words, as the voice heard them
+    answers: dict[str, str] | None = None  # each question's answer
+    settled: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
+
+    @property
+    def name(self) -> str:
+        return f"{self.kind} {self.id}"
+
+    def settle(self, outcome: str, said: str | None = None, answers: dict[str, str] | None = None) -> bool:
+        if self.outcome:
+            return False
+        self.outcome, self.said, self.answers = outcome, said, answers
+        self.settled.set()
+        return True
+
+    def details(self) -> str:
+        """What it asks, for the voice and the transcript."""
+        r = self.request
+        if self.kind == "permission":
+            text = f"Permission {self.id}: the session wants to use its tool {r['tool']}."
+            if r["description"].strip():
+                text += f" {r['description'].strip()}"
+            return text + (f"\nIts input:\n{r['input'].strip()}" if r["input"].strip() else "")
+        lines = [f"Question {self.id}, with {len(r['questions'])} question(s) for the developer:"]
+        for n, q in enumerate(r["questions"], 1):
+            line = f"{n}. {q['question'].strip()}"
+            if q["header"]:
+                line += f" ({q['header'].strip()})"
+            if q["options"]:
+                options = "; ".join(
+                    f'"{o["label"]}"' + (f": {o['description']}" if o["description"] else "") for o in q["options"]
+                )
+                line += f" Options: {options}."
+                line += " They can choose more than one." if q["multiSelect"] else ""
+            lines.append(line)
+        return "\n".join(lines)
+
+    def context(self) -> str:
+        context = self.request["context"].strip()
+        return f"\nWhat the session was doing, in its own last words:\n{context}" if context else ""
+
+    def note(self) -> str:
+        """The note that puts it to a call's voice."""
+        how = (
+            "answer_permission, once they've clearly said yes or no"
+            if self.kind == "permission"
+            else "answer_question, once they've clearly chosen or answered"
+        )
+        return (
+            f"The session asks, and waits for the answer.\n{self.details()}{self.context()}\n"
+            f"Put it to the developer, then answer with {how}."
+        )
+
+    def briefing(self) -> str:
+        """The briefing of a call placed to ask it."""
+        what = "needs the developer's permission" if self.kind == "permission" else "has questions for the developer"
+        return (
+            f"The session has stopped because it {what}, and this call is about that. Open the call by "
+            f"asking it.\n\n{self.details()}\n{self.context()}"
+        )
+
+    def answered(self) -> str:
+        """The answer, for the transcript and the log."""
+        said = f' (they said "{self.said}")' if self.said else ""
+        if self.kind == "permission":
+            return f"{self.name}: {self.outcome}{said}"
+        answers = "; ".join(f'{q} "{a}"' for q, a in (self.answers or {}).items())
+        return f"{self.name}: {answers or self.outcome}{said}"
+
+    def match(self, given: object) -> tuple[dict[str, str], list[str]]:
+        """The voice's answers as {question: answer}, with an option's label where the answer
+        is one (labels joined by ", " where several can be chosen), and the questions left
+        unanswered. Answers are matched to the questions by their text, or else in order."""
+        pairs = [
+            (str(a.get("question", "")), str(a.get("answer", "")).strip())
+            for a in (given if isinstance(given, list) else [])
+            if isinstance(a, dict)
+        ]
+        questions = self.request["questions"]
+        answers, missing = {}, []
+        for n, q in enumerate(questions):
+            answer = next((a for k, a in pairs if plain(k) in (plain(q["question"]), plain(q["header"]))), None)
+            if answer is None and len(pairs) == len(questions):
+                answer = pairs[n][1]
+            if not answer:
+                missing.append(q["question"])
+                continue
+            labels = {plain(o["label"]): o["label"] for o in q["options"]}
+            chosen = [plain(part) for part in answer.split(",")] if q["multiSelect"] else [plain(answer)]
+            if all(c in labels for c in chosen):
+                answer = ", ".join(labels[c] for c in chosen)
+            answers[q["question"]] = answer
+        return answers, missing
+
+
+def plain(text: str) -> str:
+    """Text without case or punctuation, to compare what Haiku wrote with what was asked."""
+    return " ".join(re.findall(r"[a-z0-9]+", text.lower()))
 
 
 @dataclass
@@ -70,7 +257,7 @@ class Call:
     briefing: str
     placed: float
     answered_at: float | None = None  # when you answered (time.monotonic())
-    link: Link | None = field(default=None, repr=False)  # from the phone's offer on
+    link: Link | None = field(default=None, repr=False)  # to its session, made when it's placed
     # Haiku, writing the opening while the phone rings, for the call's voice; closed when the
     # call ends or is forgotten.
     haiku: Haiku | None = field(default=None, repr=False)
@@ -87,6 +274,9 @@ class Calls:
         self._log = log
         self._calls: dict[str, Call] = {}
         self._waiting: dict[str, list[dict]] = {}  # messages for each session
+        self._asks: dict[str, Ask] = {}  # what sessions ask you, by its id
+        self._keeping: set[asyncio.Task] = set()  # each waits for an answer, then forgets it
+        self._asking = asyncio.Lock()
         self._awake: asyncio.subprocess.Process | None = None
         self._closing: set[asyncio.Task] = set()  # Haikus of forgotten calls, while they close
 
@@ -103,6 +293,9 @@ class Calls:
                         raise RuntimeError(f"the switchboard answered {response.status}")
         except (ClientError, TimeoutError) as e:
             raise RuntimeError(f"can't reach the switchboard at {self._switchboard}: {e or type(e).__name__}") from e
+        # The transcript joins the link when you answer.
+        link = Link(lambda text: self.send(session, text, link.transcript.relative if link.transcript else None))
+        call.link = link
         self._calls[call.id] = call
         self._log(f"call {call.id[:8]}: placed for {project} ({session[:8]}): {subject}")
         # Haiku thinks of what to say while the phone rings, so the voice can start as soon
@@ -120,17 +313,10 @@ class Calls:
         return call
 
     def offer(self, call_id: str) -> Call | None:
-        """The call an offer is for, if it's one this server placed, with its link to the
-        session. The offer can come while the phone still rings, and a call you haven't
-        answered stays placed until it's forgotten, so the phone can offer again."""
-        call = self._calls.get(call_id)
-        if call and not call.link:
-            # The transcript joins the link when you answer.
-            link = Link(
-                lambda text: self.send(call.session, text, link.transcript.relative if link.transcript else None)
-            )
-            call.link = link
-        return call
+        """The call an offer is for, if it's one this server placed. The offer can come while
+        the phone still rings, and a call you haven't answered stays placed until it's
+        forgotten, so the phone can offer again."""
+        return self._calls.get(call_id)
 
     def answered(self, call_id: str) -> Call | None:
         """Marks an offered call you've answered, once, and starts its transcript, so a call
@@ -167,6 +353,57 @@ class Calls:
                 return True
         return False
 
+    async def ask(self, session: str, kind: str, request: dict) -> tuple[Ask, str]:
+        """Puts what a session asks to the call you're on with it ("live"), or to its call
+        that's ringing, for once you answer ("placed"); otherwise places a call to ask it
+        ("placed"). Raises RuntimeError if no call can be placed."""
+        # One at a time: parallel tool calls can ask at once, and should share one call.
+        async with self._asking:
+            ask = Ask(new_id(self._asks), kind, session, request)
+            ours = [c for c in self._calls.values() if c.session == session]
+            if call := ([c for c in ours if c.answered_at is not None] or ours or [None])[-1]:
+                call.link.ask(ask)
+                how = "live" if call.answered_at is not None else "placed"
+            else:
+                r = request
+                call = await self.place(session, r["project"], r["cwd"], r["subject"], ask.briefing())
+                call.link.ask(ask, briefed=True)
+                how = "placed"
+            self._asks[ask.id] = ask
+        self._log(f"call {call.id[:8]}: {ask.name} for session {session[:8]}, {how}: {ask.details()[:100]!r}")
+        keeping = asyncio.create_task(self._keep(ask))
+        self._keeping.add(keeping)
+        keeping.add_done_callback(self._keeping.discard)
+        return ask, how
+
+    def asked(self, session: str, kind: str, id: str) -> Ask | None:
+        """What a session asked, by its id, until it's withdrawn or forgotten."""
+        ask = self._asks.get(id)
+        return ask if ask and ask.session == session and ask.kind == kind else None
+
+    def settle(self, ask: Ask, outcome: str, said: str, answers: dict[str, str] | None = None) -> bool:
+        """Records an answer given outside a call (by a tool); False if it has one already."""
+        if not ask.settle(outcome, said, answers):
+            return False
+        for call in self._calls.values():
+            call.link.drop(ask, f"it was answered outside the call, {ask.answered()}")
+        return True
+
+    def withdraw(self, ask: Ask) -> None:
+        """The session's mod no longer waits for an answer, so a call's voice no longer asks."""
+        self._asks.pop(ask.id, None)
+        for call in self._calls.values():
+            call.link.drop(ask, "it withdrew the question" if ask.kind == "question" else "it withdrew the request")
+        ask.settle("withdrawn")  # wakes those waiting for it, who find it gone
+
+    async def _keep(self, ask: Ask) -> None:
+        """Logs the answer, and forgets it a while after."""
+        await ask.settled.wait()
+        self._log(f"{ask.answered()} (session {ask.session[:8]})")
+        await asyncio.sleep(KEEP)
+        if self._asks.get(ask.id) is ask:
+            del self._asks[ask.id]
+
     async def _deadline(self, call: Call) -> None:
         """Forgets a call that isn't answered in time, which tells its session."""
         await asyncio.sleep(UNANSWERED)
@@ -185,7 +422,11 @@ class Calls:
             self._closing.add(closing)
             closing.add_done_callback(self._closing.discard)
             call.haiku = None
-        transcript = call.link.transcript.relative if call.link and call.link.transcript else None
+        # What it was asking gets no answer from it: the session's mod asks you itself.
+        for ask in list(call.link.asks.values()):
+            ask.settle("none")
+        call.link.asks.clear()
+        transcript = call.link.transcript.relative if call.link.transcript else None
         self.send(call.session, outcome(call, transcript), transcript, kind="outcome")
         await self._stay_awake()
 
@@ -210,6 +451,13 @@ def outcome(call: Call, transcript: str | None) -> str:
     return f"{text} Its transcript: {transcript}" if transcript else text
 
 
+def new_id(taken: dict) -> str:
+    """Four random lowercase letters, not taken yet: short, and safe for Haiku to write."""
+    while (id := "".join(secrets.choice(string.ascii_lowercase) for _ in range(4))) in taken:
+        pass
+    return id
+
+
 def duration(seconds: float) -> str:
     """Seconds as written for a person: "45 s", "1 min 5 s", "2 min"."""
     minutes, seconds = divmod(round(seconds), 60)
@@ -226,7 +474,16 @@ def session_side(calls: Calls) -> web.Application:
       `text`, and the call's `transcript` if there is one;
     - `POST /sessions/{id}/messages` leaves one, as the voice does (for tools);
     - `POST /sessions/{id}/news` brings a session's answer: `{"live": true}` if the voice
-      told the call you're on, false if the session should call you.
+      told the call you're on, false if the session should call you;
+    - `POST /sessions/{id}/permissions` asks your permission for a tool call, and
+      `POST /sessions/{id}/questions` asks you questions, each with their options. Either is
+      put to the call you're on with the session (`"call": "live"`) or to one placed to ask
+      it (`"placed"`), and answered with its id; 502 if no call can be placed;
+    - `GET .../{ask}?wait=S` waits up to S seconds (at most 25) for the answer: a permission's
+      `verdict` (allow, deny, none or pending), or the questions' `status` (answered, none or
+      pending) and `answers`, with your `said`. None: the call ended without an answer;
+    - `POST .../{ask}` records an answer, as the voice does (for tools);
+    - `DELETE .../{ask}` withdraws it: the session no longer waits for an answer.
     """
 
     async def body_of(request: web.Request, *keys: str) -> dict:
@@ -266,14 +523,129 @@ def session_side(calls: Calls) -> web.Application:
             return web.json_response({"error": "needs text"}, status=400)
         return web.json_response({"live": await calls.news(request.match_info["id"], body["text"])})
 
+    def asks(kind: str) -> list[web.RouteDef]:
+        """The endpoints for what sessions ask: permissions, or questions."""
+
+        async def ask(request: web.Request) -> web.Response:
+            try:
+                body = await request.json()
+                checked = permission(body) if kind == "permission" else questions(body)
+            except ValueError:
+                needs = "tool" if kind == "permission" else "questions, each with a question and options with labels"
+                return web.json_response({"error": f"needs {needs}"}, status=400)
+            try:
+                asked, how = await calls.ask(request.match_info["id"], kind, checked)
+            except RuntimeError as e:
+                return web.json_response({"error": str(e)}, status=502)
+            return web.json_response({kind: asked.id, "call": how})
+
+        def asked(request: web.Request) -> Ask:
+            if found := calls.asked(request.match_info["id"], kind, request.match_info["ask"]):
+                return found
+            raise web.HTTPNotFound(text='{"error": "unknown"}', content_type="application/json")
+
+        def answer(a: Ask) -> dict:
+            if kind == "permission":
+                return {"verdict": a.outcome or "pending", "said": a.said}
+            return {"status": a.outcome or "pending", "answers": a.answers, "said": a.said}
+
+        async def wait(request: web.Request) -> web.Response:
+            a = asked(request)
+            try:
+                seconds = float(request.query.get("wait", 0))
+            except ValueError:
+                seconds = 0
+            seconds = min(seconds, LONGEST_WAIT) if seconds > 0 else 0  # also NaN
+            try:
+                await asyncio.wait_for(a.settled.wait(), seconds)
+            except TimeoutError:
+                pass
+            asked(request)  # 404 if it was withdrawn meanwhile
+            return web.json_response(answer(a))
+
+        async def record(request: web.Request) -> web.Response:
+            a = asked(request)
+            try:
+                body = await request.json()
+                if not isinstance(body, dict):
+                    raise ValueError
+                said = str(body.get("said") or "")
+                if kind == "permission":
+                    outcome, answers = body.get("verdict"), None
+                    if outcome not in ("allow", "deny"):
+                        raise ValueError
+                else:
+                    outcome, answers = "answered", body.get("answers")
+                    if not isinstance(answers, dict) or not all(isinstance(v, str) for v in answers.values()):
+                        raise ValueError
+            except ValueError:
+                needs = "verdict, allow or deny" if kind == "permission" else "answers, {question: answer}"
+                return web.json_response({"error": f"needs {needs}"}, status=400)
+            if not calls.settle(a, outcome, said, answers):
+                return web.json_response({"error": f"answered already: {a.outcome}"}, status=409)
+            return web.json_response(answer(a))
+
+        async def withdraw(request: web.Request) -> web.Response:
+            calls.withdraw(asked(request))
+            return web.json_response({"ok": True})
+
+        path = f"/sessions/{{id}}/{kind}s"
+        return [
+            web.post(path, ask),
+            web.get(path + "/{ask}", wait),
+            web.post(path + "/{ask}", record),
+            web.delete(path + "/{ask}", withdraw),
+        ]
+
     app = web.Application()
     app.add_routes([
         web.post("/calls", place),
         web.get("/sessions/{id}/messages", collect),
         web.post("/sessions/{id}/messages", leave),
         web.post("/sessions/{id}/news", news),
+        *asks("permission"),
+        *asks("question"),
     ])  # fmt: skip
     return app
+
+
+def permission(body: object) -> dict:
+    """A permission request as a mod sends it, checked, with its input and context cut to
+    what the voice gets; raises ValueError if it names no tool."""
+    if not isinstance(body, dict) or not isinstance(body.get("tool"), str) or not body["tool"].strip():
+        raise ValueError
+    keys = ("tool", "description", "input", "context", "project", "cwd", "subject")
+    checked = {k: str(body.get(k) or "") for k in keys}
+    return checked | {"input": cut(checked["input"], INPUT), "context": cut(checked["context"], CONTEXT)}
+
+
+def questions(body: object) -> dict:
+    """Questions as a mod sends them (those of Claude Code's AskUserQuestion), checked; raises
+    ValueError unless there are 1 to 4, each with its text and options with labels."""
+    asked = body.get("questions") if isinstance(body, dict) else None
+    if not isinstance(asked, list) or not 1 <= len(asked) <= 4:
+        raise ValueError
+    checked = []
+    for q in asked:
+        if not isinstance(q, dict) or not isinstance(q.get("question"), str) or not q["question"].strip():
+            raise ValueError
+        options = q.get("options") or []
+        if not isinstance(options, list):
+            raise ValueError
+        if not all(isinstance(o, dict) and isinstance(o.get("label"), str) for o in options):
+            raise ValueError
+        checked.append({
+            "question": q["question"],
+            "header": str(q.get("header") or ""),
+            "options": [{"label": o["label"], "description": str(o.get("description") or "")} for o in options],
+            "multiSelect": q.get("multiSelect") is True,
+        })  # fmt: skip
+    rest = {k: str(body.get(k) or "") for k in ("project", "cwd", "subject")}
+    return rest | {"questions": checked, "context": cut(str(body.get("context") or ""), CONTEXT)}
+
+
+def cut(text: str, most: int) -> str:
+    return text if len(text) <= most else text[: most - 1] + "…"
 
 
 async def listen(app: web.Application, path: Path = SOCKET) -> web.AppRunner:
