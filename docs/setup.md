@@ -47,6 +47,10 @@ xcrun devicectl device install app --device <UDID> build/Build/Products/Debug-ip
 Open the app, allow the microphone, and enter the switchboard's Nebula address, e.g.
 `10.0.0.1` (port 8787 is the default). The top row turns green: "Ready for calls".
 
+The **Sensitivity** slider under Interruptions sets how easily your speech stops Claude; a
+change applies from the next call. During your first call, turn on Voice Isolation in
+Control Center (Mic Mode), so background noise doesn't stop it.
+
 ## 3. The switchboard (one always-on Mac)
 
 Build it on a Mac with Xcode. The binary runs on Intel and Apple silicon Macs with macOS

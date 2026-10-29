@@ -4,15 +4,20 @@ Claude Code sessions call the user's iPhone when they're done, talk the result t
 take spoken replies. `docs/design.md` is the source of truth for requirements,
 architecture, rejected alternatives, risks and the stage plan. Read it first.
 
-Status (2026-10-28, `de00ed5`): Stages 0 (Nebula) and 1 (ring + audio) are done. **Stage 2
+Status (2026-10-29): Stages 0 (Nebula) and 1 (ring + audio) are done. **Stage 2
 (conversation) is in progress.** Parakeet v2 → Haiku → Kokoro `af_heart` works on the
 phone, interruptions included (`voice/ringback_voice/`, results under Stage 2 in
-`docs/design.md`). Still to do in Stage 2:
+`docs/design.md`). The interruption sensitivity setting is built and checked offline, not
+yet on the phone. Still to do in Stage 2: test it on the phone, with gym-like noise and
+with someone talking nearby. Offline, at the default sensitivity, a voice 20 dB below
+yours got through; a higher volume threshold, a level gate, kept it out only just.
+VoxLock (a model keeping only your voice, from a sample recorded in the app) is parked
+on the branch `voxlock`; see rejected alternatives in `docs/design.md`.
+
+Left until testers report them as real problems, because the calls so far went fine:
 - very short words can go unheard: a recorded "Great." offline, and once "wait" on the
   phone while the voice talked (Silero needs 0.2 s of speech to start a turn);
-- a stop where no words are recognised should make the voice carry on (untested);
-- VoxLock with the app's voice sample, the interruption sensitivity setting, and tests
-  with gym-like noise.
+- a stop where no words are recognised should make the voice carry on (built, untested).
 
 Try a change offline with `tools/call-check` before calling the phone.
 

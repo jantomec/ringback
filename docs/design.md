@@ -99,13 +99,22 @@ queue, and each call's audio goes to the Mac whose session is calling.
      Everything queued is dropped. The voice then waits until you've finished and always
      answers what you said, including a short "yeah" or "mhm".
 
-     Only your voice reaches the detector that stops it, through three layers:
+     Only your voice should reach the detector that stops it:
      1. on the phone, voice processing and the Voice Isolation mic mode remove background
-        noise (you switch Voice Isolation on once, in Control Center);
-     2. on the Mac, the VoxLock filter keeps only your voice and removes other people's.
-        It's given the voice sample recorded in the app's settings, so it works from your
-        first word;
-     3. voice-activity detection then triggers the stop.
+        noise (you switch Voice Isolation on once, in Control Center). With AirPods or the
+        phone at your ear, other people are also much farther from the microphone than
+        you (how much quieter they arrive isn't measured);
+     2. voice-activity detection then triggers the stop, with thresholds set by the app's
+        interruption sensitivity. One of them is a volume threshold: a level gate that
+        ignores speech quieter than you sound in the microphone. Other people farther away
+        arrive quieter, so on the Mac this gate keeps them out, not a model. Offline, at
+        sensitivity 0's level it alone kept out a voice 20 dB below yours, though only
+        just (Stage 2). It's absolute, so it depends on how loud a microphone delivers
+        your voice. If that proves fragile, the next step is a gate set relative to your
+        own level on the call.
+
+     Removing other people's voices with a model as well (VoxLock) was built and is
+     parked; see rejected alternatives.
 
      If a stop happens anyway and no words are recognised, the voice carries on, starting
      again from the sentence it was in.
@@ -191,15 +200,13 @@ queue, and each call's audio goes to the Mac whose session is calling.
    - **Settings:**
      - **Switchboard:** the switchboard's Nebula address. The app registers its push
        token there.
-     - **Your voice:** a guided recording of you reading a few sentences, about 30 s. The
-       app keeps it and sends it to the Mac at the start of each call, where VoxLock uses
-       it to recognise you. Until it's recorded, the app shows a reminder, and VoxLock
-       learns your voice from your first 3 seconds of speech instead.
      - **Interruption sensitivity:** a slider. Higher stops the voice at quieter or
        shorter speech, which suits quiet places. Lower needs clearer, longer speech,
-       which suits noisy ones. The app sends the value at the start of each call and
-       whenever you change it during one. On the Mac it sets the thresholds of the
-       voice-activity detection.
+       which suits noisy ones. The app sends the value with each call's offer, so a change
+       applies from the next call. On the Mac it sets the thresholds of voice-activity
+       detection (`voice/ringback_voice/hearing.py`). The middle is Pipecat's defaults,
+       which all calls so far used. The ends need 0.35 s or 0.1 s of speech, with
+       confidence and volume to match. Only the low end has been tried, offline (Stage 2).
 7. **Nebula** carries only the call; the push reaches the phone through Apple. The
    lighthouse must be a relay (`relay.am_relay: true`) and the Mac must list it in
    `relay.relays`. On mobile data the phone reaches the Mac only through that relay:
@@ -256,6 +263,30 @@ Each entry says why it lost and what would make it worth retrying.
 - **Pipecat's iOS client.** It always takes over the audio session (speaker, mixing),
   which clashes with CallKit. It's replaced by Google's WebRTC in manual-audio mode.
   Retry if the client gains a CallKit or manual-audio mode.
+- **Changing interruption sensitivity during a call.** The in-call screen covers the app's
+  settings, so it would need a fourth button or a slider on the call screen, and a WebRTC
+  data channel to the Mac. You chose to change it between calls. Retry if calls show you
+  need it mid-call, for example when moving from a quiet room to the gym.
+- **VoxLock: removing other people's voices on the Mac.** Parked on the branch `voxlock`,
+  with the app's recording of your voice and `tools/voxlock-delay`. You recorded your
+  voice once in the app, and each call sent 3 s of it with the offer. VoxLock then passed
+  only your voice to voice-activity detection and Parakeet. Offline, with another voice
+  talking 6 dB below yours, none of its words got through. Without VoxLock, that call
+  derailed (Stage 2). It lost because, with AirPods, other people are far from the
+  microphone and arrive quieter, so a level gate keeps them out without a model.
+  Offline, the volume threshold alone kept out a voice 20 dB below yours (Stage 2).
+  VoxLock, by contrast, costs something on every call:
+  - an interruption stops the voice about 0.1 s later (a median 80 ms of buffering, over
+    187 starts of speech, plus 23 ms of computing per 80 ms chunk);
+  - Parakeet got 7.0% of words wrong instead of 5.9%, on your recordings with nobody else
+    talking;
+  - it can mute you for a whole call. Without a recorded sample, it learned the voice of
+    whoever spoke first, and offline that was the other person. A sample recorded through
+    the app's audio path rather than the call's might also not match how you sound on
+    calls (untested).
+
+  Retry if calls show other people's voices stopping the voice or heard as yours when
+  they're too close or loud for a level gate to tell apart from you.
 - **Ending a call as "busy" during another call.** You want to choose, so it's replaced by
   call waiting and "not now" (requirement 3).
 - **The switchboard in Python** (aiohttp, run with uv). On an old Intel Mac it used
@@ -285,15 +316,19 @@ Each entry says why it lost and what would make it worth retrying.
 - Right after the phone leaves Wi-Fi, its first packets once took about 16 s to reach
   the Mac. If that happens just before you answer, audio takes that long to start.
   Answer-to-audio has been measured on mobile data only once (2.6 s).
-- Pipecat expects a WebRTC data channel and logs a warning without one. The app will
-  need one anyway, for live settings such as interruption sensitivity.
+- Pipecat expects a WebRTC data channel and logs a warning without one. Nothing needs one
+  yet: the interruption sensitivity goes with the offer.
 - Xcode needs device support for the phone's iOS version to install development builds.
-- The voice filtering may not be perfect:
-  - gym noise or other people's voices could still stop the voice;
-  - the filters could swallow your own quiet speech.
+- Only the phone's processing and the volume threshold keep other sounds out, so:
+  - gym noise or other people's voices near you could still stop the voice, or be heard
+    as yours. Offline, at the default sensitivity, someone talking even 20 dB below you
+    was heard as clearly as you (Stage 2). A higher volume threshold kept them out, but
+    it's absolute, and how loud each microphone delivers your voice isn't measured.
+    Neither is how well the phone's voice processing and Voice Isolation remove other
+    people's voices;
+  - voice processing could swallow your own quiet speech.
 
-  VoxLock is community-maintained and Pipecat doesn't test it. Stage 2 tests the filtering
-  with real noise.
+  Stage 2 tests this with real noise.
 - Channels are a research preview, so APIs and flags may change.
 - Development builds use the APNs sandbox, and provisioning profiles expire.
 
@@ -363,9 +398,41 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
    - **Stopping when you talk:** 0.36–0.44 s after your speech starts, measured offline
      with `tools/call-check` (two calls), so without the network and the phone's buffer.
    - **Noise:** coughing and clapping while the voice talked didn't stop it (one call).
-   - **Not yet tested:** a stop where no words are recognised (the voice should carry
-     on; the cough and clap didn't cause one), gym-like noise, and VoxLock with the app's
-     voice sample and sensitivity setting.
+   - **Someone else talking**, offline (`tools/call-check --background`, one call each),
+     with another Kokoro voice talking under the whole call, mixed in without the phone's
+     voice processing or Voice Isolation. Levels are while there's sound:
+     - with your recorded turns, interrupting twice, and the other voice 6 dB below you,
+       Parakeet took its sentences as yours about 25 times, and the voice answered them.
+       With nobody else talking, both interruptions stopped the voice, 0.40 and 0.59 s
+       after you started;
+     - with two Kokoro turns, one interrupting, and the other voice 20 dB below you, it
+       still stopped the voice 3 times and was taken as you 4 times, word for word. At
+       9 dB below, with the sensitivity at 0.3, it did the same and once replaced your own
+       words: Parakeet heard only its sentence in a turn where you said "Wait, stop for a
+       second."
+
+     So a quieter voice is heard as clearly as yours unless something gates by level.
+     With the other voice 20 dB below you, as above:
+     - at sensitivity 0, none of it got through and both your turns were heard. The
+       interruption stopped the voice 0.54 s after you started (0.35–0.59 s in the other
+       calls here); that end also needs 0.35 s of speech instead of 0.2;
+     - with only the volume threshold raised to sensitivity 0's (0.7, about -40 LUFS), it
+       started no turn and no stop, and the interruption stopped the voice after 0.35 s.
+       But where it overlapped a turn of yours, Parakeet heard its last words too
+       ("around six. Wait, stop for a second."): the gate decides when a turn starts, not
+       what's heard in it;
+     - the margins are small. On Pipecat's volume scale (0 to 1 for -110 to -10 LUFS, so
+       0.1 is 10 dB), the other voice measured 0.63–0.68 in half-second windows, against
+       the gate's 0.7. The first minute of your scripted AirPods recording measured
+       0.75–0.89 (median 0.84). So a gate at 0.7 keeps out voices roughly 15 dB or more
+       below yours, with about 5 dB to spare under your quietest speech.
+   - **VoxLock** was tried offline and parked: see rejected alternatives. Its full results
+     are in `docs/design.md` on the branch `voxlock`.
+   - **Not yet tested:** the sensitivity on the phone, its high end (1), gym-like noise,
+     and someone talking near you on a call.
+   - **Left until testers report them as real problems**, because the calls so far went
+     fine: very short words going unheard (above), and a stop where no words are
+     recognised (the voice should carry on; the cough and clap didn't cause one).
 3. **One session.** The session finishes and calls, you reply, it acts and calls again.
    Approve a permission prompt by voice.
 4. **Several sessions + retries.** A second session waits for the first call to end.

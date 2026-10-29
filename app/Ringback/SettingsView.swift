@@ -7,6 +7,7 @@ struct SettingsView: View {
     let push: PushService
     let calls: CallService
     @AppStorage(Switchboard.urlKey) private var switchboardURL = ""
+    @AppStorage(AudioLink.sensitivityKey) private var sensitivity = AudioLink.defaultSensitivity
     @Environment(\.scenePhase) private var scenePhase
     @State private var microphoneOff = false
 
@@ -33,6 +34,24 @@ struct SettingsView: View {
                     }
                 } footer: {
                     if switchboardURL.isEmpty { AddressFields.footer }
+                }
+                Section {
+                    VStack(alignment: .leading) {
+                        Text("Sensitivity")
+                        Slider(value: $sensitivity, in: 0...1, step: 0.1) {
+                            Text("Sensitivity")
+                        } minimumValueLabel: {
+                            Text("Less")
+                        } maximumValueLabel: {
+                            Text("More")
+                        }
+                    }
+                } header: {
+                    Text("Interruptions")
+                } footer: {
+                    Text(
+                        "How easily you stop Claude by speaking. More stops it at quieter or shorter speech, for quiet places. Less needs clearer, longer speech, for noisy ones. Changes apply from the next call."
+                    )
                 }
                 Section("Calls") {
                     if state.calls.isEmpty {
