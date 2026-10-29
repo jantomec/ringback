@@ -38,6 +38,22 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     var onConnected: ((TimeInterval) -> Void)?
     var onFailed: ((String) -> Void)?
 
+    /// Tries to reach the voice server over Nebula until it answers or `deadline` passes, and
+    /// returns when it answered and after how many tries; nil if it never did. Any HTTP answer
+    /// counts. After the phone moves from Wi-Fi to mobile data, its Nebula tunnel to the Mac
+    /// can stay stale for more than 15 s; each try sends fresh packets, so Nebula notices
+    /// sooner and goes through the lighthouse's relay. It starts when the phone rings.
+    static func reach(_ voiceURL: URL, until deadline: Date) async -> (at: Date, tries: Int)? {
+        var tries = 0
+        while Date.now < deadline, !Task.isCancelled {
+            tries += 1
+            let request = URLRequest(url: voiceURL.appending(path: "ping"), timeoutInterval: 3)
+            if (try? await URLSession.shared.data(for: request)) != nil { return (.now, tries) }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        return nil
+    }
+
     /// Before CallKit activates the audio session: WebRTC must not start audio by itself,
     /// and uses the same voice-chat settings as the call.
     static func prepareAudioSession() {

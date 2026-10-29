@@ -6,22 +6,25 @@ architecture, rejected alternatives, risks and the stage plan. Read it first.
 
 Status (2026-10-29): Stages 0 (Nebula) and 1 (ring + audio) are done. **Stage 3 (one
 session) is in progress**, as five steps under Stage 3 in `docs/design.md`. Steps 1 and 2
-are built and checked offline (`tools/session-check`, `tools/call-check --session`), not
-yet on the phone: the ringback mod (`mod/`) adds `/ringback`; while it's on, each finished
-turn has the session write a call briefing, and the voice server places the call through
-the switchboard's `/call`. On the call, the voice passes what you say to the session with
-its one tool, held until you've heard it announced; the session's answer comes back to the
-call, or the session calls again if you've hung up; the transcript goes to the project's
-`.ringback/calls/`. Mods replaced the planned hooks and MCP channel, and a tool replaced
-tags in Haiku's reply (rejected alternatives). Stage 2 (conversation) works: Parakeet v2 →
-Haiku → Kokoro `af_heart` on the phone, interruptions included (`voice/ringback_voice/`,
-results under Stage 2 in `docs/design.md`). Its last test is left open: two interruption
-settings are built and checked offline, not yet on the phone: the sensitivity, and a
-background filter ("Ignore Background Noise"), a rough level gate that ignores speech
-quieter than yours. They still need a phone test with gym-like noise and with someone
-talking nearby. Tuning the filter waits until testers report a problem. VoxLock (a model
-keeping only your voice, from a sample recorded in the app) is parked on the branch
-`voxlock`; see rejected alternatives in `docs/design.md`.
+are built, checked offline (`tools/session-check`, `tools/call-check --session`) and
+worked on the phone (three calls, including the session calling again after you hung up);
+still untried: the app reaching the Mac through a stale Nebula tunnel (the first test
+call's audio failed on one). Until step 3, a session with ringback on stops silently at a
+permission prompt. How it works: the ringback mod (`mod/`) adds `/ringback`; while it's
+on, each finished turn has the session write a call briefing, and the voice server places
+the call through the switchboard's `/call`. On the call, the voice passes what you say to
+the session with its one tool, held until you've heard it announced; the session's answer
+comes back to the call, or the session calls again if you've hung up; the transcript goes
+to the project's `.ringback/calls/`. Mods replaced the planned hooks and MCP channel, and
+a tool replaced tags in Haiku's reply (rejected alternatives). Stage 2 (conversation)
+works: Parakeet v2 → Haiku → Kokoro `af_heart` on the phone, interruptions included
+(`voice/ringback_voice/`, results under Stage 2 in `docs/design.md`). Its last test is
+left open: two interruption settings are built and checked offline, not yet on the phone:
+the sensitivity, and a background filter ("Ignore Background Noise"), a rough level gate
+that ignores speech quieter than yours. They still need a phone test with gym-like noise
+and with someone talking nearby. Tuning the filter waits until testers report a problem.
+VoxLock (a model keeping only your voice, from a sample recorded in the app) is parked on
+the branch `voxlock`; see rejected alternatives in `docs/design.md`.
 
 The app warns you when calls can't reach the phone because Nebula is off: the switchboard
 wakes it every 30 min to check (the connection check in `docs/design.md`).

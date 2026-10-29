@@ -75,6 +75,7 @@ class ClaudeCodeLLMService(LLMService):
         self._seen = 0  # messages of the Pipecat context already sent
         self._unfinished = 0  # turns sent whose reply hasn't fully arrived
         self._reply = ""  # the last reply, as Haiku wrote it
+        self._written = False  # the last reply is in the call's transcript
         self._opening: float | None = None  # when the opening was asked for, until it's spoken
         self._cut = False  # you interrupted the last reply while it was arriving
 
@@ -115,8 +116,7 @@ class ClaudeCodeLLMService(LLMService):
             # You hung up: what you'd heard announced still goes.
             heard = len(self._timeline.heard(time.monotonic()).split())
             self._pass(lambda h: max(1, h["words"]) <= heard, dropped="you hung up first")
-            if self._link.transcript:
-                self._link.transcript.add("Voice", self._reply)
+            self._write_reply()
             self._reply = ""
         if self._tools:
             self._tools.close()
@@ -159,6 +159,7 @@ class ClaudeCodeLLMService(LLMService):
             # session takes one turn at a time, and its text completes the last reply.
             while self._unfinished and await self._next_text() is not None:
                 pass
+            self._write_reply()
             note = self._cut_off_note()
             # What the last reply announced goes to the session if you heard it announced.
             heard = self._heard_words
@@ -169,7 +170,6 @@ class ClaudeCodeLLMService(LLMService):
                 self._log(f"told Haiku: {note.strip()}")
             if self._link and self._link.transcript:
                 transcript = self._link.transcript
-                transcript.add("Voice", self._reply)
                 for line in note.splitlines():
                     transcript.add("Note to the voice", line.strip("[]"))
                 transcript.add("Developer", self._said)
@@ -186,6 +186,8 @@ class ClaudeCodeLLMService(LLMService):
                     self._log(f"Haiku: first words after {time.monotonic() - t:.2f} s")
                 if text:
                     await self._push_llm_text(text)
+            # Written as soon as it's complete, so it comes before what it passed on.
+            self._write_reply()
             if not self._reply.split():
                 # Nothing was said, so there's nothing to hear first.
                 self._pass(lambda h: h["turn"] == self._turn)
@@ -199,6 +201,7 @@ class ClaudeCodeLLMService(LLMService):
     async def _send(self, message: str) -> float:
         """Sends a turn to the session and returns when it was sent."""
         self._reply = ""
+        self._written = False
         self._cut = False
         self._quiet = False
         self._turn += 1
@@ -243,6 +246,11 @@ class ClaudeCodeLLMService(LLMService):
             self._reply += delta["text"]
             return delta["text"]
         return ""
+
+    def _write_reply(self) -> None:
+        if self._link and self._link.transcript and not self._written:
+            self._link.transcript.add("Voice", self._reply)
+            self._written = True
 
     async def _serve_tool(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         try:

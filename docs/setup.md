@@ -123,6 +123,10 @@ reaches the session, and its answer comes back to the call, or a new call if you
 up. Each call's transcript is kept in the project's `.ringback/calls/`, which git ignores.
 Run `/ringback` again when you're back.
 
+Approving permissions by voice isn't built yet, so a session with ringback on stops
+silently at a permission prompt, and doesn't call. For a trial, start it in a permission
+mode that doesn't ask about routine commands, such as auto mode.
+
 `tools/session-check` tries a session's call without the phone.
 
 ## 6. A test call

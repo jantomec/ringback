@@ -1,11 +1,15 @@
 import AVFoundation
 import CallKit
 import Foundation
+import UIKit
 
 /// Rings through CallKit for each call the switchboard places, and reports back what happened.
 final class CallService: NSObject, CXProviderDelegate {
     /// How long the phone rings before the call counts as missed.
     static let ringTimeout: TimeInterval = 30
+    /// How long after you answer the app keeps trying to reach the voice server before the
+    /// call's audio fails. Nebula took more than 15 s once after the phone left Wi-Fi.
+    static let reachTimeout: TimeInterval = 45
     /// While you're on a call, the app notes every few seconds that it still is, so a call
     /// cut short by the app being closed can be recorded with about the right duration.
     private static let heartbeat: TimeInterval = 2
@@ -21,6 +25,8 @@ final class CallService: NSObject, CXProviderDelegate {
     /// Where each call's audio comes from: the calling Mac's voice server.
     private var voiceURLs: [UUID: URL] = [:]
     private var links: [UUID: AudioLink] = [:]
+    /// Trying to reach each call's voice server, from when the phone rings.
+    private var reaching: [UUID: Task<(at: Date, tries: Int)?, Never>] = [:]
     private var heartbeatTimer: Timer?
 
     init(state: AppState) {
@@ -61,7 +67,17 @@ final class CallService: NSObject, CXProviderDelegate {
         update.supportsDTMF = false
 
         callIDs[uuid] = callID
-        if let voice = payload["voice"] as? String { voiceURLs[uuid] = URL(string: voice) }
+        if let voice = (payload["voice"] as? String).flatMap({ URL(string: $0) }) {
+            voiceURLs[uuid] = voice
+            // Brings the Nebula tunnel to the Mac up while the phone rings, so the audio
+            // can start as soon as you answer.
+            let deadline = Date.now + Self.ringTimeout + Self.reachTimeout
+            reaching[uuid] = Task { @MainActor in
+                let task = UIApplication.shared.beginBackgroundTask(withName: "reach the voice server")
+                defer { UIApplication.shared.endBackgroundTask(task) }
+                return await AudioLink.reach(voice, until: deadline)
+            }
+        }
         state.add(record)
         provider.reportNewIncomingCall(with: uuid, update: update) { [self] error in
             defer { completion() }
@@ -106,6 +122,7 @@ final class CallService: NSObject, CXProviderDelegate {
     /// Ends our record of a call and tells the switchboard.
     private func finish(_ uuid: UUID, _ outcome: CallRecord.Outcome, event: String, extra: [String: String] = [:]) {
         links.removeValue(forKey: uuid)?.stop()
+        reaching.removeValue(forKey: uuid)?.cancel()
         voiceURLs[uuid] = nil
         if state.activeCall?.uuid == uuid { endHeartbeat() }
         guard let callID = callIDs.removeValue(forKey: uuid) else { return }
@@ -196,8 +213,20 @@ final class CallService: NSObject, CXProviderDelegate {
             state.activeCall?.audio = .failed(reason)
             Switchboard.report(callID: callID, event: "audio failed", extra: ["error": reason])
         }
+        let ringAt = state.calls.first(where: { $0.id == callID })?.ringAt ?? .now
+        let answeredAt = Date.now
         Task { @MainActor [self] in
             do {
+                // The offer goes once, when the voice server has answered, so a retry can't
+                // start a second conversation.
+                guard let reached = await reaching[uuid]?.value, reached.at.timeIntervalSince(answeredAt) < Self.reachTimeout
+                else { throw ReachError() }
+                Switchboard.report(
+                    callID: callID, event: "voice reached",
+                    extra: ["note": String(
+                        format: "%.1f s after ringing, %.1f s after answering, %d tries",
+                        reached.at.timeIntervalSince(ringAt), max(0, reached.at.timeIntervalSince(answeredAt)),
+                        reached.tries)])
                 try await link.start(voiceURL: voiceURL, callID: callID)
             } catch {
                 state.activeCall?.audio = .failed(error.localizedDescription)
@@ -227,4 +256,9 @@ final class CallService: NSObject, CXProviderDelegate {
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
         AudioLink.deactivate(audioSession)
     }
+}
+
+/// The voice server didn't answer over Nebula in time.
+private struct ReachError: LocalizedError {
+    var errorDescription: String? { "Can't reach the voice server over Nebula" }
 }

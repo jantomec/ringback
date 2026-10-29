@@ -136,7 +136,6 @@ class Calls:
         """Tells the call you're on with a session its news; False if there's no such call."""
         for call in self._calls.values():
             if call.session == session and call.link and call.link.notify:
-                self._log(f"call {call.id[:8]}: news from the session: {text[:80]!r}")
                 await call.link.news(text)
                 return True
         return False
