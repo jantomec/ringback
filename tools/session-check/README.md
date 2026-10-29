@@ -65,3 +65,20 @@ as part of the prompt and said it hadn't been told anything (outside this check,
 session). In the first three runs, whose briefing prompt still asked what the session
 didn't check, 6 of 9 briefings said the call or the phone wasn't confirmed; in the last,
 with the prompt the mod uses now, none of 3 did (see `tools/briefing-check`).
+
+## Permissions (`--asks`)
+
+    uv run --project voice tools/session-check/session_check.py --asks [--model MODEL] [--keep DIR]
+
+The session, in default mode with ringback on, runs a command that needs your permission
+(`date +%s > allowed.txt`). The check finds the request in the voice server's log and
+allows it through the session socket, as the voice does when you say yes, and then checks
+that the file exists. Then another (`refused.txt`) is refused, and must not exist. Then a
+second session, in auto mode, runs `python3 -c 'print(6*7)'`, which must ask nothing. The
+session's questions (AskUserQuestion) can't be tried here: `claude -p` doesn't offer that
+tool, even when allowed; `tools/ask-check` covers the voice server's side of them.
+
+Result on 2026-10-29, Claude Code 2.1.312, Haiku as the session's model (two runs, about
+28 s each): all 5 checks passed. Refused, the session got "The developer said no on a
+ringback call: "No, don't."" as the tool's error and said it wouldn't retry. (A first try
+in acceptEdits mode asked nothing: there `date > file` counts as a file edit and runs.)

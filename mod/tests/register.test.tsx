@@ -265,6 +265,16 @@ test('an interrupted briefing places no call', async ($, on) => {
   expect(asked.fetches.filter(f => f.url === 'http://voice/calls').length).toBe(0)
 })
 
+test('a turn that ends saying nothing brings no news and no call', async ($, on) => {
+  const asked = engine(on)
+  await start($)
+  await $.turn.complete(turn(''))
+  await $.turn.complete(turn('  \n'))
+  await settle()
+  expect(asked.prompts.length).toBe(0)
+  expect(asked.fetches.length).toBe(0)
+})
+
 test("a subagent's turn doesn't count", async ($, on) => {
   const asked = engine(on)
   await start($)

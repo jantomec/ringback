@@ -1,8 +1,9 @@
 # Setup
 
 How to run ringback as built so far (Stage 3 in progress: a session with `/ringback` on
-places a call when it finishes, and what you tell the voice reaches the session, so far
-tried only without the phone; voice approvals of permissions don't work yet). Replace the example addresses with your own.
+calls you when it finishes, what you tell the voice reaches the session, and you can
+answer its permission prompts and questions on the call, so far tried only without the
+phone). Replace the example addresses with your own.
 
 ## You need
 
@@ -128,9 +129,10 @@ reaches the session, and its answer comes back to the call, or a new call if you
 up. Each call's transcript is kept in the project's `.ringback/calls/`, which git ignores.
 Run `/ringback` again when you're back.
 
-Approving permissions by voice isn't built yet, so a session with ringback on stops
-silently at a permission prompt, and doesn't call. For a trial, start it in a permission
-mode that doesn't ask about routine commands, such as auto mode.
+When the session needs your permission, the prompt shows in the terminal and the voice
+asks you on a call; whichever you answer first decides. Questions the session asks you
+with options go to the call instead of the terminal, and show there only if the call
+brings no answer. In auto mode, what auto mode approves by itself never rings.
 
 `tools/session-check` tries a session's call without the phone.
 

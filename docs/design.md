@@ -13,7 +13,8 @@ and on mobile data.
    and it answers everything you say.
 2. **One call per session.** The phone shows the call as "Claude from \<project\>", so the
    voice doesn't repeat it. It opens with what's new, then what needs your attention.
-   Your replies, including permission approvals, go to that session.
+   Your replies, including permission approvals and answers to its questions, go to that
+   session.
 3. **Not now.** You can decline or leave unanswered any call, including one that comes
    in as call waiting during another call. The switchboard then tries again 5 min,
    20 min, 1 h, 2½ h and 6 h after the first ring, and holds every other call
@@ -68,9 +69,18 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      as a dim line, and it says it's from ringback: Claude Code adds it to the next
      prompt's message, and unsigned, Haiku took it for your words. So the briefing no
      longer says whether the call will reach you.
-   - When the session needs a permission while ringback is on, the mod holds the tool
-     call and puts it to you on a call. Your clear yes or no decides it. If the call
-     brings no answer, the usual permission prompt appears in the terminal (Stage 3).
+   - **Permissions.** When Claude Code is about to ask your permission while ringback is
+     on, the mod puts it to you on a call too (`classic.PermissionRequest`, which fires
+     only when you'd be asked, so auto mode's own approvals never ring). The prompt shows
+     in the terminal at the same time, and whichever you answer first decides; answered
+     in the terminal, the call's question is withdrawn. Your clear yes or no on the call
+     decides it; on a no, the session reads your words, and a yes is shown to you as a
+     dim line. With no answer, if ringback is switched off, or after 15 min, the request is
+     withdrawn and the prompt stays.
+   - **The session's questions.** When it asks you something with options
+     (AskUserQuestion), the mod holds the question (`tool.call`), puts it to you on a call,
+     and gives your answer back as the dialog's own, so the dialog doesn't show. Without
+     an answer, it does.
 2. **Voice server's session side** (`voice/ringback_voice/sessions.py`). The voice server
    also listens on a Unix socket that only you can open
    (`~/.local/state/ringback/voice.sock`), for the mods of the sessions on its Mac:
@@ -90,6 +100,13 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      progress.
    - It keeps what the voice passes on for each session until that session's mod
      collects it, and takes the session's answers back as news for the call.
+   - **What a session asks you** (`/sessions/{id}/permissions` and `/questions`): a
+     permission or questions go to the call you're on with that session as a note, to its
+     call that's still ringing once you answer, or else to a new call whose briefing asks
+     it. The mod waits for the answer with long-polls (25 s at most each). The answer is
+     allow or deny with your words, or each question's answer, or none if the call ended
+     without one; the mod can withdraw it. Each has a 4-letter id, kept 10 min after it's
+     answered (`tools/ask-check`).
    - **Call transcripts.** It writes each call's transcript into the calling
      session's project, under `.ringback/calls/`: the briefing, your words as recognised,
      what the voice said and where you cut it off, and what went to the session. The
@@ -187,13 +204,17 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      a Claude Code turn is too slow for live conversation. A call rung by hand talks
      about a report file instead.
    - **Acting on the call.** Haiku passes what you want the session to do or know, and
-     questions it can't answer, with its one tool, `pass_to_session`: a small MCP server
+     questions it can't answer, with `pass_to_session`, and answers what the session asks
+     with `answer_permission` and `answer_question`. They're served by a small MCP server
      that `claude -p` starts for the call (`voice/ringback_voice/call_tools.py`), which
      relays to the call over a socket in its private folder.
-     - Haiku says it's passing something on, then calls the tool. The message is held
-       until you've heard the reply up to that point, and dropped if you cut the voice off
-       before; Haiku is then told, and passes it again if you still want it. A message
-       can't be recalled once it's passed, but you can send a correction.
+     - Haiku says it's passing something on, or what it will answer, then calls the
+       tool. The message or answer is held until you've heard the reply up to that point,
+       and dropped if you cut the voice off before; Haiku is then told, and passes it
+       again if you still want it. A tool call made before any words waits until the
+       sentence after it has been heard: Haiku often calls first, and the old rule let an
+       answer go after a single heard word. A message can't be recalled once it's passed,
+       but you can send a correction.
      - What Haiku writes after the tool isn't spoken, if it said something before: it
        tends to say the same thing again.
      - The session's answer comes back as a note, "[The session: ...]". Pipecat holds it
@@ -201,7 +222,12 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      - Before you've said anything, the tool passes nothing and Haiku is told so: once,
        while the phone rang, Haiku called it in its opening, which stalled the opening
        8.7 s and passed the session a message nobody had said.
-     - Answering a held permission on your clear yes or no comes in step 3 (Stage 3).
+     - Permissions: Haiku says in plain words what the session wants to do, and whether
+       it deletes, overwrites, pushes or spends something, and takes only a clear yes or
+       no; anything else, it answers and asks again. Questions: it reads them and their
+       options, and takes your choice or your own words; it never chooses for you.
+     - Notes from the session wait until the voice has started its opening, so Haiku
+       doesn't answer a note in place of its opening.
    - **A better model** (Stage 3). When you ask for one, the call carries on with Opus,
      with the conversation so far. Its replies take longer.
    - Speech-to-text was chosen by measuring on accented English with `tools/stt-eval`
@@ -218,8 +244,8 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
    - your words come from speech recognition, so expect similar-sounding wrong words,
      especially technical terms. Read them in context, and ask when a reply is too
      garbled to be sure;
-   - act on a permission prompt only after a clear yes or no, otherwise ask again
-     (Stage 3);
+   - act on a permission prompt only after a clear yes or no, otherwise ask again; never
+     choose an option for you, and take your own words when no option fits;
    - the session writes its call briefing (a subject, what's new, what needs you) in a
      form that can be spoken, and its answers to what the voice passes on go back to the
      call, where the voice puts them in spoken words.
@@ -455,6 +481,10 @@ Each entry says why it lost and what would make it worth retrying.
   off before hearing any of it, but its messages had already gone, one of them wrong: it
   was written before the second half of your turn arrived. Messages are now held until
   you've heard them announced.
+- **Holding permission requests at `tool.check`.** Claude Code's first verdict there,
+  "ask", doesn't mean you'd be asked: in auto mode its classifier settles most such calls
+  itself, so the mod would have rung you for routine commands. `PermissionRequest` fires
+  only when you would be asked.
 - **Holding a tool call in the opening until a voice exists.** Haiku's opening is written
   while the phone rings, and once it called `pass_to_session` there: holding that call
   stalled the opening 8.7 s, and then passed the session a message nobody had said.
@@ -508,7 +538,12 @@ Each entry says why it lost and what would make it worth retrying.
     leaves about 5 dB under your quietest speech in your AirPods recordings.
 
   Stage 2 tests this with real noise.
-- Mods are new, so their API may change.
+- Mods are new, so their API may change. That the terminal prompt shows while the mod
+  waits on `PermissionRequest`, and that whichever answers first decides, was seen in one
+  interactive run on one build; neither the hooks docs nor the mods types say it.
+- Where Claude Code's built-in guard mod loads (managed settings, or a Team or Enterprise
+  login), an installed mod's classic-event hooks don't run, so permissions wouldn't reach
+  the phone; the terminal prompt still works.
 - Calls are protected only by Nebula and the call's secret: any device with a
   certificate from your Nebula CA can reach the switchboard and ring you, and any program
   running as you on the calling Mac can reach the voice server's session side.
@@ -696,7 +731,28 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
           the second started very quickly and sounded clean. Both calls' "answered"
           outcomes were queued for the session; whether the dim line showed wasn't
           checked. Not tried: answering the instant it rings, before audio connects.
-   3. Permissions by voice.
+   3. Permissions by voice, and the session's questions. Built, and tried offline, not
+      yet on the phone:
+      - The voice (`tools/call-check`, scripted calls): a clear yes was allow and a clear
+        no deny; "what does that do exactly?" got an explanation and the question again;
+        cutting the voice off while it announced a verdict dropped it, twice; a question
+        was answered with an option, and with your own words. When Pipecat split an own-
+        words answer into two turns, the voice asked again instead (two runs), which ends
+        as none, so the terminal prompt shows.
+      - The voice server (`tools/ask-check`, one run, 22 checks): placing, a live call, a
+        ringing call, two asks sharing one call, none on hang-up and when unanswered,
+        withdrawing.
+      - A real session (`tools/session-check --asks`, two runs, 5 checks each, about
+        28 s): in default mode a command that needed permission reached the voice server,
+        and the voice's yes let it run; another was refused, didn't run, and the session
+        quoted your "No, don't."; in auto mode a routine command asked nothing.
+      - The mod (31 tests, against stand-ins). In interactive sessions driven with
+        `expect`: the terminal prompt showed at once, the phone's allow dismissed it, and
+        an Esc in the terminal withdrew the call's question; a question was answered with
+        no dialog shown. The session's questions can't be tried in `claude -p`, which
+        doesn't offer that tool.
+      - Open: answering takes longer when Haiku calls the tool before speaking, 2.5–4.4 s
+        after your words against about 1.1 s; and the split-answer case above.
    4. A better model on the line.
    5. Call back from the app's call history.
 4. **Several sessions + retries.** A second session waits for the first call to end.

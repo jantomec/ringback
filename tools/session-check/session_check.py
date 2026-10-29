@@ -2,6 +2,7 @@
 """Plays a session's calls on this Mac, up to where the phone would ring.
 
     uv run --project voice tools/session-check/session_check.py [--model MODEL] [--unanswered S] [--keep DIR] [WORK]
+    uv run --project voice tools/session-check/session_check.py --asks [--model MODEL] [--keep DIR]
 
 A Claude Code session (`claude -p`) loads the ringback mod from mod/, runs /ringback and
 then WORK. When WORK's turn ends, the mod has the session write its call briefing and gives
@@ -11,6 +12,12 @@ message is left for the session, as the voice leaves what you say: the session a
 and since no call is live, it calls again. Neither call is answered, so after S seconds the
 session is told so, in notes that start no turn. Then it's asked at the prompt what it was
 told about its last call. Prints the session's turns, both servers' logs and the checks.
+
+With --asks, the session instead asks your permission: in default mode it runs a command
+that needs it, which is allowed as the voice would allow it, then another, which is
+refused. Each must reach the voice server and take effect in the session. Then a second
+session, in auto mode, runs a routine command, which must ask nothing. The session's own
+questions (AskUserQuestion) can't be tried here: `claude -p` doesn't offer that tool.
 
 Stop your own voice server first: both use the same socket.
 """
@@ -41,6 +48,8 @@ MESSAGE = "The developer says: reply with the single word pineapple, and nothing
 QUIET = 10  # seconds watched after the outcome notes, for a turn or call they'd set off
 QUESTION = "What were you told about how your last ringback call went? Quote it word for word."
 UNANSWERED = "wasn't answered within"  # what an unanswered call's outcome says
+ASKED = r"(permission|question) ([a-z]{4}) for session"  # the voice server's log of what a session asks
+ALLOWED, REFUSED = "allowed.txt", "refused.txt"
 
 
 def socket_in_use() -> bool:
@@ -79,12 +88,128 @@ def calls_in(path: Path) -> int:
     return len(re.findall(CALL, path.read_text(errors="replace")))
 
 
+class Session:
+    """A Claude Code session with the mod, fed prompts as stream-json."""
+
+    def __init__(self, process: asyncio.subprocess.Process, log: Path):
+        self.process = process
+        self.turns: list[str] = []
+        self.id = asyncio.get_running_loop().create_future()
+        self._log = log.open("wb")
+        self._reader = asyncio.create_task(self._read())
+
+    @classmethod
+    async def start(cls, args, project: Path, mode: str, log: Path) -> "Session":
+        process = await asyncio.create_subprocess_exec(
+            "claude", "-p", "--plugin-dir", str(REPO / "mod"), "--model", args.model,
+            "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+            "--setting-sources", "", "--tools", "Bash", "--permission-mode", mode,
+            cwd=project, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT, limit=1 << 22,
+        )  # fmt: skip
+        return cls(process, log)
+
+    async def _read(self):
+        while line := await self.process.stdout.readline():
+            self._log.write(line)
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if not self.id.done() and event.get("session_id"):
+                self.id.set_result(event["session_id"])
+            if event.get("type") == "result":
+                self.turns.append(event.get("result") or "")
+
+    async def prompt(self, text: str) -> int:
+        """Sends a prompt; returns how many turns had ended before it."""
+        message = {"type": "user", "message": {"role": "user", "content": text}}
+        self.process.stdin.write((json.dumps(message) + "\n").encode())
+        await self.process.stdin.drain()
+        return len(self.turns)
+
+    async def close(self):
+        self.process.stdin.close()
+        try:
+            await asyncio.wait_for(self.process.wait(), 30)
+        except TimeoutError:
+            self.process.kill()
+        await self._reader
+
+
+async def asks(args, project: Path, voice_log: Path, switchboard_log: Path, tmp: Path) -> int:
+    """Permissions, through a real session and the voice server."""
+    socket_side = aiohttp.ClientSession(connector=aiohttp.UnixConnector(path=str(SOCKET)))
+    results: list[tuple[str, bool]] = []
+
+    def check(name: str, ok: bool) -> None:
+        results.append((name, ok))
+
+    async def answer(session: Session, nth: int, body: dict) -> tuple[str | None, int | None]:
+        """Answers the nth thing the session asked, as the voice would."""
+        if not (asked := await wait_for(voice_log, ASKED, WAIT, nth)):
+            return None, None
+        kind, id = asked.groups()
+        url = f"http://voice/sessions/{await session.id}/{kind}s/{id}"
+        async with socket_side.post(url, json=body) as r:
+            return kind, r.status
+
+    try:
+        # In default mode, as acceptEdits would let a command that writes a file run unasked.
+        session = await Session.start(args, project, "default", tmp / "session.jsonl")
+        await session.prompt("/ringback")
+        await until(lambda: session.turns, WAIT)  # its answer is a turn's result too
+
+        # A command that needs your permission, which you allow on the call.
+        before = await session.prompt(f"Run exactly this with the Bash tool, nothing else: date +%s > {ALLOWED}")
+        kind, status = await answer(session, 1, {"verdict": "allow", "said": "Yes, go ahead."})
+        check("the permission reached the voice server, and the voice's yes was taken (200)", (kind, status) == ("permission", 200))
+        check(f"allowed, the command ran ({ALLOWED} exists)", await until(lambda: (project / ALLOWED).exists(), WAIT))
+        await until(lambda: len(session.turns) > before, WAIT)
+
+        # Another, which you refuse.
+        before = await session.prompt(f"Run exactly this with the Bash tool, nothing else: date +%s > {REFUSED}")
+        kind, status = await answer(session, 2, {"verdict": "deny", "said": "No, don't."})
+        check("the second permission reached the voice server, and the voice's no was taken (200)", (kind, status) == ("permission", 200))
+        ended = await until(lambda: len(session.turns) > before, WAIT)
+        check(f"refused, the command didn't run ({REFUSED} doesn't exist)", ended and not (project / REFUSED).exists())
+        # The session's own words on it, not a briefing the mod asked for after a turn.
+        said = next((t for t in session.turns[before:] if t.strip() and not t.startswith("Subject:")), "")
+        print(f"      the session, refused: {said.strip()[:200]!r}")
+
+        await asyncio.sleep(1)
+        await session.close()
+
+        # Auto mode settles a routine command itself, so nothing should be asked.
+        asked_before = len(re.findall(ASKED, voice_log.read_text(errors="replace")))
+        auto = await Session.start(args, project, "auto", tmp / "auto.jsonl")
+        await auto.prompt("/ringback")
+        await until(lambda: auto.turns, WAIT)
+        before = await auto.prompt("Run exactly this with the Bash tool, nothing else: python3 -c 'print(6*7)'")
+        ended = await until(lambda: len(auto.turns) > before, WAIT)
+        ran = ended and any("42" in t for t in auto.turns[before:])
+        asked_after = len(re.findall(ASKED, voice_log.read_text(errors="replace")))
+        check("in auto mode, a routine command ran and asked you nothing", ran and asked_after == asked_before)
+        await auto.close()
+    finally:
+        await socket_side.close()
+
+    print("--- voice log (what the sessions asked, and the answers)")
+    print("".join(line for line in voice_log.open() if re.search(r"permission|question|placed for", line)))
+    fails = 0
+    for name, ok in results:
+        print(f"{'ok  ' if ok else 'FAIL'}  {name}")
+        fails += not ok
+    return 1 if fails else 0
+
+
 async def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("work", nargs="?", default="Say in one sentence that the session check works.")
     p.add_argument("--model", default="haiku", help="the session's model (default haiku)")
     p.add_argument("--unanswered", type=int, default=10, help="seconds each call waits to be answered (default 10)")
     p.add_argument("--keep", type=Path, help="keep the logs in this directory")
+    p.add_argument("--asks", action="store_true", help="check permissions instead")
     args = p.parse_args()
     if socket_in_use():
         sys.exit(f"A voice server is listening on {SOCKET}: stop it first.")
@@ -124,6 +249,8 @@ async def main() -> int:
         async with aiohttp.ClientSession() as http:
             async with http.post(f"http://{VOICE}/offer", json={"call_id": "made-up", "sdp": "", "type": "offer"}) as r:
                 refused = r.status
+        if args.asks:
+            return await asks(args, project, voice_log, switchboard_log, tmp)
 
         t0 = time.monotonic()
         session = await asyncio.create_subprocess_exec(
@@ -200,6 +327,10 @@ async def main() -> int:
         for proc in procs:
             proc.terminate()
             proc.wait()
+        if args.asks:
+            if args.keep:
+                shutil.copytree(tmp, args.keep, dirs_exist_ok=True)
+            shutil.rmtree(tmp, ignore_errors=True)
 
     print("--- the session's turns")
     for i, text in enumerate(turns, 1):

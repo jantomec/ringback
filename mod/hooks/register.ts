@@ -155,7 +155,9 @@ export const register: Register = on => {
       if (isBriefing) {
         isBriefing = false
         if (e.reason === 'answer') void call($, e.answer)
-      } else if (e.reason === 'answer') {
+      } else if (e.reason === 'answer' && e.answer.trim()) {
+        // A turn that ends saying nothing, such as after you refused a prompt in the
+        // terminal, has no news and is no reason to call.
         void finished($, e.answer)
       }
     }
