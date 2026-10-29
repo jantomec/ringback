@@ -621,7 +621,10 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         answer came back 6 s after that, and the voice read the poem until you stopped it.
         You found the call good. Haiku's first words came 2.4–3.2 s after your turns,
         against 1.1–1.5 s in Stage 2; why isn't measured.
-      - Not tried on the phone: the session calling again after you hang up.
+      - On the phone, calling again: in a later call you asked for a third stanza and a
+        call back, and hung up 2 s after the request went to the session. The session
+        wrote the stanza and called again 27 s after it got the request, with the subject
+        "Third stanza added, poem finished"; audio connected 2.5 s after answering.
    3. Permissions by voice.
    4. A better model on the line.
    5. Call back from the app's call history.
