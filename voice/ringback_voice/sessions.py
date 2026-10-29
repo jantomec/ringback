@@ -10,6 +10,9 @@ During the call, what the voice passes to the session waits here until the sessi
 collects it. When the session has finished with it, the mod brings its answer back as
 news: the voice tells you if you're still on the call, and otherwise the session calls
 again.
+
+The session also learns how each call went: when it ends, or when it isn't answered in time,
+its outcome waits here for the mod too, as a note the session reads rather than a prompt.
 """
 
 import asyncio
@@ -25,7 +28,10 @@ from aiohttp import ClientError, ClientSession, ClientTimeout, web
 from ringback_voice.transcript import Transcript
 
 SOCKET = Path("~/.local/state/ringback/voice.sock").expanduser()
-UNANSWERED = 15 * 60  # seconds a placed call waits to be answered before it's forgotten
+# Seconds a placed call waits to be answered before the session is told it wasn't and the
+# call is forgotten. The phone rings for 30 s, and its push can take about 16 s to arrive
+# after it leaves Wi-Fi. RINGBACK_UNANSWERED overrides it, for checks.
+UNANSWERED = float(os.environ.get("RINGBACK_UNANSWERED", "90"))
 
 
 class Link:
@@ -59,8 +65,9 @@ class Call:
     subject: str
     briefing: str
     placed: float
-    answered: bool = False
+    answered_at: float | None = None  # time.monotonic() when it was answered
     link: Link | None = field(default=None, repr=False)
+    deadline: asyncio.Task | None = field(default=None, repr=False)  # forgets it if it isn't answered
 
 
 class Calls:
@@ -79,7 +86,6 @@ class Calls:
         """Asks the switchboard to ring the phone; raises RuntimeError if it can't."""
         if not self._switchboard:
             raise RuntimeError("the voice server was started without --switchboard")
-        self._forget_unanswered()
         call = Call(secrets.token_urlsafe(24), session, project, cwd, subject, briefing, time.monotonic())
         body = {"project": project, "subject": subject, "voice": f"http://{self._voice}", "call_id": call.id}
         try:
@@ -91,16 +97,17 @@ class Calls:
             raise RuntimeError(f"can't reach the switchboard at {self._switchboard}: {e or type(e).__name__}") from e
         self._calls[call.id] = call
         self._log(f"call {call.id[:8]}: placed for {project} ({session[:8]}): {subject}")
+        call.deadline = asyncio.create_task(self._deadline(call))
         await self._stay_awake()
         return call
 
     def answer(self, call_id: str) -> Call | None:
         """The call an offer answers, if it's one this server placed, with its link to the
         session."""
-        self._forget_unanswered()
         call = self._calls.get(call_id)
         if call:
-            call.answered = True
+            if call.answered_at is None:
+                call.answered_at = time.monotonic()
             transcript = None
             if call.cwd:
                 try:
@@ -113,13 +120,14 @@ class Calls:
         return call
 
     async def end(self, call_id: str) -> None:
-        self._calls.pop(call_id, None)
-        await self._stay_awake()
+        if call := self._calls.get(call_id):
+            await self._forget(call)
 
-    def send(self, session: str, text: str, transcript: str | None = None) -> None:
-        """Keeps a message for a session until its mod collects it."""
-        self._waiting.setdefault(session, []).append({"text": text, "transcript": transcript})
-        self._log(f"for session {session[:8]}: {text!r}")
+    def send(self, session: str, text: str, transcript: str | None = None, kind: str = "message") -> None:
+        """Keeps a message for a session until its mod collects it: what the voice passed on
+        (`message`), or how a call went (`outcome`), which the session reads as a note."""
+        self._waiting.setdefault(session, []).append({"kind": kind, "text": text, "transcript": transcript})
+        self._log(f"{kind} for session {session[:8]}: {text!r}")
 
     def collect(self, session: str) -> list[dict]:
         return self._waiting.pop(session, [])
@@ -133,11 +141,20 @@ class Calls:
                 return True
         return False
 
-    def _forget_unanswered(self) -> None:
-        for call in list(self._calls.values()):
-            if not call.answered and time.monotonic() - call.placed > UNANSWERED:
-                self._log(f"call {call.id[:8]}: not answered, forgotten")
-                del self._calls[call.id]
+    async def _deadline(self, call: Call) -> None:
+        """Forgets a call that isn't answered in time, which tells its session."""
+        await asyncio.sleep(UNANSWERED)
+        if call.answered_at is None and self._calls.get(call.id) is call:
+            self._log(f"call {call.id[:8]}: not answered, forgotten")
+            await self._forget(call)
+
+    async def _forget(self, call: Call) -> None:
+        """Drops a call, answered and ended or never answered: the one place a call goes. Its
+        session is told how it went."""
+        self._calls.pop(call.id, None)
+        transcript = call.link.transcript.relative if call.link and call.link.transcript else None
+        self.send(call.session, outcome(call, transcript), transcript, kind="outcome")
+        await self._stay_awake()
 
     async def _stay_awake(self) -> None:
         """Holds a sleep assertion while any call is placed or in progress."""
@@ -149,10 +166,31 @@ class Calls:
             self._awake = None
 
 
+def outcome(call: Call, transcript: str | None) -> str:
+    """How a call went, for its session to read. If it wasn't answered, the voice server
+    can't tell why; the switchboard's log can."""
+    about = f'The call about "{call.subject}"' if call.subject else "The call"
+    if call.answered_at is None:
+        took = duration(time.monotonic() - call.placed)
+        return f"{about} wasn't answered within {took}: declined, missed, or its audio didn't connect."
+    text = f"{about} was answered and lasted {duration(time.monotonic() - call.answered_at)}."
+    return f"{text} Its transcript: {transcript}" if transcript else text
+
+
+def duration(seconds: float) -> str:
+    """Seconds as written for a person: "45 s", "1 min 5 s", "2 min"."""
+    minutes, seconds = divmod(round(seconds), 60)
+    if not minutes:
+        return f"{seconds} s"
+    return f"{minutes} min {seconds} s" if seconds else f"{minutes} min"
+
+
 def session_side(calls: Calls) -> web.Application:
     """The endpoints the mods call:
     - `POST /calls` places a call with a session's briefing;
-    - `GET /sessions/{id}/messages` collects what waits for a session;
+    - `GET /sessions/{id}/messages` collects what waits for a session: each message has a
+      `kind`, `message` for what the voice passed on and `outcome` for how a call went, its
+      `text`, and the call's `transcript` if there is one;
     - `POST /sessions/{id}/messages` leaves one, as the voice does (for tools);
     - `POST /sessions/{id}/news` brings a session's answer: `{"live": true}` if the voice
       told the call you're on, false if the session should call you.

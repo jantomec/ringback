@@ -1,8 +1,9 @@
 // The ringback mod: `/ringback` switches calling on or off for this session. While it's on,
 // each finished turn has the session write its call briefing, and the voice server on this
 // Mac rings your phone with it. During the call, what you say for the session reaches it as
-// a prompt, and its answer goes back to the call; if you've hung up, it calls again (see
-// "Ringback mod" in docs/design.md).
+// a prompt, and its answer goes back to the call; if you've hung up, it calls again. After
+// each call, the session is told how it went, in a note that starts no turn (see "Ringback
+// mod" in docs/design.md).
 import type { EngineInterface, Register } from 'claude-code'
 
 // What the session is asked to write when a turn ends. The voice, a faster model, talks
@@ -16,10 +17,11 @@ in at most 300 words:
 - what you did and what's new since the developer last heard from you;
 - what needs them: decisions, questions, anything blocked, and what you'd do next;
 - what the voice needs to answer likely questions, such as why you chose something and what \
-you didn't check.
+you didn't check in your work.
 
-It will be spoken, so write plain sentences: no lists, headings, code, tables or links, and \
-round the numbers.`
+Leave out the call itself, such as whether it will reach the developer: you'll be told \
+afterwards how it went. It will be spoken, so write plain sentences: no lists, headings, \
+code, tables or links, and round the numbers.`
 
 // What the session reads when the voice passes something on from the call.
 const fromCall = (text: string, transcript?: string) =>
@@ -31,6 +33,13 @@ ${text}
 Your final answer goes back to the call, where the voice tells the developer; if they've hung \
 up, the session calls them again.${transcript ? ` The call's transcript so far: ${transcript}` : ''}`
 
+// What the session reads about how one of its calls went. It reaches the model inside the
+// next prompt's message, so it says who wrote it: unsigned, Haiku took it for the
+// developer's words and said it hadn't been told.
+const outcomeNote = (text: string) =>
+  `A note from ringback, the mod that calls the developer's phone about this session, on how \
+a call went (the developer didn't write this): ${text}`
+
 let isOn = false
 // The session is writing its briefing, in a turn this mod started.
 let isBriefing = false
@@ -38,6 +47,10 @@ let isCalling = false
 // Collects, once a second, what the voice passed on for this session.
 let collecting: { cancel(): void } | undefined
 let isCollecting = false
+// A turn of the main loop is running: calls' outcomes wait for it to end.
+let isTurning = false
+// Calls' outcomes from the voice server, to add to the conversation between turns.
+const outcomes: string[] = []
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
@@ -64,7 +77,16 @@ export const register: Register = on => {
     isOn ? next({ ...e, props: { ...e.props, tail: isCalling ? '☎ calling your phone…' : '☎ ringback on' } }) : next(e),
   )
 
+  on('turn.start', ($, e, next) => {
+    if (e.agentId === undefined) isTurning = true
+    return next(e)
+  })
+
   on('turn.complete', async ($, e, next) => {
+    if (e.agentId === undefined) {
+      isTurning = false
+      await addOutcomes($)
+    }
     if (isOn && e.agentId === undefined) {
       if (isBriefing) {
         isBriefing = false
@@ -100,20 +122,38 @@ async function finished($: EngineInterface, answer: string): Promise<void> {
   void $.prompt.submit({ text: BRIEFING })
 }
 
-// Submits what the voice passed on for this session, each as a prompt of its own.
+// Submits what the voice passed on for this session, each as a prompt of its own. A call's
+// outcome isn't a prompt: it's added to the conversation.
 async function collect($: EngineInterface): Promise<void> {
   if (!isOn || isCollecting) return
   isCollecting = true
   try {
     const response = await voice($, `/sessions/${await $.session.id()}/messages`)
     if (!response.ok) return
-    for (const m of JSON.parse(response.text).messages as { text: string; transcript?: string }[]) {
-      void $.prompt.submit({ text: fromCall(m.text, m.transcript) })
+    for (const m of JSON.parse(response.text).messages as { kind?: string; text: string; transcript?: string }[]) {
+      if (m.kind === 'outcome') outcomes.push(m.text)
+      else void $.prompt.submit({ text: fromCall(m.text, m.transcript) })
     }
   } catch {
     // The voice server isn't running; nothing can be waiting.
   } finally {
     isCollecting = false
+  }
+  await addOutcomes($)
+}
+
+// Adds the calls' outcomes to the conversation, and shows each to you in a dim line. Claude
+// reads them on its next turn, and adding them starts none, so they can't set off another
+// call. Never while a turn runs: they wait for it to end.
+async function addOutcomes($: EngineInterface): Promise<void> {
+  while (outcomes.length && !isTurning) {
+    const text = outcomes.shift()!
+    $.ui.log(text)
+    try {
+      await $.session.append({ message: { type: 'user', content: [{ type: 'text', text: outcomeNote(text) }] } })
+    } catch (e) {
+      $.ui.log(`couldn't add a call's outcome to the conversation: ${e}`, { to: 'debug' })
+    }
   }
 }
 
