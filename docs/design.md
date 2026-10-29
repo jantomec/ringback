@@ -76,6 +76,13 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      have passed without an answer.
    - It keeps what you say for each session until that session's mod collects it
      (Stage 3).
+   - **Call transcripts** (Stage 3). It writes each call's transcript into the calling
+     session's project, under `.ringback/calls/`: the briefing, your words as recognised,
+     what the voice said and where you cut it off, and what went to the session. The
+     folder holds its own `.gitignore` of `*`, so git ignores it without a change to the
+     project's. Each message from the call ends with the transcript's path, so the
+     session reads it when the message isn't enough. Inside the project, reading it
+     needs no permission prompt, which while you're away would mean another call.
 3. **Switchboard** (a daemon on one always-on Mac on the Nebula network, such as the
    lighthouse):
    - keeps one FIFO queue for the sessions on every Mac and places one call at a time
@@ -386,6 +393,11 @@ Each entry says why it lost and what would make it worth retrying.
   if briefings prove too thin for the voice to answer from.
 - **A separate Haiku call for each call's subject.** The session writes the subject with
   its briefing instead, so nothing extra runs.
+- **Running the voice's Haiku in the project folder, to keep Claude Code's own transcript
+  of the call there.** It would load the project's CLAUDE.md into the voice and add the
+  call to the project's `/resume` list, and that transcript is mostly the voice's
+  instructions and call notes. The voice server writes a plain transcript into the
+  project instead (call transcripts).
 
 ## Open questions
 
@@ -548,7 +560,8 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
       call was refused. Not yet on the phone, nor in an interactive session, where the
       line under the prompt shows.
    2. Replies: what you say reaches the session, questions and answers go both ways, and
-      when the session is done it calls again, or tells the call you're on.
+      when the session is done it calls again, or tells the call you're on. Each call's
+      transcript is saved in the project for the session to read.
    3. Permissions by voice.
    4. A better model on the line.
    5. Call back from the app's call history.
