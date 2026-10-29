@@ -61,6 +61,13 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
    - Once a second, it collects what the voice passed on for the session and submits each
      message to the session as a prompt, with the call transcript's path. A question the
      voice forwards goes the same way, and the session's answer goes back to the call.
+   - **Call outcomes.** After each call, the session is told how it went: answered and how
+     long, with the transcript's path, or not answered within 90 s. The note is added to
+     its conversation, not submitted, so it starts no turn and can't set off another
+     call, and Claude reads it on its next turn. It waits while a turn runs, you see it
+     as a dim line, and it says it's from ringback: Claude Code adds it to the next
+     prompt's message, and unsigned, Haiku took it for your words. So the briefing no
+     longer says whether the call will reach you.
    - When the session needs a permission while ringback is on, the mod holds the tool
      call and puts it to you on a call. Your clear yes or no decides it. If the call
      brings no answer, the usual permission prompt appears in the terminal (Stage 3).
@@ -72,8 +79,15 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      the voice server accepts only an offer that carries the ID of a call it placed. A
      call rung by hand (`ringback-switchboard ring --voice`) is accepted only while the
      server runs with `--report`, and talks about that report.
-   - It holds a sleep assertion from placing a call until the call ends, or until 15 min
-     have passed without an answer.
+   - **Thinking before you answer.** As soon as the switchboard takes the call, it starts
+     the call's Haiku with the briefing, which writes its opening while the phone rings,
+     as a person thinks of what to say while the other side picks up. The call's voice
+     takes that session over when the phone's offer comes.
+   - A call you haven't answered stays placed, with its Haiku, so the phone can offer
+     again; after 90 s it's forgotten, and its session is told it wasn't answered. The
+     voice server can't tell a decline from a missed call or audio that didn't connect;
+     the switchboard's log can. It holds a sleep assertion while a call is placed or in
+     progress.
    - It keeps what the voice passes on for each session until that session's mod
      collects it, and takes the session's answers back as news for the call.
    - **Call transcripts.** It writes each call's transcript into the calling
@@ -161,9 +175,10 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      Haiku's session already holds the whole reply it wrote. So the next message tells it
      where it was cut off, giving the last words you actually heard.
    - Haiku runs as a Claude Code session on the Claude subscription, with no API key.
-     - It starts while the phone rings and stays open until hang-up (`claude -p
-       --input-format stream-json --output-format stream-json`), so it holds the whole
-       call.
+     - On a call for a session it starts when the call is placed (thinking before you
+       answer); on a call rung by hand, when the phone's offer comes. It stays open until
+       hang-up (`claude -p --input-format stream-json --output-format stream-json`), so it
+       holds the whole call.
      - Pipecat has no Claude Code service, so we write one around that process.
      - Measured (`tools/reply-speed`): the first words come about 1.2 s after each of
        your turns (0.9–3.2 s), and 1.0–3.2 s on the first turn, which includes start-up.
@@ -183,6 +198,9 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
        tends to say the same thing again.
      - The session's answer comes back as a note, "[The session: ...]". Pipecat holds it
        until the voice has finished speaking and you aren't, then Haiku tells you.
+     - Before you've said anything, the tool passes nothing and Haiku is told so: once,
+       while the phone rang, Haiku called it in its opening, which stalled the opening
+       8.7 s and passed the session a message nobody had said.
      - Answering a held permission on your clear yes or no comes in step 3 (Stage 3).
    - **A better model** (Stage 3). When you ask for one, the call carries on with Opus,
      with the conversation so far. Its replies take longer.
@@ -208,9 +226,16 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
 6. **iPhone app** (Swift):
    - a PushKit VoIP push triggers CallKit, which rings on the lock screen and in your
      headphones;
-   - when you answer, the app opens the audio connection to the voice server named in the
-     push (`voice` in its payload), over Nebula. The Mac can't open it, because on mobile
-     data only the phone can start a Nebula tunnel (see Stage 0).
+   - while the phone rings, the app opens the audio connection to the voice server named
+     in the push (`voice` in its payload), over Nebula. The Mac can't open it, because on
+     mobile data only the phone can start a Nebula tunnel (see Stage 0).
+     - **Connecting while ringing.** Once the voice server answers (reaching the Mac
+       first, below), the app makes its offer with `"ringing": true`, so the connection is
+       up by the time you answer. Until then it sends no microphone and plays nothing.
+       When you answer, it tells the voice server (`/answered`), which then lets the
+       voice speak. If the ringing offer failed, or you answered before it went, one offer
+       goes after answering, without the flag, and counts as answered. A new offer for a
+       call replaces the earlier one on the Mac.
      - The audio is WebRTC, using Google's WebRTC library directly. Pipecat's iOS client
        would take over the audio session.
      - WebRTC runs in manual-audio mode: CallKit activates the voice-processing audio
@@ -223,8 +248,9 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
        lighthouse was reachable. So from the moment the phone rings, the app tries to
        reach the voice server (`/ping`, 3 s per try) until it answers. Each try sends
        fresh packets, so Nebula notices sooner and goes through the relay. The offer goes
-       once, when the voice server has answered, up to 45 s after you answer; the app
-       reports how long reaching it took and how many tries;
+       when the voice server has answered, while the phone rings or up to 45 s after you
+       answer; the app reports how long reaching it took, how many tries, and whether the
+       connection was made while ringing;
    - During another call (phone, WhatsApp, FaceTime), a ringback call rings as call
      waiting, with iOS's own Hold & Accept, End & Accept and Decline. The app doesn't
      end it by itself. `CXCallObserver` only records that you were on another call.
@@ -418,6 +444,18 @@ Each entry says why it lost and what would make it worth retrying.
   off before hearing any of it, but its messages had already gone, one of them wrong: it
   was written before the second half of your turn arrived. Messages are now held until
   you've heard them announced.
+- **Holding a tool call in the opening until a voice exists.** Haiku's opening is written
+  while the phone rings, and once it called `pass_to_session` there: holding that call
+  stalled the opening 8.7 s, and then passed the session a message nobody had said.
+  Before you've spoken, the tool now passes nothing.
+- **Asking the briefing for what the session didn't check.** It led the session to say it
+  couldn't confirm the call would reach you: 6 of 8 briefings about ringback work said
+  so (`tools/briefing-check`), and scoping the question to the session's work didn't
+  stop it. Without the question, 1 of 14 did. The session is now told afterwards how the
+  call went (call outcomes). Retry if briefings prove too thin on what wasn't verified.
+- **Unsigned call-outcome notes.** Claude Code adds a note to the next prompt's message,
+  so Haiku took the note for your words and said it had been told nothing (2 of 2
+  sessions). Notes now say they're from ringback.
 - **A separate Haiku call for each call's subject.** The session writes the subject with
   its briefing instead, so nothing extra runs.
 - **Running the voice's Haiku in the project folder, to keep Claude Code's own transcript
@@ -442,6 +480,12 @@ Each entry says why it lost and what would make it worth retrying.
   that hasn't yet met a stale tunnel: in the next call the Mac answered the first try,
   0.8 s into ringing. If it's still too slow, audio takes that long to start, up to the
   45 s the app waits.
+- Every placed call now costs a Haiku opening on the subscription, even if you decline
+  it, and a declined call keeps its Haiku and the Mac awake until it's forgotten after
+  90 s.
+- With the connection made while ringing, WebRTC's audio starts on an already open
+  connection when CallKit activates the audio session, and silence received while
+  ringing could delay or rush the opening's first second. Neither has run on the phone.
 - Pipecat expects a WebRTC data channel and logs a warning without one. Nothing needs one
   yet: the interruption settings go with the offer.
 - Xcode needs device support for the phone's iOS version to install development builds.
@@ -625,6 +669,18 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         call back, and hung up 2 s after the request went to the session. The session
         wrote the stanza and called again 27 s after it got the request, with the subject
         "Third stanza added, poem finished"; audio connected 2.5 s after answering.
+      - **A faster start, and call outcomes** (built after these phone tests; tried
+        offline, not yet on the phone):
+        - Silence after you answer (`tools/phone-check`, the phone's side played on this
+          Mac with aiortc, 6 s of ringing): with the offer made while ringing, a median
+          0.58 s (0.53–0.67 s, eight runs); with Haiku started at the offer, as before, a
+          median 2.6–2.8 s. Here WebRTC connects in about 0.06 s; on the phone it took
+          2.5–2.8 s, and the silence was 3.3–4.0 s. Connecting while ringing should take
+          both parts out of the silence on the phone too; untested.
+        - Call outcomes (`tools/session-check`, five runs): both calls' outcomes, not
+          answered, reached the session within 40 s, started no turn and no call, and
+          asked at the prompt, the session quoted them. The "answered" outcome was only
+          tried outside a session.
    3. Permissions by voice.
    4. A better model on the line.
    5. Call back from the app's call history.

@@ -103,7 +103,12 @@ session did and what needs you, which the voice talks about instead. It's read a
 every call, so you can change it between calls.
 
 To try a change without the phone, `tools/call-check` plays a scripted call through the
-same pipeline.
+same pipeline, and `tools/phone-check` plays the phone's side of whole calls and times the
+silence after you answer. `--socket PATH` moves the session socket, for running a second
+voice server beside your own.
+
+The app and the voice server change together: since the app connects while the phone
+rings, a voice server without `/answered` stays silent on its calls. Update both.
 
 ## 5. The ringback mod (every Mac that runs sessions)
 

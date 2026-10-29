@@ -374,8 +374,9 @@ async def main() -> int:
                     firsts[kind].append(float(m[1]))
 
         async def for_the_session() -> list[str]:
+            """What the voice passed to the session; calls' outcomes, also queued for it, aren't."""
             async with socket_side.get(f"http://voice/sessions/{SESSION}/messages") as r:
-                return [m["text"] for m in (await r.json())["messages"]]
+                return [m["text"] for m in (await r.json())["messages"] if m.get("kind", "message") == "message"]
 
         stray = await for_the_session()
         check(f"nothing reached the session from calls where you said nothing: {stray}", not stray)

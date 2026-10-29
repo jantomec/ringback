@@ -65,6 +65,10 @@ hanging up.
 With 2 s from placing to answering, before Haiku's opening is ready (three runs, all 24
 checks passed): ringing 0.58–1.01 s, answered 0.62–1.60 s, by hand 2.90–3.01 s.
 
+After merging with the call-outcome notes, which are queued for the session too and which
+the check therefore leaves out (three runs of each kind, all 24 checks passed): ringing
+median 0.58 s (0.58–0.67), answered 0.65 s (0.62–0.68), by hand 2.60 s (2.28–2.92).
+
 In an earlier version, a tool call Haiku made in its opening waited for the call's voice.
 Once, the opening stalled 8.7 s on it, and a message nobody had said reached the session.
 Now a tool call in the opening passes nothing and is answered at once (`haiku.py`).

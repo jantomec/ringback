@@ -25,7 +25,8 @@ phone. See
 - `switchboard/`: rings the phone and logs what happened to each call;
 - `voice/`: the voice of a call, on the Mac whose session is calling;
 - `tools/`: checks for Nebula, for choosing speech-to-text and speech, for how fast Haiku
-  replies, and for playing a scripted call or a session's call without the phone.
+  replies, for what briefings say, and for playing a scripted call, a session's calls or
+  the phone's side of a call without the phone.
 
 ## License
 
