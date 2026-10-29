@@ -4,7 +4,9 @@ passes between a call and its session.
 Each Mac's sessions reach their voice server over a Unix socket that only you can open (see
 "Voice server's session side" in docs/design.md). For each briefing it makes a random call
 ID, the call's secret, and asks the switchboard to ring the phone with it. The ID reaches
-the phone only through Apple's push, and the offer that answers the call must carry it.
+the phone only through Apple's push, and the phone's offer must carry it. Haiku starts on
+the call's opening as soon as the switchboard takes the call, so it's written while the
+phone rings. The phone can make its offer while it rings, and says when you've answered.
 
 During the call, what the voice passes to the session waits here until the session's mod
 collects it. When the session has finished with it, the mod brings its answer back as
@@ -25,6 +27,8 @@ from pathlib import Path
 
 from aiohttp import ClientError, ClientSession, ClientTimeout, web
 
+from ringback_voice.haiku import Haiku
+from ringback_voice.instructions import instructions
 from ringback_voice.transcript import Transcript
 
 SOCKET = Path("~/.local/state/ringback/voice.sock").expanduser()
@@ -65,8 +69,11 @@ class Call:
     subject: str
     briefing: str
     placed: float
-    answered_at: float | None = None  # time.monotonic() when it was answered
-    link: Link | None = field(default=None, repr=False)
+    answered_at: float | None = None  # when you answered (time.monotonic())
+    link: Link | None = field(default=None, repr=False)  # from the phone's offer on
+    # Haiku, writing the opening while the phone rings, for the call's voice; closed when the
+    # call ends or is forgotten.
+    haiku: Haiku | None = field(default=None, repr=False)
     deadline: asyncio.Task | None = field(default=None, repr=False)  # forgets it if it isn't answered
 
 
@@ -81,6 +88,7 @@ class Calls:
         self._calls: dict[str, Call] = {}
         self._waiting: dict[str, list[dict]] = {}  # messages for each session
         self._awake: asyncio.subprocess.Process | None = None
+        self._closing: set[asyncio.Task] = set()  # Haikus of forgotten calls, while they close
 
     async def place(self, session: str, project: str, cwd: str, subject: str, briefing: str) -> Call:
         """Asks the switchboard to ring the phone; raises RuntimeError if it can't."""
@@ -97,26 +105,44 @@ class Calls:
             raise RuntimeError(f"can't reach the switchboard at {self._switchboard}: {e or type(e).__name__}") from e
         self._calls[call.id] = call
         self._log(f"call {call.id[:8]}: placed for {project} ({session[:8]}): {subject}")
+        # Haiku thinks of what to say while the phone rings, so the voice can start as soon
+        # as you answer.
+        say = lambda line: self._log(f"call {call.id[:8]}: {line}")
+        haiku = Haiku(instructions(briefing, session=True), say, tools=True)
+        try:
+            await haiku.start()
+            call.haiku = haiku
+        except OSError as e:
+            self._log(f"call {call.id[:8]}: Haiku didn't start ({e}); the call starts its own")
+            await haiku.close()
         call.deadline = asyncio.create_task(self._deadline(call))
         await self._stay_awake()
         return call
 
-    def answer(self, call_id: str) -> Call | None:
-        """The call an offer answers, if it's one this server placed, with its link to the
-        session."""
+    def offer(self, call_id: str) -> Call | None:
+        """The call an offer is for, if it's one this server placed, with its link to the
+        session. The offer can come while the phone still rings, and a call you haven't
+        answered stays placed until it's forgotten, so the phone can offer again."""
         call = self._calls.get(call_id)
-        if call:
-            if call.answered_at is None:
-                call.answered_at = time.monotonic()
-            transcript = None
-            if call.cwd:
+        if call and not call.link:
+            # The transcript joins the link when you answer.
+            link = Link(
+                lambda text: self.send(call.session, text, link.transcript.relative if link.transcript else None)
+            )
+            call.link = link
+        return call
+
+    def answered(self, call_id: str) -> Call | None:
+        """Marks an offered call you've answered, once, and starts its transcript, so a call
+        you don't answer leaves none."""
+        call = self._calls.get(call_id)
+        if call and call.answered_at is None:
+            call.answered_at = time.monotonic()
+            if call.cwd and call.link:
                 try:
-                    transcript = Transcript(Path(call.cwd), call.subject, call.briefing)
+                    call.link.transcript = Transcript(Path(call.cwd), call.subject, call.briefing)
                 except OSError as e:
                     self._log(f"call {call_id[:8]}: no transcript ({e})")
-            call.link = Link(
-                lambda text: self.send(call.session, text, transcript.relative if transcript else None), transcript
-            )
         return call
 
     async def end(self, call_id: str) -> None:
@@ -135,7 +161,8 @@ class Calls:
     async def news(self, session: str, text: str) -> bool:
         """Tells the call you're on with a session its news; False if there's no such call."""
         for call in self._calls.values():
-            if call.session == session and call.link and call.link.notify:
+            # Not while the phone rings: the voice can tell you only once you've answered.
+            if call.session == session and call.answered_at is not None and call.link and call.link.notify:
                 await call.link.news(text)
                 return True
         return False
@@ -149,8 +176,15 @@ class Calls:
 
     async def _forget(self, call: Call) -> None:
         """Drops a call, answered and ended or never answered: the one place a call goes. Its
-        session is told how it went."""
+        session is told how it went, and the Haiku that wrote its opening is closed."""
         self._calls.pop(call.id, None)
+        if call.deadline and call.deadline is not asyncio.current_task():
+            call.deadline.cancel()
+        if call.haiku:
+            closing = asyncio.create_task(call.haiku.close())
+            self._closing.add(closing)
+            closing.add_done_callback(self._closing.discard)
+            call.haiku = None
         transcript = call.link.transcript.relative if call.link and call.link.transcript else None
         self.send(call.session, outcome(call, transcript), transcript, kind="outcome")
         await self._stay_awake()
@@ -242,15 +276,15 @@ def session_side(calls: Calls) -> web.Application:
     return app
 
 
-async def listen(app: web.Application) -> web.AppRunner:
-    """Serves app on SOCKET, which only you can open."""
-    SOCKET.parent.mkdir(parents=True, exist_ok=True)
-    SOCKET.unlink(missing_ok=True)
+async def listen(app: web.Application, path: Path = SOCKET) -> web.AppRunner:
+    """Serves app on a Unix socket at path, which only you can open."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.unlink(missing_ok=True)
     runner = web.AppRunner(app)
     await runner.setup()
     old = os.umask(0o177)  # the socket is created readable and writable by you alone
     try:
-        await web.UnixSite(runner, str(SOCKET)).start()
+        await web.UnixSite(runner, str(path)).start()
     finally:
         os.umask(old)
     return runner

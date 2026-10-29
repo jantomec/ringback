@@ -1,9 +1,13 @@
-"""ringback-voice serve --listen HOST:PORT [--switchboard HOST:PORT] [--report FILE]
+"""ringback-voice serve --listen HOST:PORT [--switchboard HOST:PORT] [--report FILE] [--socket PATH]
 
 The voice side of a call, on the Mac whose session is calling. A session's ringback mod
-gives it a briefing over a Unix socket (sessions.py), and it asks the switchboard to ring
-the phone. When you answer, the phone posts its WebRTC offer here over Nebula (on mobile
-data only the phone can open a tunnel), with the call's ID.
+gives it a briefing over a Unix socket (sessions.py, at PATH), and it asks the switchboard
+to ring the phone, while Haiku thinks of what to say. The phone posts its WebRTC offer here
+over Nebula (on mobile data only the phone can open a tunnel), with the call's ID: while it
+rings, marked "ringing", and then it posts to /answered when you answer; or, from an older
+app, once you've answered. The voice opens when you've answered and audio is connected. A
+new offer for the same call replaces the earlier one, as when an offer made while ringing
+didn't connect.
 
 The call is a conversation: Parakeet v2 hears you, Haiku answers in a Claude Code session
 that stays open for the call, and Kokoro speaks the answer in growing pieces. You can
@@ -26,7 +30,7 @@ from loguru import logger
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMMessagesAppendFrame, LLMRunFrame
+from pipecat.frames.frames import BotStartedSpeakingFrame, LLMMessagesAppendFrame, LLMRunFrame
 from pipecat.observers.user_bot_latency_observer import UserBotLatencyObserver
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -45,6 +49,7 @@ from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from ringback_voice import hearing, models, sessions
 from ringback_voice.claude_code import ClaudeCodeLLMService
+from ringback_voice.haiku import Haiku
 from ringback_voice.instructions import instructions
 from ringback_voice.kokoro import KokoroTTSService
 from ringback_voice.parakeet import ParakeetSTTService
@@ -67,6 +72,15 @@ def log(line: str) -> None:
     print(f"{datetime.now():%H:%M:%S.%f}"[:-3] + f"  {line}", flush=True)
 
 
+class Offer:
+    """An offer the phone made for a call, while its pipeline runs."""
+
+    def __init__(self):
+        self.answered: asyncio.Future[float] = asyncio.get_running_loop().create_future()  # when you answered
+        self.replaced = asyncio.Event()  # a new offer for the same call replaces this one
+        self.ended = asyncio.Event()  # its pipeline has ended
+
+
 def call_task(
     transport: BaseTransport,
     report: str | None,
@@ -75,9 +89,11 @@ def call_task(
     sensitivity: float = hearing.SENSITIVITY,
     gate: float = hearing.GATE,
     link: sessions.Link | None = None,
+    haiku: Haiku | None = None,
 ) -> PipelineTask:
     """The conversation, between transport's input and output. With a link, the voice can
-    pass messages to the session, and the session's news reaches the call."""
+    pass messages to the session, and the session's news reaches the call. Haiku is the
+    session the call started already, if it did."""
     timeline = Timeline()
     end_of_turn = LocalSmartTurnAnalyzerV3(params=SmartTurnParams(stop_secs=turn_wait))
     vad = hearing.thresholds(sensitivity, gate)
@@ -94,7 +110,7 @@ def call_task(
         transport.input(),
         ParakeetSTTService(say),
         user,
-        ClaudeCodeLLMService(instructions(report, session=link is not None), timeline, say, link),
+        ClaudeCodeLLMService(instructions(report, session=link is not None), timeline, say, link, haiku),
         Pieces(timeline, say),
         KokoroTTSService(timeline, say),
         transport.output(),
@@ -139,26 +155,58 @@ async def run_call(
     text: str | None,
     sensitivity: float,
     gate: float,
+    offer: Offer,
     link: sessions.Link | None = None,
+    haiku: Haiku | None = None,
 ) -> None:
+    """A call from the phone's offer until it hangs up, or a new offer replaces this one. The
+    voice opens once you've answered and audio is connected, whichever comes last."""
+    answered = offer.answered
     say = lambda line: log(f"call {call}: {line}")
     since = lambda: f"{time.monotonic() - t0:.2f} s after the offer"
     transport = SmallWebRTCTransport(
         webrtc_connection=conn, params=TransportParams(audio_in_enabled=True, audio_out_enabled=True)
     )
-    task = call_task(transport, text, say, sensitivity=sensitivity, gate=gate, link=link)
+    task = call_task(transport, text, say, sensitivity=sensitivity, gate=gate, link=link, haiku=haiku)
+    connected = asyncio.Event()
+    started = False
 
     @transport.event_handler("on_client_connected")
-    async def connected(transport, connection):
+    async def on_connected(transport, connection):
         say(f"connected, {since()}")
-        await task.queue_frames([LLMRunFrame()])
+        connected.set()
 
     @transport.event_handler("on_client_disconnected")
     async def disconnected(transport, connection):
         say("disconnected")
         await task.cancel()
 
-    await PipelineRunner(handle_sigint=False).run(task)
+    task.add_reached_downstream_filter((BotStartedSpeakingFrame,))
+
+    @task.event_handler("on_frame_reached_downstream")
+    async def speaking(task, frame):
+        nonlocal started
+        if not started and answered.done():
+            started = True
+            say(f"voice started {time.monotonic() - answered.result():.2f} s after you answered")
+
+    async def opening():
+        await asyncio.shield(answered)
+        await connected.wait()
+        if not offer.replaced.is_set():
+            await task.queue_frames([LLMRunFrame()])
+
+    async def replaced():
+        await offer.replaced.wait()
+        say("replaced by a new offer")
+        await task.cancel()
+
+    waiting = [asyncio.create_task(opening()), asyncio.create_task(replaced())]
+    try:
+        await PipelineRunner(handle_sigint=False).run(task)
+    finally:
+        for waiter in waiting:
+            waiter.cancel()
     say("finished")
 
 
@@ -178,22 +226,38 @@ def main() -> None:
     serve.add_argument("--listen", required=True, help="this Mac's Nebula address and port, e.g. 10.0.0.1:8788")
     serve.add_argument("--switchboard", help="the switchboard's Nebula address and port, e.g. 10.0.0.1:8787")
     serve.add_argument("--report", type=Path, help="what the voice reports on a call rung by hand, read for every call")
+    serve.add_argument(
+        "--socket", type=Path, default=sessions.SOCKET,
+        help="the Unix socket where sessions' mods reach it (default ~/.local/state/ringback/voice.sock)",
+    )  # fmt: skip
     args = p.parse_args()
 
     logger.remove()
     logger.add(sys.stderr, level="WARNING")
     calls = sessions.Calls(args.switchboard, args.listen, log)
+    # The latest offer for each call, while its pipeline runs.
+    offered: dict[str, Offer] = {}
+
+    def mark_answered(call_id: str) -> None:
+        answered = offered[call_id].answered
+        if answered.done():
+            return
+        log(f"call {call_id[:8]}: answered")
+        call = calls.answered(call_id)
+        if call and call.link and call.link.transcript:
+            log(f"call {call_id[:8]}: transcript {call.link.transcript.path}")
+        answered.set_result(time.monotonic())
 
     async def offer(request: web.Request) -> web.Response:
         body = await request.json()
         t0 = time.monotonic()
         call_id = str(body.get("call_id", ""))
-        call = calls.answer(call_id)
-        link = None
+        # Made while the phone rings; an offer without it comes once you've answered.
+        ringing = body.get("ringing") is True
+        call = calls.offer(call_id)
+        link = haiku = None
         if call:
             text, link = call.briefing, call.link
-            if link and link.transcript:
-                log(f"call {call_id[:8]}: transcript {link.transcript.path}")
         elif args.report:
             # A call rung by hand, to try the voice: it can't reach any session.
             try:
@@ -208,16 +272,53 @@ def main() -> None:
         gate = setting(body, "background_filter", hearing.GATE)
         conn = SmallWebRTCConnection()
         await conn.initialize(sdp=body["sdp"], type=body["type"])
+        if earlier := offered.get(call_id):
+            # The phone gave up on its earlier offer, such as one made while it rang that
+            # didn't connect. This one replaces it, and its voice stops using the call's Haiku.
+            log(f"call {call_id[:8]}: a new offer replaces the earlier one")
+            earlier.replaced.set()
+            if call:
+                try:
+                    await asyncio.wait_for(earlier.ended.wait(), 5)
+                except TimeoutError:
+                    pass
+        if call:
+            if call.haiku and (call.haiku.used or (earlier and not earlier.ended.is_set())):
+                # A voice has read its replies already, so this offer's voice starts its own.
+                await call.haiku.close()
+                call.haiku = None
+            haiku = call.haiku
+        this = offered[call_id] = Offer()
+        if not ringing:
+            mark_answered(call_id)
 
         async def talk():
             try:
-                await run_call(conn, call_id[:8], t0, text, sensitivity, gate, link)
+                await run_call(conn, call_id[:8], t0, text, sensitivity, gate, this, link, haiku)
             finally:
-                await calls.end(call_id)
+                if not this.replaced.is_set():
+                    del offered[call_id]
+                    # A call you haven't answered stays placed until it's forgotten, so the
+                    # phone can offer again.
+                    if this.answered.done():
+                        await calls.end(call_id)
+                this.ended.set()
 
         asyncio.create_task(talk())
-        log(f"call {call_id[:8]}: offer answered in {time.monotonic() - t0:.2f} s")
+        log(f"call {call_id[:8]}: offer answered in {time.monotonic() - t0:.2f} s{', ringing' if ringing else ''}")
         return web.json_response(conn.get_answer())
+
+    async def answer(request: web.Request) -> web.Response:
+        """You answered a call whose offer came while the phone rang."""
+        try:
+            call_id = str((await request.json()).get("call_id", ""))
+        except (ValueError, AttributeError):
+            return web.json_response({"error": "needs call_id"}, status=400)
+        if call_id not in offered:
+            log(f"call {call_id[:8]}: answered, but no offer for it")
+            return web.json_response({"error": "unknown call"}, status=404)
+        mark_answered(call_id)
+        return web.json_response({"ok": True})
 
     async def serve_forever():
         async def ping(request: web.Request) -> web.Response:
@@ -225,13 +326,13 @@ def main() -> None:
             return web.json_response({"ok": True})
 
         app = web.Application()
-        app.add_routes([web.post("/offer", offer), web.get("/ping", ping)])
+        app.add_routes([web.post("/offer", offer), web.post("/answered", answer), web.get("/ping", ping)])
         runner = web.AppRunner(app)
         await runner.setup()
         host, port = args.listen.rsplit(":", 1)
         await web.TCPSite(runner, host, int(port)).start()
-        await sessions.listen(sessions.session_side(calls))
-        log(f"voice listening on {args.listen}, and for sessions on {sessions.SOCKET}")
+        await sessions.listen(sessions.session_side(calls), args.socket)
+        log(f"voice listening on {args.listen}, and for sessions on {args.socket}")
         await asyncio.Event().wait()
 
     t = time.monotonic()
