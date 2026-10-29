@@ -2,9 +2,10 @@
 // each finished turn has the session write its call briefing, and the voice server on this
 // Mac rings your phone with it. During the call, what you say for the session reaches it as
 // a prompt, and its answer goes back to the call; if you've hung up, it calls again. After
-// each call, the session is told how it went, in a note that starts no turn (see "Ringback
+// each call, the session is told how it went, in a note that starts no turn. A permission
+// prompt, or a question the session asks you, is put to you on a call first (see "Ringback
 // mod" in docs/design.md).
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, HttpResponse, Register } from 'claude-code'
 
 // What the session is asked to write when a turn ends. The voice, a faster model, talks
 // about it on the call and knows nothing else about the session.
@@ -39,6 +40,23 @@ const outcomeNote = (text: string) =>
   `A note from ringback, the mod that calls the developer's phone about this session, on how \
 a call went (the developer didn't write this): ${text}`
 
+// What the session reads beside the answers to its questions, when they came from a call.
+const answeredNote = (said: string) =>
+  `A note from ringback, the mod that calls the developer's phone about this session: the \
+developer answered these questions on a call. Their words, as speech recognition heard them: "${said}"`
+
+// Why a held tool call was allowed or refused: the model reads it on a refusal.
+const onCall = (what: string, said?: string | null) =>
+  said ? `${what} on a ringback call: "${said}"` : `${what} on a ringback call.`
+
+// Tools whose dialog an allow from a hook doesn't dismiss: a question put to you, which goes
+// to the call through `tool.call` instead, and a plan to approve.
+const PERSON_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
+
+// How long a permission or a question waits for your answer from a call before the terminal
+// asks instead.
+const HOLD_MS = 15 * 60_000
+
 let isOn = false
 // The session is writing its briefing, in a turn this mod started.
 let isBriefing = false
@@ -50,6 +68,8 @@ let isCollecting = false
 let isTurning = false
 // Calls' outcomes from the voice server, to add to the conversation between turns.
 const outcomes: string[] = []
+// The permissions and questions put to you on a call and still waiting: each one's stop.
+const holds = new Set<(why?: string) => void>()
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
@@ -66,6 +86,8 @@ export const register: Register = on => {
     isBriefing = false
     collecting?.cancel()
     collecting = isOn ? $.clock.every(1000, () => collect($)) : undefined
+    // What's waiting for your answer from a call goes back to the terminal.
+    if (!isOn) for (const stop of holds) stop('Ringback is off')
     $.ui.invalidate('ui.render')
     return { text: isOn ? 'Ringback is on: this session calls your phone when it finishes.' : 'Ringback is off.' }
   })
@@ -73,8 +95,43 @@ export const register: Register = on => {
   // While it's on, the dim line under the prompt says so, where Remote Control shows too.
   // A placeholder until ringback has an icon.
   on('ui.render', { component: 'PromptHint' }, ($, e, next) =>
-    isOn ? next({ ...e, props: { ...e.props, tail: isCalling ? '☎ calling your phone…' : '☎ ringback on' } }) : next(e),
+    isOn
+      ? next({
+          ...e,
+          props: {
+            ...e.props,
+            tail: holds.size ? '☎ asking you on the phone…' : isCalling ? '☎ calling your phone…' : '☎ ringback on',
+          },
+        })
+      : next(e),
   )
+
+  // A permission prompt, while it's on, is put to you on a call first: your yes or no there
+  // decides it. Without one, the prompt appears in the terminal as usual. A failure here
+  // leaves `decided`, the verdict without the mod, so it never allows by mistake.
+  on('tool.check', async ($, e, next) => {
+    const decided = await next(e)
+    // A query (`$.tool.check`) has no `tool_use_id`: there's no call to hold.
+    if (!isOn || decided.decision !== 'ask' || e.tool_use_id === undefined || PERSON_TOOLS.has(e.tool)) {
+      return decided
+    }
+    const answer = await hold($, 'permissions', await permission($, e.tool, e.input, decided.reason), next.signal)
+    if (answer?.verdict === 'allow') return { decision: 'allow', reason: onCall('The developer allowed it', answer.said) }
+    if (answer?.verdict === 'deny') return { decision: 'deny', reason: onCall('The developer said no', answer.said) }
+    return decided
+  })
+
+  // So is a question the session asks you: your answers come back as the dialog's would, so
+  // the dialog never shows. Without them, it shows in the terminal as usual.
+  on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
+    if (!isOn) return next(e)
+    const answer = await hold($, 'questions', await questions($, e.questions), next.signal)
+    if (!answer?.answers) return next(e)
+    return {
+      result: { questions: e.questions, answers: answer.answers },
+      ...(answer.said ? { context: [answeredNote(answer.said)] } : {}),
+    }
+  })
 
   on('turn.start', ($, e, next) => {
     if (e.agentId === undefined) isTurning = true
@@ -99,9 +156,9 @@ export const register: Register = on => {
 }
 
 // The voice server on this Mac, over a socket only you can open.
-async function voice($: EngineInterface, path: string, body?: object) {
+async function voice($: EngineInterface, path: string, body?: object, method = body ? 'POST' : 'GET') {
   return $.http.fetch(`http://voice${path}`, {
-    method: body ? 'POST' : 'GET',
+    method,
     headers: { 'content-type': 'application/json' },
     body: body && JSON.stringify(body),
     socketPath: `${await $.env.get('HOME')}/.local/state/ringback/voice.sock`,
@@ -165,7 +222,7 @@ async function call($: EngineInterface, answer: string): Promise<void> {
   const cwd = await $.session.cwd()
   const body = {
     session_id: await $.session.id(),
-    project: cwd.split('/').filter(Boolean).pop() ?? 'Claude',
+    project: projectOf(cwd),
     cwd,
     subject,
     briefing,
@@ -180,6 +237,144 @@ async function call($: EngineInterface, answer: string): Promise<void> {
   } finally {
     isCalling = false
     $.ui.invalidate('ui.render')
+  }
+}
+
+const projectOf = (cwd: string) => cwd.split('/').filter(Boolean).pop() ?? 'Claude'
+
+// The voice server's answer: what a permission or question resolved to.
+type Answer = { verdict?: string; status?: string; answers?: Record<string, string> | null; said?: string | null }
+
+// Puts a permission or a question to you on a call, and waits for your answer: long-polls the
+// voice server until it has one, ringback is switched off, the tool call is abandoned or
+// 15 min pass. Unanswered, it's withdrawn, and the terminal asks instead (undefined). A
+// long-poll is a call on `$`, so its wait doesn't count against the hook's 10 s; a
+// `$.clock.sleep` would, so there's none.
+async function hold(
+  $: EngineInterface,
+  kind: 'permissions' | 'questions',
+  body: { subject: string },
+  signal: AbortSignal,
+): Promise<Answer | undefined> {
+  // Why the terminal asks after all, shown in a dim line.
+  let why = 'No answer from the phone'
+  let stop: (reason?: string) => void = () => {}
+  const stopped = new Promise<Reply>(resolve => {
+    stop = reason => {
+      if (reason) why = reason
+      resolve({})
+    }
+  })
+  const timer = $.clock.after(HOLD_MS, () => stop('No answer from the phone in 15 min'))
+  const abandoned = () => stop()
+  signal.addEventListener('abort', abandoned)
+  if (signal.aborted) stop()
+  holds.add(stop)
+  $.ui.invalidate('ui.render')
+  $.ui.log(`Asking you on the phone: ${body.subject}`)
+  const id = kind === 'permissions' ? 'permission' : 'question'
+  let path = ''
+  let created: Promise<Reply> | undefined
+  let answer: Answer | undefined
+  try {
+    path = `/sessions/${await $.session.id()}/${kind}`
+    created = reply(voice($, path, body))
+    const { value, error } = await Promise.race([created, stopped])
+    if (!value) {
+      if (error) why = `Couldn't ask you on the phone: ${error}`
+      return undefined
+    }
+    while (true) {
+      const polled = await Promise.race([reply(voice($, `${path}/${value[id]}?wait=25`)), stopped])
+      const got: Answer | undefined = polled.value
+      if (got?.verdict === 'allow' || got?.verdict === 'deny' || (got?.status === 'answered' && got.answers)) {
+        answer = got
+        return answer
+      }
+      if (polled.error) why = `Lost the phone's answer: ${polled.error}`
+      // `none`, a failed request, or stopped.
+      if (got?.verdict !== 'pending' && got?.status !== 'pending') return undefined
+    }
+  } finally {
+    timer.cancel()
+    signal.removeEventListener('abort', abandoned)
+    holds.delete(stop)
+    $.ui.invalidate('ui.render')
+    if (!answer) {
+      // Withdrawn where it was made, once it's made: switched off while the voice server was
+      // still placing the call, it's withdrawn when that answers.
+      void created?.then(({ value }) => value && voice($, `${path}/${value[id]}`, undefined, 'DELETE').catch(() => {}))
+      if (!signal.aborted) $.ui.log(`${why}, so it's asked here.`)
+    }
+  }
+}
+
+// What the voice server answered, parsed, or why it didn't.
+type Reply = { value?: any; error?: string }
+
+async function reply(response: Promise<HttpResponse>): Promise<Reply> {
+  try {
+    const r = await response
+    if (r.ok) return { value: JSON.parse(r.text) }
+    return { error: errorOf(r.text) ?? `the voice server answered ${r.status}` }
+  } catch {
+    return { error: "the voice server isn't running (ringback-voice serve)" }
+  }
+}
+
+// A permission as the voice puts it to you: what the tool would do, and what the session was
+// doing.
+async function permission($: EngineInterface, tool: string, input: unknown, reason?: string) {
+  const args = (input ?? {}) as Record<string, unknown>
+  const path = [args.file_path, args.notebook_path].find(p => typeof p === 'string') as string | undefined
+  const file = path?.split('/').pop() || 'a file'
+  const subjects: Record<string, string> = {
+    Bash: 'Permission to run a shell command',
+    Edit: `Permission to edit ${file}`,
+    NotebookEdit: `Permission to edit ${file}`,
+    Write: `Permission to write ${file}`,
+    Read: `Permission to read ${file}`,
+  }
+  const json = JSON.stringify(input, null, 2) ?? ''
+  return {
+    tool,
+    description: (tool === 'Bash' && typeof args.description === 'string' && args.description) || reason || '',
+    input: json.length > 2000 ? `${json.slice(0, 2000)}…` : json,
+    ...(await doing($)),
+    subject: (subjects[tool] ?? `Permission to use ${tool.replace(/^mcp__/, '').replace(/__/g, ' ')}`).slice(0, 80),
+  }
+}
+
+// The session's questions as the voice puts them to you, with what it was doing.
+async function questions(
+  $: EngineInterface,
+  asked: readonly { question: string; header: string; options?: readonly { label: string; description?: string }[]; multiSelect: boolean }[],
+) {
+  return {
+    questions: asked.map(q => ({
+      question: q.question,
+      header: q.header,
+      options: (q.options ?? []).map(o => ({ label: o.label, description: o.description ?? '' })),
+      multiSelect: q.multiSelect,
+    })),
+    ...(await doing($)),
+    subject: (asked.length === 1 ? `Question: ${asked[0]?.header}` : `${asked.length} questions: ${asked.map(q => q.header).join(', ')}`).slice(0, 80),
+  }
+}
+
+// What the session was doing, from its latest text (the end of it, if long), and where.
+async function doing($: EngineInterface) {
+  let context = ''
+  try {
+    context = (await $.session.messages()).findLast(m => m.role === 'assistant' && m.text.trim())?.text.trim() ?? ''
+  } catch {
+    // No context: the voice still has the request.
+  }
+  const cwd = await $.session.cwd()
+  return {
+    context: context.length > 1500 ? `…${context.slice(-1500)}` : context,
+    project: projectOf(cwd),
+    cwd,
   }
 }
 
