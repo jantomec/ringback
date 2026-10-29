@@ -23,7 +23,23 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     ) -> Bool {
         // A VoIP push relaunches the app in the background, so PushKit must be set up at launch.
         _ = push
+        application.registerForRemoteNotifications()
         return true
+    }
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        state.notificationToken = deviceToken.map { String(format: "%02x", $0) }.joined()
+        Task { await push.connect() }
+    }
+
+    /// The switchboard's background push for a connection check.
+    func application(
+        _ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completion: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        guard userInfo["check"] != nil else { return completion(.noData) }
+        let token = state.token
+        Task { completion(await ConnectionCheck.run(token: token) ? .newData : .failed) }
     }
 
     func applicationWillTerminate(_ application: UIApplication) {

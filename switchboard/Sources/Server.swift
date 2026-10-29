@@ -1,8 +1,9 @@
 import Foundation
 
-/// The HTTP endpoints the phone talks to over Nebula: `/register` and `/events`. Requests are
-/// small and rare, so they're handled one at a time. Each gets at most 5 s, so a stalled
-/// connection can't hold the next request past the app's 10 s timeout.
+/// The HTTP endpoints the phone talks to over Nebula: `/register`, `/events` and `/check`.
+/// Requests are small and rare, so they're handled one at a time. Each gets at most 5 s, so a
+/// stalled connection can't hold the next request past the app's 10 s timeout. Meanwhile it
+/// asks the phones to check their connection (Check.swift).
 func serve(listen address: String) -> Never {
     guard let colon = address.lastIndex(of: ":"), let port = UInt16(address[address.index(after: colon)...]) else {
         fail("listen must be HOST:PORT, not \(address)")
@@ -26,6 +27,7 @@ func serve(listen address: String) -> Never {
         fail("can't listen on \(address): \(String(cString: strerror(errno)))")
     }
     log("switchboard listening on \(address)")
+    checkPeriodically()
 
     var limit = timeval(tv_sec: 5, tv_usec: 0)
     while true {
@@ -50,7 +52,9 @@ private struct BadRequest: Error {}
 
 /// Runs the endpoint a request asks for. The phone only checks for a 200.
 private func answer(_ request: Request?) -> (String, String) {
-    let endpoints: [Substring: ([String: Any]) throws -> Void] = ["/register": register, "/events": event]
+    let endpoints: [Substring: ([String: Any]) throws -> Void] = [
+        "/register": register, "/events": event, "/check": checkIn,
+    ]
     guard let request else { return ("400 Bad Request", #"{"ok": false}"#) }
     guard let endpoint = endpoints[request.path] else { return ("404 Not Found", #"{"ok": false}"#) }
     guard request.method == "POST" else { return ("405 Method Not Allowed", #"{"ok": false}"#) }
@@ -72,8 +76,17 @@ private func register(_ body: [String: Any]) throws {
     guard let token = body["token"] as? String, !token.isEmpty else { throw BadRequest() }
     let environment = body["environment"] as? String ?? "sandbox"
     let device = body["device"] as? String ?? "a phone"
-    try Devices.register(token: token, environment: environment, device: device)
-    log("registered \(device) (\(environment)), token …\(token.suffix(8))")
+    let notificationToken = (body["notification_token"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    try Devices.register(token: token, environment: environment, device: device, notificationToken: notificationToken)
+    let checks = notificationToken == nil ? "" : ", with connection checks"
+    log("registered \(device) (\(environment)), token …\(token.suffix(8))\(checks)")
+}
+
+/// The phone reached the switchboard on a connection check. Without a known token it still
+/// gets a 200: the check is whether it got through.
+private func checkIn(_ body: [String: Any]) throws {
+    guard let token = body["token"] as? String else { return }
+    try Devices.checkedIn(token: token)
 }
 
 private func event(_ body: [String: Any]) throws {

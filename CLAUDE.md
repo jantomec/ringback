@@ -14,6 +14,9 @@ noise and with someone talking nearby. Tuning the filter waits until testers rep
 problem. VoxLock (a model keeping only your voice, from a sample recorded in the app) is
 parked on the branch `voxlock`; see rejected alternatives in `docs/design.md`.
 
+The app warns you when calls can't reach the phone because Nebula is off: the switchboard
+wakes it every 30 min to check (the connection check in `docs/design.md`).
+
 Left until testers report them as real problems, because the calls so far went fine:
 - very short words can go unheard: a recorded "Great." offline, and once "wait" on the
   phone while the voice talked (Silero needs 0.2 s of speech to start a turn);

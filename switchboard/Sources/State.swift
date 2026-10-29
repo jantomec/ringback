@@ -1,7 +1,8 @@
 import Foundation
 
 /// Phones that registered for calls, keyed by VoIP push token: `devices.json` in the state
-/// folder.
+/// folder. A phone that also gave a notification token gets connection checks, and
+/// "checked_in" is when it last reached the switchboard on one.
 enum Devices {
     static let path = stateDir + "/devices.json"
 
@@ -10,9 +11,21 @@ enum Devices {
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: [String: String]] ?? [:]
     }
 
-    static func register(token: String, environment: String, device: String) throws {
+    static func register(token: String, environment: String, device: String, notificationToken: String?) throws {
         var devices = load()
-        devices[token] = ["environment": environment, "device": device, "registered": Date().ISO8601Format()]
+        var entry = devices[token] ?? [:]
+        entry["environment"] = environment
+        entry["device"] = device
+        entry["registered"] = Date().ISO8601Format()
+        entry["notification_token"] = notificationToken ?? entry["notification_token"]
+        devices[token] = entry
+        try save(devices)
+    }
+
+    static func checkedIn(token: String) throws {
+        var devices = load()
+        guard devices[token] != nil else { return }
+        devices[token]?["checked_in"] = Date().ISO8601Format()
         try save(devices)
     }
 

@@ -44,13 +44,15 @@ xcrun devicectl device install app --device <UDID> build/Build/Products/Debug-ip
   without push, and the build fails on the push entitlement. Sign in again in Xcode →
   Settings → Accounts.
 
-Open the app, allow the microphone, and enter the switchboard's Nebula address, e.g.
-`10.0.0.1` (port 8787 is the default). The top row turns green: "Ready for calls".
+Open the app, allow the microphone and notifications, and enter the switchboard's Nebula
+address, e.g. `10.0.0.1` (port 8787 is the default). The top row turns green: "Ready for
+calls". Notifications are for one warning: when the phone can't reach the switchboard over
+Nebula, so calls can't connect.
 
-**Interruption Sensitivity** sets how easily your speech stops Claude, and
-**Ignore Background Noise** (on by default) keeps quieter voices and sounds than yours,
-such as people nearby, from stopping it. Changes apply from the next call. During your first call, turn on Voice Isolation
-in Control Center (Mic Mode), so background noise doesn't stop it.
+**Interruption Sensitivity** sets how easily your speech stops Claude, and **Ignore
+Background Noise** (on by default) keeps quieter voices and sounds than yours, such as
+people nearby, from stopping it. Changes apply from the next call. During your first call,
+turn on Voice Isolation in Control Center (Mic Mode), so background noise doesn't stop it.
 
 ## 3. The switchboard (one always-on Mac)
 
@@ -74,6 +76,12 @@ it:
 It listens only on its Nebula address. Phones register at `/register` and report call
 events at `/events`. Those are kept in `~/.local/state/ringback/` (`devices.json` and
 `events.jsonl`).
+
+Every 30 min it wakes each phone with a background push, and the app checks in at
+`/check` over Nebula; if it can't, the phone warns you. `ringback-switchboard check` does
+that now, and `ringback-switchboard devices` shows when each phone last checked in.
+
+To update it, copy the new binary over the old one, stop `serve` and start it again.
 
 ## 4. The voice server (every Mac that runs sessions)
 

@@ -7,6 +7,8 @@ final class PushService: NSObject, PKPushRegistryDelegate {
     private let registry = PKPushRegistry(queue: .main)
     private let calls: CallService
     private let state: AppState
+    /// The notification token the switchboard last confirmed.
+    private var sentNotificationToken: String?
 
     init(calls: CallService, state: AppState) {
         self.calls = calls
@@ -25,12 +27,19 @@ final class PushService: NSObject, PKPushRegistryDelegate {
         guard Switchboard.url != nil else { state.connection = .notSetUp; return }
         guard let token = state.token else { state.connection = .waitingForToken; return }
         guard state.connection != .connecting else { return }
-        if !force, case .connected(let at) = state.connection, Date.now.timeIntervalSince(at) < 10 { return }
+        if !force, case .connected(let at) = state.connection, Date.now.timeIntervalSince(at) < 10,
+            state.notificationToken == sentNotificationToken
+        {
+            return
+        }
         state.connection = .connecting
         do {
-            try await Switchboard.register(token: token)
+            let notificationToken = state.notificationToken
+            try await Switchboard.register(token: token, notificationToken: notificationToken)
+            sentNotificationToken = notificationToken
             state.lastConnected = .now
             state.connection = .connected(at: .now)
+            ConnectionCheck.clear()
             if force { state.confirmations += 1 }
         } catch {
             state.connection = .failed(reason: error.localizedDescription)

@@ -1,14 +1,17 @@
 import Foundation
 
 let usage = """
-    usage: ringback-switchboard serve | ring [--project NAME] [--subject TEXT] [--voice URL] | devices
+    usage: ringback-switchboard serve | ring [--project NAME] [--subject TEXT] [--voice URL] | check | devices
 
-      serve    listen for phone registrations and call events
+      serve    listen for phone registrations and call events, and every 30 min ask each
+               phone to check that it can still reach the switchboard over Nebula
       ring     ring every registered phone
                  --project NAME  shown as 'Claude from <project>' (default: ringback)
                  --subject TEXT  a few words on what the call is about
                  --voice URL     the calling Mac's voice server, e.g. http://10.0.0.1:8788
-      devices  list registered phones
+      check    ask every phone to check its connection now; one that can't reach the
+               switchboard shows a warning
+      devices  list registered phones, and when each last checked in
     """
 
 let home = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()

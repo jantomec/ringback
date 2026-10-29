@@ -51,6 +51,10 @@ enum Connection: Equatable {
     case connecting
     case connected(at: Date)
     case failed(reason: String)
+
+    var failed: Bool {
+        if case .failed = self { true } else { false }
+    }
 }
 
 /// What the settings screen shows. Changed only on the main queue (PushKit and CallKit both
@@ -64,6 +68,8 @@ final class AppState {
     private static let lastConnectedKey = "lastConnected"
 
     var token: String?
+    /// For background pushes that start a connection check; nil until iOS gives it.
+    var notificationToken: String?
     var connection: Connection = .notSetUp
     var activeCall: ActiveCall?
     /// Counts successful checks you started yourself; the haptic tap plays on each.

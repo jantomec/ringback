@@ -11,9 +11,14 @@ case "serve":
 case "ring":
     let options = parseOptions(arguments.dropFirst(), allowed: ["--project", "--subject", "--voice"])
     await ring(project: options["--project"] ?? "ringback", subject: options["--subject"], voice: options["--voice"])
+case "check":
+    let lines = await askPhonesToCheck(config: loadConfig())
+    if lines.isEmpty { fail("No phone has given a notification token yet: open the app and allow notifications.") }
+    lines.forEach { print($0) }
 case "devices":
     for (token, d) in Devices.load().sorted(by: { $0.key < $1.key }) {
-        print("…\(token.suffix(8))  \(d["device"] ?? "")  \(d["environment"] ?? "")  registered \(d["registered"] ?? "")")
+        let checks = d["notification_token"] == nil ? "" : d["checked_in"].map { "  checked in \($0)" } ?? "  never checked in"
+        print("…\(token.suffix(8))  \(d["device"] ?? "")  \(d["environment"] ?? "")  registered \(d["registered"] ?? "")\(checks)")
     }
 case "-h", "--help":
     print(usage)

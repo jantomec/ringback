@@ -28,15 +28,21 @@ HOME="$home" "$bin" serve > "$home/log" 2>&1 &
 server=$!
 check "GET /register is refused" 405 "$(status "$url/register")"
 check "unknown path" 404 "$(status -d '{}' "$url/nope")"
-check "register" 200 "$(status -d '{"token": "aaaa1111bbbb2222", "environment": "sandbox", "device": "Test phone"}' "$url/register")"
+check "register" 200 "$(status -d '{"token": "aaaa1111bbbb2222", "environment": "sandbox", "device": "Test phone", "notification_token": "cccc3333"}' "$url/register")"
 check "register without a token" 400 "$(status -d '{"device": "Test phone"}' "$url/register")"
+check "register again, before the notification token arrived" 200 "$(status -d '{"token": "aaaa1111bbbb2222", "environment": "sandbox", "device": "Test phone"}' "$url/register")"
 check "event" 200 "$(status -d '{"call_id": "12345678-abcd", "event": "ended", "duration_s": "21.1", "at": "2026-10-28T13:21:02Z"}' "$url/events")"
 check "event that isn't JSON" 400 "$(status -d 'not json' "$url/events")"
+check "connection check" 200 "$(status -d '{"token": "aaaa1111bbbb2222"}' "$url/check")"
+check "connection check before the token arrived" 200 "$(status -d '{}' "$url/check")"
 kill $server
 wait $server 2> /dev/null || true
 
 state="$home/.local/state/ringback"
-check "devices lists the phone" yes "$(yes_if has "$(HOME="$home" "$bin" devices)" '…bbbb2222  Test phone  sandbox  registered 20')"
+check "devices lists the phone" yes "$(yes_if has "$(HOME="$home" "$bin" devices)" '…bbbb2222  Test phone  sandbox  registered 20[^ ]+  checked in 20')"
+check "registering again keeps the notification token" yes "$(yes_if grep -q cccc3333 "$state/devices.json")"
+check "check without APNs keys says so" yes "$(yes_if has "$(HOME="$home" "$bin" check)" 'check → Test phone: no \[apns.sandbox\] key in the config')"
+check "registration logged with checks" yes "$(yes_if grep -qE 'registered Test phone \(sandbox\), token …bbbb2222, with connection checks' "$home/log")"
 check "event stored with a time" yes "$(yes_if grep -qE '"event":"ended".*"time":"20[0-9-]+T[0-9:]+"' "$state/events.jsonl")"
 check "event logged" yes "$(yes_if grep -qE 'call 12345678: ended, duration_s 21.1 \(on the phone at [0-9:]{8}\)' "$home/log")"
 

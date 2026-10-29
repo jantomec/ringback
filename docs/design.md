@@ -56,7 +56,9 @@ queue, and each call's audio goes to the Mac whose session is calling.
    - on "not now" (declined or unanswered), retries on the schedule in requirement 3,
      with the whole queue paused in between. After a final decline it holds all calls
      until the app calls that session back;
-   - is one Swift binary of about 385 KB that needs nothing but macOS 13 or later (Intel
+   - every 30 min, wakes the app with a background push so it checks that calls can still
+     reach the phone (the connection check in the iPhone app);
+   - is one Swift binary of about 470 KB that needs nothing but macOS 13 or later (Intel
      or Apple silicon), so an old Mac can run it. On an old Intel Mac it used about
      4 MB of memory. It handles requests one at a time, so a stalled connection holds up
      the next request for up to 5 s, which is within the app's 10 s timeout.
@@ -186,6 +188,18 @@ queue, and each call's audio goes to the Mac whose session is calling.
    - **Microphone access** is asked for when you open the app, because a locked phone in a
      call can't show the prompt. While access is off, a banner links to Ringback's page in
      Settings.
+   - **Connection check.** Nebula on the phone can go off without you noticing (it did
+     once, with Always On set), and then calls ring but can't connect. So the
+     switchboard's background push every 30 min wakes the app, which calls the switchboard
+     back over Nebula, the way a call reaches the Mac. If three tries in about 25 s fail,
+     the app shows a notification: "Claude can't call you: Ringback can't reach your
+     switchboard over Nebula. Check that Nebula is on." It comes again after 3 h if the
+     problem stays. Until the switchboard is reachable again, a banner on the main screen
+     says the same, because tapping the notification removes it. Notifications are asked
+     for when you open the app.
+     - On the phone (one test each): unlocked and locked, the app checked in within 2 s of
+       the push. With Nebula off and the phone locked, the warning came, but later than
+       35 s after the push; how much later wasn't timed.
    - **Calls:** the whole call history.
      - Each call shows its caller ("Claude from \<project\>") and a 3–8 word subject.
        Before the call is queued, the calling Mac asks Haiku for that subject, based on
@@ -301,7 +315,7 @@ Each entry says why it lost and what would make it worth retrying.
   call waiting and "not now" (requirement 3).
 - **The switchboard in Python** (aiohttp, run with uv). On an old Intel Mac it used
   about 50 MB of memory, and uv, its cache and the virtual environment took about 280 MB
-  of disk on top of Python. The Swift binary uses about 4 MB and 385 KB. Retry if the
+  of disk on top of Python. The Swift binary uses about 4 MB and 470 KB. Retry if the
   switchboard needs a library that only Python has.
 - **The switchboard in C.** Swift already brings it down to about 4 MB of memory. C would
   also need hand-written JSON and HTTP parsing on a network port, and its own decoding of
@@ -309,6 +323,14 @@ Each entry says why it lost and what would make it worth retrying.
   ever matter.
 - **A switchboard on every Mac.** That gives no single queue, so calls from two Macs could
   overlap.
+- **The switchboard pinging the phone to check its connection.** A locked, idle phone
+  stopped answering over Nebula within 30 s (Stage 0), so pings would raise false alarms
+  while the phone is fine. It would also test the direction calls don't use, and need an
+  inbound rule in Mobile Nebula for the lighthouse. Replaced by the connection check, in
+  which the app calls the switchboard. Retry if background pushes prove too unreliable.
+- **A connection check on a timer in the app.** iOS doesn't run apps on a timer. It runs
+  background refresh when it decides, which for a rarely opened app can be a few times a
+  day or never.
 - **The voice pipeline on the always-on Mac.** It would load that Mac. The calling Mac
   must be awake anyway.
 
@@ -342,6 +364,13 @@ Each entry says why it lost and what would make it worth retrying.
   Stage 2 tests this with real noise.
 - Channels are a research preview, so APIs and flags may change.
 - Development builds use the APNs sandbox, and provisioning profiles expire.
+- The connection check relies on background pushes, which iOS treats as low priority: it
+  delivers at most a few an hour, sometimes late, and none after you swipe the app away,
+  until you open it again. So a warning can come late or not at all. Without notification
+  permission, only the banner shows, when you open the app.
+- Nebula on the phone went off by itself once (2026-10-29, between 10:26 and 10:42), with
+  Always On set. It wasn't killed for memory, and Mobile Nebula's log starts afresh with
+  each connection, so the cause is unknown.
 
 ## Stages
 

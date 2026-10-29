@@ -1,8 +1,8 @@
 import Foundation
 import UIKit
 
-/// Talks to the switchboard over Nebula: registers this phone's VoIP push token and reports
-/// what happened to each call.
+/// Talks to the switchboard over Nebula: registers this phone's push tokens, reports what
+/// happened to each call, and answers connection checks.
 enum Switchboard {
     static let urlKey = "switchboardURL"
     static let defaultPort = 8787
@@ -35,12 +35,18 @@ enum Switchboard {
     /// about a minute.
     private static let retryDelays: [Double] = [0, 2, 4, 8, 15, 30]
 
-    static func register(token: String) async throws {
-        try await post("register", [
-            "token": token,
-            "environment": environment,
-            "device": await UIDevice.current.name,
-        ])
+    /// The notification token is for connection checks (ConnectionCheck), once iOS has
+    /// given it.
+    static func register(token: String, notificationToken: String?) async throws {
+        var body = ["token": token, "environment": environment, "device": await UIDevice.current.name]
+        body["notification_token"] = notificationToken
+        try await post("register", body)
+    }
+
+    /// Reaches the switchboard on a connection check. The VoIP token, if it has arrived yet,
+    /// tells it which phone checked in.
+    static func check(token: String?) async throws {
+        try await post("check", token.map { ["token": $0] } ?? [:], timeout: 5)
     }
 
     /// Reports a call event, stamped with when it happened here, and retries until the
@@ -70,9 +76,9 @@ enum Switchboard {
         #endif
     }
 
-    private static func post(_ path: String, _ body: [String: String]) async throws {
+    private static func post(_ path: String, _ body: [String: String], timeout: TimeInterval = 10) async throws {
         guard let base = url else { throw URLError(.badURL) }
-        var request = URLRequest(url: base.appending(path: path), timeoutInterval: 10)
+        var request = URLRequest(url: base.appending(path: path), timeoutInterval: timeout)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)

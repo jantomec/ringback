@@ -11,6 +11,7 @@ struct SettingsView: View {
     @AppStorage(AudioLink.backgroundFilterOnKey) private var ignoreBackgroundNoise = true
     @AppStorage(AudioLink.backgroundFilterKey) private var backgroundFilter = AudioLink.defaultBackgroundFilter
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(ConnectionCheck.lastWarnedKey) private var lastConnectionWarning = 0.0
     @State private var microphoneOff = false
 
     var body: some View {
@@ -18,6 +19,9 @@ struct SettingsView: View {
             Form {
                 if microphoneOff {
                     MicrophoneBanner()
+                }
+                if lastConnectionWarning > 0 || state.connection.failed {
+                    ConnectionBanner()
                 }
                 Section {
                     if switchboardURL.isEmpty {
@@ -87,10 +91,12 @@ struct SettingsView: View {
             checkMicrophone()  // also after coming back from Settings
             Task { await push.connect() }
         }
-        // Ask now: a locked phone in a call can't show the permission prompt.
+        // Ask now: a locked phone in a call can't show the permission prompt. Notifications
+        // are for the warning when calls can't reach the phone (ConnectionCheck).
         .task {
             _ = await AVAudioApplication.requestRecordPermission()
             checkMicrophone()
+            await ConnectionCheck.requestPermission()
         }
     }
 
@@ -118,6 +124,25 @@ private struct MicrophoneBanner: View {
             Button("Open Settings") {
                 if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
             }
+        }
+    }
+}
+
+/// Shown while calls can't reach this phone: a connection check in the background warned you,
+/// or the switchboard can't be reached now. It repeats the warning, which is gone once you tap
+/// it, and goes away by itself once the switchboard is reachable again. Try Again is in the
+/// status row below.
+private struct ConnectionBanner: View {
+    var body: some View {
+        Section {
+            HStack(spacing: 14) {
+                Image(systemName: "phone.down.fill").font(.title2).foregroundStyle(.orange).frame(width: 36)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(ConnectionCheck.title).font(.headline)
+                    Text(ConnectionCheck.message).font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 6)
         }
     }
 }
@@ -244,8 +269,10 @@ private struct StatusRow: View {
         case .connected(let at):
             return detailed ? "Checked \(Self.when(at))" : "Switchboard \(host)"
         case .failed(let reason):
-            let last = lastConnected.map { " Last connected \(Self.when($0))." } ?? ""
-            return detailed ? "\(reason) Is Nebula connected?\(last)" : "Is Nebula connected?\(last)"
+            let last = lastConnected.map { "Last connected \(Self.when($0))." }
+            // On the main screen, the banner above says what to check.
+            guard detailed else { return last ?? "Switchboard \(host)" }
+            return [reason, "Is Nebula connected?", last].compactMap { $0 }.joined(separator: " ")
         }
     }
 
