@@ -17,6 +17,19 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     /// call. The Mac turns it into the thresholds of its voice-activity detection.
     static let sensitivityKey = "interruptionSensitivity"
     static let defaultSensitivity = 0.5
+    /// Whether the Mac ignores speech quieter than yours, such as people nearby, and how
+    /// strongly, from 0.1 to 1. Set in the app and sent with each call, as 0 when it's off.
+    /// The Mac turns it into a volume threshold.
+    static let backgroundFilterOnKey = "ignoreBackgroundNoise"
+    static let backgroundFilterKey = "backgroundFilter"
+    static let defaultBackgroundFilter = 0.5
+
+    /// The background filter to send: 0 when it's off.
+    static var backgroundFilter: Double {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: backgroundFilterOnKey) as? Bool ?? true else { return 0 }
+        return defaults.object(forKey: backgroundFilterKey) as? Double ?? defaultBackgroundFilter
+    }
 
     private var peer: RTCPeerConnection?
     private var microphone: RTCAudioTrack?
@@ -54,7 +67,7 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
 
     /// Offers audio to the voice server and applies its answer. The Mac's server doesn't
     /// take ICE candidates one by one, so the offer waits until they're all gathered. The
-    /// offer also carries your interruption sensitivity.
+    /// offer also carries your interruption sensitivity and background filter.
     func start(voiceURL: URL, callID: String) async throws {
         let config = RTCConfiguration()
         config.sdpSemantics = .unifiedPlan
@@ -81,6 +94,7 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "sdp": local.sdp, "type": "offer", "call_id": callID,
             "sensitivity": UserDefaults.standard.object(forKey: Self.sensitivityKey) as? Double ?? Self.defaultSensitivity,
+            "background_filter": Self.backgroundFilter,
         ])
         let (data, _) = try await URLSession.shared.data(for: request)
         guard let answer = try JSONSerialization.jsonObject(with: data) as? [String: Any],

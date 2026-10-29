@@ -104,14 +104,15 @@ queue, and each call's audio goes to the Mac whose session is calling.
         noise (you switch Voice Isolation on once, in Control Center). With AirPods or the
         phone at your ear, other people are also much farther from the microphone than
         you (how much quieter they arrive isn't measured);
-     2. voice-activity detection then triggers the stop, with thresholds set by the app's
-        interruption sensitivity. One of them is a volume threshold: a level gate that
-        ignores speech quieter than you sound in the microphone. Other people farther away
-        arrive quieter, so on the Mac this gate keeps them out, not a model. Offline, at
-        sensitivity 0's level it alone kept out a voice 20 dB below yours, though only
-        just (Stage 2). It's absolute, so it depends on how loud a microphone delivers
-        your voice. If that proves fragile, the next step is a gate set relative to your
-        own level on the call.
+     2. voice-activity detection then triggers the stop. Two settings in the app set its
+        thresholds: the interruption sensitivity sets how sure and how long speech must be,
+        and the background filter sets a volume threshold. That threshold is a level gate
+        that ignores speech quieter than you sound in the microphone. Other people farther
+        away arrive quieter, so on the Mac this gate keeps them out, not a model. Its
+        default is a rough estimate that kept out a voice 20 dB below yours offline
+        (Stage 2). It's absolute, so it depends on how loud a microphone delivers your
+        voice. If that proves fragile, the next step is a gate set relative to your own
+        level on the call.
 
      Removing other people's voices with a model as well (VoxLock) was built and is
      parked; see rejected alternatives.
@@ -200,13 +201,22 @@ queue, and each call's audio goes to the Mac whose session is calling.
    - **Settings:**
      - **Switchboard:** the switchboard's Nebula address. The app registers its push
        token there.
-     - **Interruption sensitivity:** a slider. Higher stops the voice at quieter or
-       shorter speech, which suits quiet places. Lower needs clearer, longer speech,
-       which suits noisy ones. The app sends the value with each call's offer, so a change
-       applies from the next call. On the Mac it sets the thresholds of voice-activity
-       detection (`voice/ringback_voice/hearing.py`). The middle is Pipecat's defaults,
-       which all calls so far used. The ends need 0.35 s or 0.1 s of speech, with
-       confidence and volume to match. Only the low end has been tried, offline (Stage 2).
+     - **Interruption sensitivity:** a slider from "Less" to "More". More stops the voice
+       at shorter, less certain speech, which suits quiet places. Less needs clearer,
+       longer speech, which suits noisy ones. On the Mac it sets the confidence and length
+       thresholds of voice-activity detection (`voice/ringback_voice/hearing.py`). The
+       middle is Pipecat's defaults, which all calls so far used. The ends need 0.35 s or
+       0.1 s of speech, with confidence to match. Only the low end has been tried,
+       offline (Stage 2).
+     - **Ignore Background Noise:** the background filter, the level gate above. It's a
+       switch, on by default, and while it's on a slider from "Gentle" to "Strong" shows
+       below it, as with Reduce Loud Audio in iOS Settings. On the Mac it sets the volume
+       threshold of voice-activity detection, on Pipecat's scale: 0.6 when off (-50 LUFS,
+       Pipecat's default, which all phone calls so far used), and from 0.62 to 0.8
+       (-30 LUFS) when on, 0.7 in the middle (the default). The strongest would ignore
+       some of your own quieter speech.
+     - The sliders show words, not numbers. The app sends both settings with each call's
+       offer, so a change applies from the next call.
 7. **Nebula** carries only the call; the push reaches the phone through Apple. The
    lighthouse must be a relay (`relay.am_relay: true`) and the Mac must list it in
    `relay.relays`. On mobile data the phone reaches the Mac only through that relay:
@@ -273,8 +283,8 @@ Each entry says why it lost and what would make it worth retrying.
   only your voice to voice-activity detection and Parakeet. Offline, with another voice
   talking 6 dB below yours, none of its words got through. Without VoxLock, that call
   derailed (Stage 2). It lost because, with AirPods, other people are far from the
-  microphone and arrive quieter, so a level gate keeps them out without a model.
-  Offline, the volume threshold alone kept out a voice 20 dB below yours (Stage 2).
+  microphone and arrive quieter, so a level gate (the background filter) keeps them out
+  without a model. Offline, it alone kept out a voice 20 dB below yours (Stage 2).
   VoxLock, by contrast, costs something on every call:
   - an interruption stops the voice about 0.1 s later (a median 80 ms of buffering, over
     187 starts of speech, plus 23 ms of computing per 80 ms chunk);
@@ -317,16 +327,17 @@ Each entry says why it lost and what would make it worth retrying.
   the Mac. If that happens just before you answer, audio takes that long to start.
   Answer-to-audio has been measured on mobile data only once (2.6 s).
 - Pipecat expects a WebRTC data channel and logs a warning without one. Nothing needs one
-  yet: the interruption sensitivity goes with the offer.
+  yet: the interruption settings go with the offer.
 - Xcode needs device support for the phone's iOS version to install development builds.
-- Only the phone's processing and the volume threshold keep other sounds out, so:
+- Only the phone's processing and the background filter keep other sounds out, so:
   - gym noise or other people's voices near you could still stop the voice, or be heard
-    as yours. Offline, at the default sensitivity, someone talking even 20 dB below you
-    was heard as clearly as you (Stage 2). A higher volume threshold kept them out, but
-    it's absolute, and how loud each microphone delivers your voice isn't measured.
-    Neither is how well the phone's voice processing and Voice Isolation remove other
-    people's voices;
-  - voice processing could swallow your own quiet speech.
+    as yours. Offline, with the filter off, someone talking even 20 dB below you was heard
+    as clearly as you (Stage 2). The filter's default kept them out, but it's absolute,
+    and how loud each microphone delivers your voice on a call isn't measured. Neither is
+    how well the phone's voice processing and Voice Isolation remove other people's
+    voices;
+  - the filter or voice processing could swallow your own quiet speech: the default
+    leaves about 5 dB under your quietest speech in your AirPods recordings.
 
   Stage 2 tests this with real noise.
 - Channels are a research preview, so APIs and flags may change.
@@ -411,16 +422,22 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
        words: Parakeet heard only its sentence in a turn where you said "Wait, stop for a
        second."
 
-     So a quieter voice is heard as clearly as yours unless something gates by level.
-     With the other voice 20 dB below you, as above:
-     - at sensitivity 0, none of it got through and both your turns were heard. The
-       interruption stopped the voice 0.54 s after you started (0.35–0.59 s in the other
-       calls here); that end also needs 0.35 s of speech instead of 0.2;
-     - with only the volume threshold raised to sensitivity 0's (0.7, about -40 LUFS), it
-       started no turn and no stop, and the interruption stopped the voice after 0.35 s.
-       But where it overlapped a turn of yours, Parakeet heard its last words too
-       ("around six. Wait, stop for a second."): the gate decides when a turn starts, not
-       what's heard in it;
+     These calls ran with the volume threshold at Pipecat's default, the background filter
+     off. So a quieter voice is heard as clearly as yours unless something gates by level.
+     With the other voice 20 dB below you:
+     - at sensitivity 0, which then also raised the volume threshold to 0.7, none of it got
+       through and both your turns were heard. The interruption stopped the voice 0.54 s
+       after you started (0.35–0.59 s in the other calls here); that end also needs
+       0.35 s of speech instead of 0.2;
+     - with only the volume threshold raised to 0.7 (about -40 LUFS), now the background
+       filter's default, it started no turn and no stop, and the interruption stopped the
+       voice after 0.35 s. But where it overlapped a turn of yours, Parakeet heard its last
+       words too ("around six. Wait, stop for a second."): the gate decides when a turn
+       starts, not what's heard in it;
+     - at the app's defaults, with your four recorded turns from the 6 dB call above and
+       the other voice 20 dB below you, none of it got through in 70 s. All your turns
+       were heard word for word, and both interruptions stopped the voice, 0.45 and
+       0.63 s after you started;
      - the margins are small. On Pipecat's volume scale (0 to 1 for -110 to -10 LUFS, so
        0.1 is 10 dB), the other voice measured 0.63–0.68 in half-second windows, against
        the gate's 0.7. The first minute of your scripted AirPods recording measured
@@ -428,8 +445,10 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
        below yours, with about 5 dB to spare under your quietest speech.
    - **VoxLock** was tried offline and parked: see rejected alternatives. Its full results
      are in `docs/design.md` on the branch `voxlock`.
-   - **Not yet tested:** the sensitivity on the phone, its high end (1), gym-like noise,
-     and someone talking near you on a call.
+   - **Not yet tested:** the sensitivity and the background filter on the phone, the
+     sensitivity's high end (1), the filter's strong end, gym-like noise, and someone
+     talking near you on a call. Tuning the filter waits until testers report other
+     people's voices getting through, or their own being missed.
    - **Left until testers report them as real problems**, because the calls so far went
      fine: very short words going unheard (above), and a stop where no words are
      recognised (the voice should carry on; the cough and clap didn't cause one).

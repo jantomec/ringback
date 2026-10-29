@@ -11,7 +11,7 @@ Run from the repo root. It uses your Claude subscription, and `OUT_DIR` gets `ca
 with both sides of the call, so keep it outside the repo:
 
     uv run --project voice tools/call-check/call_check.py OUT_DIR TURN... [--report FILE] [--turn-wait S]
-        [--sensitivity S] [--background SOUND [--background-db DB]]
+        [--sensitivity S] [--background-filter G] [--background SOUND [--background-db DB]]
 
 - Each `TURN` is what you say: text, or a `CLIP`: a 16 kHz mono WAV file, optionally cut
   to a span in seconds (`speech.wav:12.5-19`), so stretches of your own recordings can be
@@ -22,7 +22,8 @@ with both sides of the call, so keep it outside the repo:
 - `--report` is what the voice reports, as for `ringback-voice serve`.
 - `--turn-wait` overrides how long the voice waits for the end of your turn when Pipecat's
   end-of-turn model thinks you haven't finished (`TURN_WAIT` in the voice).
-- `--sensitivity` is the app's interruption sensitivity, from 0 to 1 (0.5 by default).
+- `--sensitivity` is the app's interruption sensitivity, from 0 to 1 (0.5 by default), and
+  `--background-filter` the app's background filter, from 0 (off) to 1 (0.5 by default).
 - `--background SOUND` plays under the whole call, looped: a `CLIP` (such as gym noise), or
   text that a third Kokoro voice speaks (someone else talking). `--background-db` turns it
   up or down; the levels of both sides while there's sound (pauses left out) are printed

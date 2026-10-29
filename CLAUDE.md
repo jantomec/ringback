@@ -7,12 +7,12 @@ architecture, rejected alternatives, risks and the stage plan. Read it first.
 Status (2026-10-29): Stages 0 (Nebula) and 1 (ring + audio) are done. **Stage 2
 (conversation) is in progress.** Parakeet v2 → Haiku → Kokoro `af_heart` works on the
 phone, interruptions included (`voice/ringback_voice/`, results under Stage 2 in
-`docs/design.md`). The interruption sensitivity setting is built and checked offline, not
-yet on the phone. Still to do in Stage 2: test it on the phone, with gym-like noise and
-with someone talking nearby. Offline, at the default sensitivity, a voice 20 dB below
-yours got through; a higher volume threshold, a level gate, kept it out only just.
-VoxLock (a model keeping only your voice, from a sample recorded in the app) is parked
-on the branch `voxlock`; see rejected alternatives in `docs/design.md`.
+`docs/design.md`). Two interruption settings are built and checked offline, not yet on
+the phone: the sensitivity, and a background filter ("Ignore Background Noise"), a rough
+level gate that ignores speech quieter than yours. Still to do in Stage 2: test them on the phone, with gym-like
+noise and with someone talking nearby. Tuning the filter waits until testers report a
+problem. VoxLock (a model keeping only your voice, from a sample recorded in the app) is
+parked on the branch `voxlock`; see rejected alternatives in `docs/design.md`.
 
 Left until testers report them as real problems, because the calls so far went fine:
 - very short words can go unheard: a recorded "Great." offline, and once "wait" on the

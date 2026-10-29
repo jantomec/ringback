@@ -5,9 +5,9 @@ posts its WebRTC offer here over Nebula (on mobile data only the phone can open 
 
 The call is a conversation: Parakeet v2 hears you, Haiku answers in a Claude Code session
 that stays open for the call, and Kokoro speaks the answer in growing pieces. You can
-interrupt it at any time; the phone sends how easily you do, your interruption sensitivity.
-Until sessions call (Stage 3), the voice talks about the report in FILE, which is read again
-for every call.
+interrupt it at any time; the phone sends how easily you do (your interruption sensitivity)
+and how much quieter background to ignore (the background filter). Until sessions call
+(Stage 3), the voice talks about the report in FILE, which is read again for every call.
 """
 
 import argparse
@@ -70,12 +70,13 @@ def call_task(
     say: Callable[[str], None],
     turn_wait: float = TURN_WAIT,
     sensitivity: float = hearing.SENSITIVITY,
+    gate: float = hearing.GATE,
 ) -> PipelineTask:
     """The conversation, between transport's input and output."""
     timeline = Timeline()
     end_of_turn = LocalSmartTurnAnalyzerV3(params=SmartTurnParams(stop_secs=turn_wait))
-    vad = hearing.thresholds(sensitivity)
-    say(f"sensitivity {sensitivity:.2f}: {hearing.describe(vad)}")
+    vad = hearing.thresholds(sensitivity, gate)
+    say(f"sensitivity {sensitivity:.2f}, background filter {gate:.2f}: {hearing.describe(vad)}")
     user, assistant = LLMContextAggregatorPair(
         LLMContext(),
         user_params=LLMUserAggregatorParams(
@@ -114,7 +115,9 @@ def call_task(
     return task
 
 
-async def run_call(conn: SmallWebRTCConnection, call: str, t0: float, report: Path | None, sensitivity: float) -> None:
+async def run_call(
+    conn: SmallWebRTCConnection, call: str, t0: float, report: Path | None, sensitivity: float, gate: float
+) -> None:
     say = lambda line: log(f"call {call}: {line}")
     since = lambda: f"{time.monotonic() - t0:.2f} s after the offer"
     text = None
@@ -126,7 +129,7 @@ async def run_call(conn: SmallWebRTCConnection, call: str, t0: float, report: Pa
     transport = SmallWebRTCTransport(
         webrtc_connection=conn, params=TransportParams(audio_in_enabled=True, audio_out_enabled=True)
     )
-    task = call_task(transport, text, say, sensitivity=sensitivity)
+    task = call_task(transport, text, say, sensitivity=sensitivity, gate=gate)
 
     @transport.event_handler("on_client_connected")
     async def connected(transport, connection):
@@ -140,6 +143,15 @@ async def run_call(conn: SmallWebRTCConnection, call: str, t0: float, report: Pa
 
     await PipelineRunner(handle_sigint=False).run(task)
     say("finished")
+
+
+def setting(body: dict, key: str, default: float) -> float:
+    """A setting from 0 to 1 sent with the offer, or default if it's missing or invalid."""
+    try:
+        value = float(body.get(key, default))
+    except (TypeError, ValueError):
+        return default
+    return value if 0 <= value <= 1 else default  # also NaN
 
 
 def main() -> None:
@@ -157,15 +169,11 @@ def main() -> None:
         body = await request.json()
         t0 = time.monotonic()
         call = str(body.get("call_id", "?"))[:8]
-        try:
-            sensitivity = float(body.get("sensitivity", hearing.SENSITIVITY))
-        except (TypeError, ValueError):
-            sensitivity = hearing.SENSITIVITY
-        if not 0 <= sensitivity <= 1:  # also NaN
-            sensitivity = hearing.SENSITIVITY
+        sensitivity = setting(body, "sensitivity", hearing.SENSITIVITY)
+        gate = setting(body, "background_filter", hearing.GATE)
         conn = SmallWebRTCConnection()
         await conn.initialize(sdp=body["sdp"], type=body["type"])
-        asyncio.create_task(run_call(conn, call, t0, args.report, sensitivity))
+        asyncio.create_task(run_call(conn, call, t0, args.report, sensitivity, gate))
         log(f"call {call}: offer answered in {time.monotonic() - t0:.2f} s")
         return web.json_response(conn.get_answer())
 

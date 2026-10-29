@@ -8,6 +8,8 @@ struct SettingsView: View {
     let calls: CallService
     @AppStorage(Switchboard.urlKey) private var switchboardURL = ""
     @AppStorage(AudioLink.sensitivityKey) private var sensitivity = AudioLink.defaultSensitivity
+    @AppStorage(AudioLink.backgroundFilterOnKey) private var ignoreBackgroundNoise = true
+    @AppStorage(AudioLink.backgroundFilterKey) private var backgroundFilter = AudioLink.defaultBackgroundFilter
     @Environment(\.scenePhase) private var scenePhase
     @State private var microphoneOff = false
 
@@ -49,8 +51,22 @@ struct SettingsView: View {
                 } header: {
                     Text("Interruptions")
                 } footer: {
+                    Text("How easily you stop Claude by speaking. Turn it down in noisy places.")
+                }
+                Section {
+                    Toggle("Ignore Background Noise", isOn: $ignoreBackgroundNoise.animation())
+                    if ignoreBackgroundNoise {
+                        Slider(value: $backgroundFilter, in: 0.1...1, step: 0.1) {
+                            Text("Strength")
+                        } minimumValueLabel: {
+                            Text("Gentle")
+                        } maximumValueLabel: {
+                            Text("Strong")
+                        }
+                    }
+                } footer: {
                     Text(
-                        "How easily you stop Claude by speaking. More stops it at quieter or shorter speech, for quiet places. Less needs clearer, longer speech, for noisy ones. Changes apply from the next call."
+                        "Voices and sounds quieter than yours, like people nearby or a TV, won't stop Claude. If Claude misses what you say, make it gentler or turn it off. Changes apply from the next call."
                     )
                 }
                 Section("Calls") {

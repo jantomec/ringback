@@ -2,7 +2,7 @@
 """Plays a scripted call through the voice's pipeline on this Mac, without the phone.
 
     uv run --project voice tools/call-check/call_check.py OUT_DIR TURN... [--report FILE] [--turn-wait S]
-        [--sensitivity S] [--background SOUND [--background-db DB]]
+        [--sensitivity S] [--background-filter G] [--background SOUND [--background-db DB]]
 
 Each TURN is what you say: text, which another Kokoro voice speaks ("[1.2]" in it is a
 pause of that many seconds), or a CLIP: a 16 kHz mono WAV file, optionally cut to a span
@@ -275,7 +275,7 @@ async def run(turns: list[str], report: str | None, turn_wait: float, out: Path,
         if line.startswith(("interrupted", "you (")) and not call.you_spoke():
             call.timings.append(f"NOT YOU at {call.now():.1f} s: {line}")
 
-    task = call_task(ScriptedTransport(turns, background, call), report, say, turn_wait, args.sensitivity)
+    task = call_task(ScriptedTransport(turns, background, call), report, say, turn_wait, args.sensitivity, args.background_filter)
     runner = asyncio.create_task(PipelineRunner(handle_sigint=False).run(task))
     await asyncio.sleep(CONNECT)
     call.timings.append(f"audio connected at {call.now():.1f} s")
@@ -304,6 +304,7 @@ def main():
     p.add_argument("--report", type=Path)
     p.add_argument("--turn-wait", type=float, default=TURN_WAIT)
     p.add_argument("--sensitivity", type=float, default=hearing.SENSITIVITY, help="0 to 1, as in the app")
+    p.add_argument("--background-filter", type=float, default=hearing.GATE, help="0 (off) to 1, as in the app")
     p.add_argument("--background", help="text or CLIP played under the whole call")
     p.add_argument("--background-db", type=float, default=0.0, help="gain for the background")
     args = p.parse_args()
