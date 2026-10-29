@@ -201,7 +201,7 @@ queue, and each call's audio goes to the Mac whose session is calling.
    - **Settings:**
      - **Switchboard:** the switchboard's Nebula address. The app registers its push
        token there.
-     - **Interruption sensitivity:** a slider from "Less" to "More". More stops the voice
+     - **Interruption Sensitivity:** a slider from "Less" to "More". More stops the voice
        at shorter, less certain speech, which suits quiet places. Less needs clearer,
        longer speech, which suits noisy ones. On the Mac it sets the confidence and length
        thresholds of voice-activity detection (`voice/ringback_voice/hearing.py`). The

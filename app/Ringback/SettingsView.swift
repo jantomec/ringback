@@ -39,17 +39,15 @@ struct SettingsView: View {
                 }
                 Section {
                     VStack(alignment: .leading) {
-                        Text("Sensitivity")
+                        Text("Interruption Sensitivity")
                         Slider(value: $sensitivity, in: 0...1, step: 0.1) {
-                            Text("Sensitivity")
+                            Text("Interruption Sensitivity")
                         } minimumValueLabel: {
                             Text("Less")
                         } maximumValueLabel: {
                             Text("More")
                         }
                     }
-                } header: {
-                    Text("Interruptions")
                 } footer: {
                     Text("How easily you stop Claude by speaking. Turn it down in noisy places.")
                 }
