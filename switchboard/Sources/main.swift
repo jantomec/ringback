@@ -10,7 +10,9 @@ case "serve":
     serve(listen: listen)
 case "ring":
     let options = parseOptions(arguments.dropFirst(), allowed: ["--project", "--subject", "--voice"])
-    await ring(project: options["--project"] ?? "ringback", subject: options["--subject"], voice: options["--voice"])
+    if Devices.load().isEmpty { fail("No phone registered yet: open the app and enter the switchboard address.") }
+    let lines = await ring(project: options["--project"] ?? "ringback", subject: options["--subject"], voice: options["--voice"])
+    lines.forEach { print($0) }
 case "check":
     let lines = await askPhonesToCheck(config: loadConfig())
     if lines.isEmpty { fail("No phone has given a notification token yet: open the app and allow notifications.") }

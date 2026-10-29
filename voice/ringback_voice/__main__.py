@@ -1,13 +1,16 @@
-"""ringback-voice serve --listen HOST:PORT [--report FILE]
+"""ringback-voice serve --listen HOST:PORT [--switchboard HOST:PORT] [--report FILE]
 
-The voice side of a call, on the Mac whose session is calling. When you answer, the phone
-posts its WebRTC offer here over Nebula (on mobile data only the phone can open a tunnel).
+The voice side of a call, on the Mac whose session is calling. A session's ringback mod
+gives it a briefing over a Unix socket (sessions.py), and it asks the switchboard to ring
+the phone. When you answer, the phone posts its WebRTC offer here over Nebula (on mobile
+data only the phone can open a tunnel), with the call's ID.
 
 The call is a conversation: Parakeet v2 hears you, Haiku answers in a Claude Code session
 that stays open for the call, and Kokoro speaks the answer in growing pieces. You can
 interrupt it at any time; the phone sends how easily you do (your interruption sensitivity)
-and how much quieter background to ignore (the background filter). Until sessions call
-(Stage 3), the voice talks about the report in FILE, which is read again for every call.
+and how much quieter background to ignore (the background filter). A call rung by hand
+(`ringback-switchboard ring --voice`) talks about the report in FILE, which is read again
+for every call.
 """
 
 import argparse
@@ -40,7 +43,7 @@ from pipecat.turns.empty_user_turn import EmptyUserTurnConfig
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
-from ringback_voice import hearing, models
+from ringback_voice import hearing, models, sessions
 from ringback_voice.claude_code import ClaudeCodeLLMService
 from ringback_voice.instructions import instructions
 from ringback_voice.kokoro import KokoroTTSService
@@ -116,16 +119,10 @@ def call_task(
 
 
 async def run_call(
-    conn: SmallWebRTCConnection, call: str, t0: float, report: Path | None, sensitivity: float, gate: float
+    conn: SmallWebRTCConnection, call: str, t0: float, text: str | None, sensitivity: float, gate: float
 ) -> None:
     say = lambda line: log(f"call {call}: {line}")
     since = lambda: f"{time.monotonic() - t0:.2f} s after the offer"
-    text = None
-    if report:
-        try:
-            text = report.read_text()
-        except OSError as e:
-            say(f"no report ({e}), using the stand-in")
     transport = SmallWebRTCTransport(
         webrtc_connection=conn, params=TransportParams(audio_in_enabled=True, audio_out_enabled=True)
     )
@@ -159,32 +156,65 @@ def main() -> None:
     sub = p.add_subparsers(dest="command", required=True)
     serve = sub.add_parser("serve", help="talk to the phone during calls")
     serve.add_argument("--listen", required=True, help="this Mac's Nebula address and port, e.g. 10.0.0.1:8788")
-    serve.add_argument("--report", type=Path, help="what the voice reports, read for every call (until Stage 3)")
+    serve.add_argument("--switchboard", help="the switchboard's Nebula address and port, e.g. 10.0.0.1:8787")
+    serve.add_argument("--report", type=Path, help="what the voice reports on a call rung by hand, read for every call")
     args = p.parse_args()
 
     logger.remove()
     logger.add(sys.stderr, level="WARNING")
+    calls = sessions.Calls(args.switchboard, args.listen, log)
 
     async def offer(request: web.Request) -> web.Response:
         body = await request.json()
         t0 = time.monotonic()
-        call = str(body.get("call_id", "?"))[:8]
+        call_id = str(body.get("call_id", ""))
+        call = calls.answer(call_id)
+        if call:
+            text = call.briefing
+        elif args.report:
+            # A call rung by hand, to try the voice: it can't reach any session.
+            try:
+                text = args.report.read_text()
+            except OSError as e:
+                log(f"call {call_id[:8]}: no report ({e}), using the stand-in")
+                text = None
+        else:
+            log(f"call {call_id[:8]}: refused, not a call this server placed")
+            return web.json_response({"error": "unknown call"}, status=403)
         sensitivity = setting(body, "sensitivity", hearing.SENSITIVITY)
         gate = setting(body, "background_filter", hearing.GATE)
         conn = SmallWebRTCConnection()
         await conn.initialize(sdp=body["sdp"], type=body["type"])
-        asyncio.create_task(run_call(conn, call, t0, args.report, sensitivity, gate))
-        log(f"call {call}: offer answered in {time.monotonic() - t0:.2f} s")
+
+        async def talk():
+            try:
+                await run_call(conn, call_id[:8], t0, text, sensitivity, gate)
+            finally:
+                await calls.end(call_id)
+
+        asyncio.create_task(talk())
+        log(f"call {call_id[:8]}: offer answered in {time.monotonic() - t0:.2f} s")
         return web.json_response(conn.get_answer())
+
+    async def serve_forever():
+        app = web.Application()
+        app.add_routes([web.post("/offer", offer)])
+        runner = web.AppRunner(app)
+        await runner.setup()
+        host, port = args.listen.rsplit(":", 1)
+        await web.TCPSite(runner, host, int(port)).start()
+        await sessions.listen(sessions.session_side(calls))
+        log(f"voice listening on {args.listen}, and for sessions on {sessions.SOCKET}")
+        await asyncio.Event().wait()
 
     t = time.monotonic()
     log("loading Parakeet and Kokoro")
     models.load()
-    host, port = args.listen.rsplit(":", 1)
-    app = web.Application()
-    app.add_routes([web.post("/offer", offer)])
-    log(f"voice listening on {args.listen}, models loaded in {time.monotonic() - t:.0f} s")
-    web.run_app(app, host=host, port=int(port), print=None)
+    log(f"models loaded in {time.monotonic() - t:.0f} s")
+    try:
+        asyncio.run(serve_forever())
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

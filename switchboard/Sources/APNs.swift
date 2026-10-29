@@ -82,38 +82,32 @@ private func base64url(_ data: Data) -> String {
         .replacingOccurrences(of: "=", with: "")
 }
 
-/// Rings every registered phone once.
-func ring(project: String, subject: String?, voice: String?) async {
+/// Rings every registered phone once, as call `callID`, or a new call. Returns one line per
+/// phone.
+func ring(project: String, subject: String?, voice: String?, callID: String? = nil) async -> [String] {
     let config = loadConfig()
-    let known = Devices.load()
-    if known.isEmpty { fail("No phone registered yet: open the app and enter the switchboard address.") }
+    let callID = callID ?? UUID().uuidString.lowercased()
+    var lines: [String] = []
     var clients: [String: APNs] = [:]
-    for (token, device) in known.sorted(by: { $0.key < $1.key }) {
+    for (token, device) in Devices.load().sorted(by: { $0.key < $1.key }) {
         let name = device["device"] ?? "a phone"
         let environment = device["environment"] ?? "sandbox"
-        if clients[environment] == nil {
-            do {
-                clients[environment] = try APNs(environment: environment, config: config)
-            } catch APNsSetupError.noKey {
-                print("skipping \(name): no [apns.\(environment)] key in the config")
-                continue
-            } catch {
-                fail("\(error)")
-            }
-        }
-        let callID = UUID().uuidString.lowercased()
         var payload = ["call_id": callID, "project": project]
         payload["subject"] = subject
         payload["voice"] = voice
         do {
+            if clients[environment] == nil {
+                clients[environment] = try APNs(environment: environment, config: config)
+            }
             let (status, reason) = try await clients[environment]!.push(to: token, environment: environment, payload: payload)
-            print("call \(callID.prefix(8)) → \(name): APNs \(status) \(reason)".trimmingCharacters(in: .whitespaces))
+            lines.append("call \(callID.prefix(8)) → \(name): APNs \(status) \(reason)".trimmingCharacters(in: .whitespaces))
             if reason == "BadDeviceToken" || reason == "Unregistered" {
                 try? Devices.forget(token)
-                print("  token no longer valid; forgotten — reopen the app to register again")
+                lines.append("  token no longer valid; forgotten — reopen the app to register again")
             }
         } catch {
-            print("call \(callID.prefix(8)) → \(name): \(error.localizedDescription)")
+            lines.append("call \(callID.prefix(8)) → \(name): \((error as? APNsSetupError)?.description ?? error.localizedDescription)")
         }
     }
+    return lines
 }

@@ -23,15 +23,20 @@ and on mobile data.
 4. **Understanding you.** Recognition copes with non-native accents. When a reply is
    unclear, the call asks instead of guessing, and a permission is only granted on a
    clear yes.
+5. **Only while you're away.** You switch calling on in a session with `/ringback`, as
+   `/rc` switches on Remote Control, and off again when you're back. While it's on, the
+   session shows it under the prompt.
+6. **A better model on request.** If Haiku can't keep up, you ask for a better model on
+   the line, and the call carries on with Opus, with everything said so far.
 
 ## Architecture
 
 ```
- Mac running the session          always-on Mac              iPhone
- sessions ──hooks─────────────▶ switchboard ──VoIP push───▶ app rings (CallKit)
-    ▲                           (queue, retries) via APNs        │
-    └─channel── voice pipeline ◀───── call audio over Nebula ────┘
-                (STT, TTS, Haiku)
+ Mac running the session                    always-on Mac             iPhone
+ session ── ringback ──briefing─▶ voice ───▶ switchboard ──VoIP push─▶ app rings
+            mod      ◀─replies─── pipeline   (queue,      via APNs    (CallKit)
+            (/ringback)           (STT, TTS,  retries)                    │
+                                  Haiku) ◀──── call audio over Nebula ────┘
 ```
 
 Sessions can run on several Macs. All of them share one switchboard, so there is one
@@ -39,23 +44,45 @@ queue, and each call's audio goes to the Mac whose session is calling.
 
 Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is built.
 
-1. **Hooks** (in each session; Stage 3). A Stop hook, plus a Notification hook for
-   `permission_prompt`/`idle_prompt`, sends `session_id`, `cwd`,
-   `last_assistant_message` and `transcript_path` to the switchboard over Nebula and
-   returns at once.
-2. **Channel** (a custom MCP channel server in each session; Stage 3):
-   - delivers your replies into its session (on the next turn if the session is busy);
-   - relays permission prompts (`experimental['claude/channel/permission']`, needs
-     Claude Code ≥ 2.1.234).
-
-   Channels are a research preview, so sessions start with
-   `--dangerously-load-development-channels server:<name>`.
-   Docs: https://code.claude.com/docs/en/channels-reference.md
+1. **Ringback mod** (in each session, in `mod/`). A Claude Code mod is code that runs
+   inside Claude Code: it's installed once, as a plugin, and loads in every session
+   (Claude Code 2.1.287 or later). Docs:
+   https://code.claude.com/docs/en/plugins/mods/overview.md. It does nothing until you
+   switch it on:
+   - `/ringback` switches calling on or off for its session, at once and without a
+     Claude turn. While it's on, the dim line under the prompt ends with "☎ ringback on",
+     where Remote Control shows too (a placeholder until ringback has an icon).
+   - When a turn ends while it's on, the mod asks the session to write its call briefing:
+     a subject of 3–8 words, then what's new and what needs you, written to be spoken.
+     The session has its whole context then and its prompt cache is warm, so this extra
+     turn is quick and cheap. The mod gives the briefing to the voice server on the same
+     Mac, which places the call. If you're on a call with that session already, the
+     voice gets the session's answer as news instead (Stage 3).
+   - It collects what you said for the session from the voice server and submits it to
+     the session as a prompt. A question the voice forwards goes the same way, and the
+     session's answer goes back to the voice (Stage 3).
+   - When the session needs a permission while ringback is on, the mod holds the tool
+     call and puts it to you on a call. Your clear yes or no decides it. If the call
+     brings no answer, the usual permission prompt appears in the terminal (Stage 3).
+2. **Voice server's session side** (`voice/ringback_voice/sessions.py`). The voice server
+   also listens on a Unix socket that only you can open
+   (`~/.local/state/ringback/voice.sock`), for the mods of the sessions on its Mac:
+   - For each briefing it makes a random call ID, the call's secret, and asks the
+     switchboard to ring with it. The ID reaches the phone only through Apple's push, and
+     the voice server accepts only an offer that carries the ID of a call it placed. A
+     call rung by hand (`ringback-switchboard ring --voice`) is accepted only while the
+     server runs with `--report`, and talks about that report.
+   - It holds a sleep assertion from placing a call until the call ends, or until 15 min
+     have passed without an answer.
+   - It keeps what you say for each session until that session's mod collects it
+     (Stage 3).
 3. **Switchboard** (a daemon on one always-on Mac on the Nebula network, such as the
    lighthouse):
    - keeps one FIFO queue for the sessions on every Mac and places one call at a time
      (Stage 4; for now `ringback-switchboard ring` places a call by hand);
    - starts a call with a VoIP push through APNs that names the Mac taking the call;
+   - takes calls from the voice servers at `/call` over Nebula, with their project,
+     subject and call ID;
    - on "not now" (declined or unanswered), retries on the schedule in requirement 3,
      with the whole queue paused in between. After a final decline it holds all calls
      until the app calls that session back (Stage 4);
@@ -65,9 +92,8 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      or Apple silicon), so an old Mac can run it. On an old Intel Mac it used about
      4 MB of memory. It handles requests one at a time, so a stalled connection holds up
      the next request for up to 5 s, which is within the app's 10 s timeout.
-4. **Voice pipeline** (on the Mac running the calling session). That Mac must be awake
-   anyway, and this keeps the always-on Mac light. It holds a sleep assertion while its
-   call is queued or in progress (Stage 3).
+4. **Voice pipeline** (on the Mac running the calling session, in the voice server). That Mac must be awake
+   anyway, and this keeps the always-on Mac light.
    - Pipecat, with Parakeet TDT 0.6B v2 (MLX) for speech-to-text, Kokoro-82M (MLX, through
      mlx-audio) with the `af_heart` voice for speech, and Claude Haiku 5.5. Pipecat has no
      Parakeet service, and its own Kokoro service is too slow (see rejected
@@ -131,17 +157,20 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      - It starts while the phone rings and stays open until hang-up (`claude -p
        --input-format stream-json --output-format stream-json`), so it holds the whole
        call.
-     - It can start as a fork of the calling session (`--resume <id> --fork-session`) to
-       get that session's full context (Stage 3).
      - Pipecat has no Claude Code service, so we write one around that process.
      - Measured (`tools/reply-speed`): the first words come about 1.2 s after each of
        your turns (0.9–3.2 s), and 1.0–3.2 s on the first turn, which includes start-up.
        Neither lower effort nor turning thinking off made a clear difference.
-   - The voice is a fast front end that holds the session's report as context, because a
-     Claude Code turn is too slow for live conversation. Until Stage 3, the report is a
-     file given to the voice server.
-   - It delivers your replies to its session's channel. It forwards questions it can't
-     answer to the session and waits for the reply (Stage 3).
+   - The voice is a fast front end that holds the session's briefing as context, because
+     a Claude Code turn is too slow for live conversation. A call rung by hand talks
+     about a report file instead.
+   - **Acting on the call** (Stage 3). Haiku passes what you say for the session to its
+     mod, forwards questions it can't answer to the session and tells you the answer
+     when it comes, and answers a held permission on your clear yes or no. It does these
+     by writing short tags in its reply, which the voice server takes out before the
+     reply is spoken.
+   - **A better model** (Stage 3). When you ask for one, the call carries on with Opus,
+     with the conversation so far. Its replies take longer.
    - Speech-to-text was chosen by measuring on accented English with `tools/stt-eval`
      (464 scripted words plus 519 of free speech):
      - Parakeet v2 got about 6% of words wrong at about 40 ms per utterance.
@@ -149,8 +178,8 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
        words on short clips.
      - Letting Haiku repair the transcript from context cut Parakeet's errors on the
        scripted commands from 31 to 18, but changed nothing in the free speech.
-5. **Conversation rules**, in the voice's instructions and in a skill for the session
-   (the skill is Stage 3):
+5. **Conversation rules**, in the voice's instructions and in what the mod asks of the
+   session:
    - spoken style: short sentences, rounded numbers, no tables, lists or code read
      aloud; offer detail instead of reciting it; stop at once when interrupted;
    - your words come from speech recognition, so expect similar-sounding wrong words,
@@ -158,7 +187,7 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      garbled to be sure;
    - act on a permission prompt only after a clear yes or no, otherwise ask again
      (Stage 3);
-   - the session writes its call briefing (project, what's new, what needs you) in a
+   - the session writes its call briefing (a subject, what's new, what needs you) in a
      form that can be spoken, and answers forwarded questions the same way (Stage 3).
 6. **iPhone app** (Swift):
    - a PushKit VoIP push triggers CallKit, which rings on the lock screen and in your
@@ -208,9 +237,7 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
        35 s after the push; how much later wasn't timed.
    - **Calls:** the whole call history.
      - Each call shows its caller ("Claude from \<project\>") and a 3–8 word subject.
-       Before the call is queued, the calling Mac asks Haiku for that subject, based on
-       the session's last message, and the push carries it (Stage 3; for now `ring
-       --subject` sets it).
+       The session writes it with its briefing, and the push carries it.
      - A green phone and the duration mean answered. A red one means declined, missed
        or busy.
      - The history is stored on the phone for now and will move to iCloud later.
@@ -340,15 +367,31 @@ Each entry says why it lost and what would make it worth retrying.
   day or never.
 - **The voice pipeline on the always-on Mac.** It would load that Mac. The calling Mac
   must be awake anyway.
+- **Settings hooks and an MCP channel in each session** (the plan until Stage 3). A Stop
+  hook and a Notification hook would have started calls, and a channel would have
+  delivered your replies and relayed permission prompts. But a custom channel loads only
+  when the session starts, behind `--dangerously-load-development-channels` and its
+  warning screen every time, so calling couldn't be switched on mid-session; and channels
+  are a research preview. The ringback mod does all of it from inside Claude Code:
+  `/ringback`, the line under the prompt, prompts for the session, and holding tool calls.
+  Retry if mods lose prompt submission or tool approval.
+- **Calling when the session has been idle for 60 s** (Claude Code's `idle_prompt`). It
+  needs no switch, but every call would come a minute late. You chose a switch you turn
+  on when you leave.
+- **The session's last message as the voice's context.** Too little to talk its work
+  through.
+- **A fork of the whole session as the voice** (`--resume <id> --fork-session`). More
+  than a call needs: the first turn slows down with a long history, and every call uses
+  more of the subscription. The briefing the session writes is the middle ground. Retry
+  if briefings prove too thin for the voice to answer from.
+- **A separate Haiku call for each call's subject.** The session writes the subject with
+  its briefing instead, so nothing extra runs.
 
 ## Open questions
 
-- **When should sessions call?** An "away" toggle, or the Mac's idle time.
-- **Authentication:** whether the app ↔ Mac and session ↔ switchboard links need more
-  than Nebula certificates. This must be settled before the permission relay is enabled.
-- **The voice's context:** a fork of the calling session gives the whole history. But a
-  long history slows the first turn and uses more of the subscription than starting
-  fresh with the session's briefing.
+- **Showing you things.** Sometimes talking isn't enough and you need to see what a
+  session is doing: images sent over iMessage, or a way to inspect large geometric
+  models, perhaps screen sharing. This comes after the calling stages.
 
 ## Risks (unverified)
 
@@ -369,7 +412,10 @@ Each entry says why it lost and what would make it worth retrying.
     leaves about 5 dB under your quietest speech in your AirPods recordings.
 
   Stage 2 tests this with real noise.
-- Channels are a research preview, so APIs and flags may change.
+- Mods are new, so their API may change.
+- Calls are protected only by Nebula and the call's secret: any device with a
+  certificate from your Nebula CA can reach the switchboard and ring you, and any program
+  running as you on the calling Mac can reach the voice server's session side.
 - Development builds use the APNs sandbox, and provisioning profiles expire.
 - The connection check relies on background pushes, which iOS treats as low priority: it
   delivers at most a few an hour, sometimes late, and none after you swipe the app away,
@@ -491,8 +537,21 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
    - **Left until testers report them as real problems**, because the calls so far went
      fine: very short words going unheard (above), and a stop where no words are
      recognised (the voice should carry on; the cough and clap didn't cause one).
-3. **One session.** The session finishes and calls, you reply, it acts and calls again.
-   Approve a permission prompt by voice.
+3. **One session** (in progress). The session finishes and calls, you reply, it acts and
+   calls again. Approve a permission prompt by voice. Steps, each tried offline before
+   the phone:
+   1. The call: `/ringback`, the briefing, the call ID and the switchboard's `/call`. The
+      phone rings with the session's subject, and the voice talks about its briefing.
+      Built, and tried offline (`tools/session-check`, three runs, Haiku as the
+      session's model): each call was placed 6 s after the session's first prompt, with a
+      5-word subject and a briefing of 132–161 spoken words, and an offer for an unknown
+      call was refused. Not yet on the phone, nor in an interactive session, where the
+      line under the prompt shows.
+   2. Replies: what you say reaches the session, questions and answers go both ways, and
+      when the session is done it calls again, or tells the call you're on.
+   3. Permissions by voice.
+   4. A better model on the line.
+   5. Call back from the app's call history.
 4. **Several sessions + retries.** A second session waits for the first call to end.
    "Not now" retries on schedule while the queue waits. A final decline holds all calls
    until a call back releases them.

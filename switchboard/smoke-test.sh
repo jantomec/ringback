@@ -35,6 +35,10 @@ check "event" 200 "$(status -d '{"call_id": "12345678-abcd", "event": "ended", "
 check "event that isn't JSON" 400 "$(status -d 'not json' "$url/events")"
 check "connection check" 200 "$(status -d '{"token": "aaaa1111bbbb2222"}' "$url/check")"
 check "connection check before the token arrived" 200 "$(status -d '{}' "$url/check")"
+check "call" 200 "$(status -d '{"project": "demo", "subject": "Tests pass", "voice": "http://127.0.0.1:1", "call_id": "0123456789abcdef0123"}' "$url/call")"
+check "call without a call ID" 400 "$(status -d '{"project": "demo", "voice": "http://127.0.0.1:1"}' "$url/call")"
+check "call with a voice that isn't a URL" 400 "$(status -d '{"project": "demo", "voice": "nope", "call_id": "0123456789abcdef0123"}' "$url/call")"
+sleep 1  # the call's push goes out after the answer
 kill $server
 wait $server 2> /dev/null || true
 
@@ -45,6 +49,8 @@ check "check without APNs keys says so" yes "$(yes_if has "$(HOME="$home" "$bin"
 check "registration logged with checks" yes "$(yes_if grep -qE 'registered Test phone \(sandbox\), token …bbbb2222, with connection checks' "$home/log")"
 check "event stored with a time" yes "$(yes_if grep -qE '"event":"ended".*"time":"20[0-9-]+T[0-9:]+"' "$state/events.jsonl")"
 check "event logged" yes "$(yes_if grep -qE 'call 12345678: ended, duration_s 21.1 \(on the phone at [0-9:]{8}\)' "$home/log")"
+check "call logged" yes "$(yes_if grep -qF 'call 01234567: asked by http://127.0.0.1:1 for demo: Tests pass' "$home/log")"
+check "call rings with its ID" yes "$(yes_if grep -qF 'call 01234567 → Test phone: no [apns.sandbox] key in the config' "$home/log")"
 
 if [ "${1:-}" = --apns ]; then
     cp ~/.config/ringback/switchboard.toml ~/.config/ringback/AuthKey_*.p8 "$home/.config/ringback/"

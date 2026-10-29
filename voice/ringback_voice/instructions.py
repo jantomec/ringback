@@ -1,7 +1,7 @@
 """What the voice is told: how to talk on the phone (the conversation rules in docs/design.md),
-then the session's report.
+then the session's briefing.
 
-Until sessions call (Stage 3), the report is a file given to the server, or STAND_IN.
+On a call rung by hand, the briefing is the report file given to the server, or STAND_IN.
 """
 
 RULES = """\

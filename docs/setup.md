@@ -1,8 +1,8 @@
 # Setup
 
-How to run ringback as built so far (Stage 2 in progress: the call rings, and the voice
-talks about a report you give it and answers you). Replace the example addresses with your
-own.
+How to run ringback as built so far (Stage 3 in progress: a session with `/ringback` on
+places a call when it finishes, so far tried only without the phone, and your replies
+don't reach the session yet). Replace the example addresses with your own.
 
 ## You need
 
@@ -74,7 +74,7 @@ it:
 ```
 
 It listens only on its Nebula address. Phones register at `/register` and report call
-events at `/events`. Those are kept in `~/.local/state/ringback/` (`devices.json` and
+events at `/events`, and voice servers ask it to ring at `/call`. Those are kept in `~/.local/state/ringback/` (`devices.json` and
 `events.jsonl`).
 
 Every 30 min it wakes each phone with a background push, and the app checks in at
@@ -86,25 +86,51 @@ To update it, copy the new binary over the old one, stop `serve` and start it ag
 ## 4. The voice server (every Mac that runs sessions)
 
 ```sh
-cd voice && uv run ringback-voice serve --listen 10.0.0.1:8788 --report report.txt   # this Mac's Nebula address
+cd voice && uv run ringback-voice serve --listen 10.0.0.2:8788 --switchboard 10.0.0.1:8787
 ```
+
+`--listen` is this Mac's Nebula address, where the phone sends a call's audio, and
+`--switchboard` the switchboard's. Sessions on this Mac reach the voice server through
+a socket only you can open, `~/.local/state/ringback/voice.sock`.
 
 It needs a Mac with Apple silicon, and Claude Code signed in to your Claude subscription:
 the voice runs Haiku through `claude`. The first start downloads the speech models
 (Parakeet v2 and Kokoro) from Hugging Face. After that, loading them takes a few seconds.
 
-Until sessions call (Stage 3), the voice talks about `report.txt`: a few plain sentences
-on what a session did and what needs you. It's read again for every call, so you can
-change it between calls. Without `--report`, the voice says there's nothing to report.
+The voice server answers only calls it placed itself, for a session. To try the voice on
+a call rung by hand (step 6), add `--report report.txt`: a few plain sentences on what a
+session did and what needs you, which the voice talks about instead. It's read again for
+every call, so you can change it between calls.
 
 To try a change without the phone, `tools/call-check` plays a scripted call through the
 same pipeline.
 
-## 5. A test call
+## 5. The ringback mod (every Mac that runs sessions)
+
+The mod is how a session calls you. It needs Claude Code 2.1.287 or later. To load it in
+every session, add it to `~/.claude/settings.json`:
+
+```json
+{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/ringback/mod" } }
+```
+
+or load it in one session with `claude --plugin-dir /path/to/ringback/mod`.
+
+It does nothing until you run `/ringback` in a session. The dim line under the prompt
+then ends with "☎ ringback on". Each time the session finishes, it writes a short
+briefing, and the voice server rings your phone with it. Run `/ringback` again when you're
+back.
+
+`tools/session-check` tries a session's call without the phone.
+
+## 6. A test call
+
+From a session: run `/ringback`, then give the session something to do. Or ring by hand,
+with the voice server started with `--report`:
 
 ```sh
 ~/.local/bin/ringback-switchboard ring --project myproject --subject "Test call" \
-  --voice http://10.0.0.1:8788   # on the always-on Mac
+  --voice http://10.0.0.2:8788   # on the always-on Mac
 ```
 
 The phone rings as "Claude from myproject". The switchboard logs ringing, answered, the

@@ -1,7 +1,8 @@
 import Foundation
 
-/// The HTTP endpoints the phone talks to over Nebula: `/register`, `/events` and `/check`.
-/// Requests are small and rare, so they're handled one at a time. Each gets at most 5 s, so a
+/// The HTTP endpoints the phone talks to over Nebula: `/register`, `/events` and `/check`;
+/// and `/call`, which the voice servers ask to ring the phone. Requests are small and rare,
+/// so they're handled one at a time. Each gets at most 5 s, so a
 /// stalled connection can't hold the next request past the app's 10 s timeout. Meanwhile it
 /// asks the phones to check their connection (Check.swift).
 func serve(listen address: String) -> Never {
@@ -53,7 +54,7 @@ private struct BadRequest: Error {}
 /// Runs the endpoint a request asks for. The phone only checks for a 200.
 private func answer(_ request: Request?) -> (String, String) {
     let endpoints: [Substring: ([String: Any]) throws -> Void] = [
-        "/register": register, "/events": event, "/check": checkIn,
+        "/register": register, "/events": event, "/check": checkIn, "/call": call,
     ]
     guard let request else { return ("400 Bad Request", #"{"ok": false}"#) }
     guard let endpoint = endpoints[request.path] else { return ("404 Not Found", #"{"ok": false}"#) }
@@ -80,6 +81,23 @@ private func register(_ body: [String: Any]) throws {
     try Devices.register(token: token, environment: environment, device: device, notificationToken: notificationToken)
     let checks = notificationToken == nil ? "" : ", with connection checks"
     log("registered \(device) (\(environment)), token …\(token.suffix(8))\(checks)")
+}
+
+/// A voice server asks to ring the phone for one of its sessions. The call ID is that call's
+/// secret: the voice server accepts only an offer that carries it, and only the push takes it
+/// to the phone. The push goes out after the answer, so a slow APNs doesn't hold up requests.
+private func call(_ body: [String: Any]) throws {
+    guard let project = body["project"] as? String, !project.isEmpty,
+        let voice = body["voice"] as? String, voice.hasPrefix("http://") || voice.hasPrefix("https://"),
+        let callID = body["call_id"] as? String, (16...128).contains(callID.count)
+    else { throw BadRequest() }
+    let subject = (body["subject"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    log("call \(callID.prefix(8)): asked by \(voice) for \(project)\(subject.map { ": \($0)" } ?? "")")
+    Task.detached {
+        let lines = await ring(project: project, subject: subject, voice: voice, callID: callID)
+        if lines.isEmpty { log("call \(callID.prefix(8)): no phone registered") }
+        lines.forEach { log($0) }
+    }
 }
 
 /// The phone reached the switchboard on a connection check. Without a known token it still
