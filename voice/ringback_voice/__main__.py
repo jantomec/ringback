@@ -10,11 +10,11 @@ new offer for the same call replaces the earlier one, as when an offer made whil
 didn't connect.
 
 The call is a conversation: Parakeet v2 hears you, Haiku answers in a Claude Code session
-that stays open for the call, and Kokoro speaks the answer in growing pieces. You can
-interrupt it at any time; the phone sends how easily you do (your interruption sensitivity)
-and how much quieter background to ignore (the background filter). A call rung by hand
-(`ringback-switchboard ring --voice`) talks about the report in FILE, which is read again
-for every call.
+that stays open for the call (Opus takes it over if you ask for a better model), and Kokoro
+speaks the answer in growing pieces. You can interrupt it at any time; the phone sends how
+easily you do (your interruption sensitivity) and how much quieter background to ignore
+(the background filter). A call rung by hand (`ringback-switchboard ring --voice`) talks
+about the report in FILE, which is read again for every call.
 """
 
 import argparse
@@ -132,11 +132,17 @@ def call_task(
             empty_user_turn=EmptyUserTurnConfig(interrupted_prompt=NOISE),
         ),
     )
+
+    async def tell(text: str) -> None:
+        # Through the assistant's side, Pipecat holds a note until the voice has finished
+        # speaking and you aren't, then runs Haiku on it.
+        await assistant.queue_frame(LLMMessagesAppendFrame([{"role": "developer", "content": text}], run_llm=True))
+
     pipeline = Pipeline([
         transport.input(),
         ParakeetSTTService(say),
         user,
-        ClaudeCodeLLMService(instructions(report, session=link is not None), timeline, say, link, haiku),
+        ClaudeCodeLLMService(instructions(report, session=link is not None), timeline, say, link, haiku, tell),
         Pieces(timeline, say),
         KokoroTTSService(timeline, say),
         transport.output(),
@@ -154,10 +160,8 @@ def call_task(
     if link:
 
         async def notify(text: str) -> None:
-            # Through the assistant's side, Pipecat holds it until the voice has finished
-            # speaking and you aren't, then runs Haiku on it.
             say(f"note from the session: {text[:80]!r}")
-            await assistant.queue_frame(LLMMessagesAppendFrame([{"role": "developer", "content": text}], run_llm=True))
+            await tell(text)
 
         link.listen(notify)
         task.add_reached_downstream_filter((BotStartedSpeakingFrame,))

@@ -11,12 +11,16 @@ On a call for a session, Haiku has three tools (call_tools.py): pass_to_session,
 answer_permission and answer_question for what the session asks you. A message it passes, or
 an answer it gives, is held until you've heard the voice say so, and dropped if you cut the
 voice off before that (see "Acting on the call" in docs/design.md).
+
+On every call, better_model puts Opus on the line when you ask for a better model, the same
+way: once you've heard Haiku say so and its turn has ended, Haiku's process is closed and
+Opus resumes its session, with the whole call so far, and speaks next.
 """
 
 import asyncio
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import fields
 
 from pipecat.frames.frames import LLMContextFrame, LLMFullResponseEndFrame, LLMFullResponseStartFrame
@@ -25,7 +29,7 @@ from pipecat.services.llm_service import LLMService
 from pipecat.services.settings import LLMSettings
 from pipecat.utils.string import match_endofsentence
 
-from ringback_voice.haiku import Haiku
+from ringback_voice.haiku import BETTER_MODEL, Haiku
 from ringback_voice.sessions import Link
 from ringback_voice.speech import Timeline
 
@@ -42,6 +46,17 @@ ANSWER_HELD = (
     "cut you off before that, it's dropped and you'll be told. You've told the developer already: end "
     "your reply now, unless there's something else to say."
 )
+HAND_OVER_HELD = (
+    "Held until the developer has heard you say you're putting Opus on; then Opus takes over this call, "
+    "with everything said so far, and speaks next. If they cut you off before that, it doesn't happen and "
+    "you'll be told. End your reply now, after saying so if you haven't yet."
+)
+OPUS_ALREADY = "Nothing done: you're Opus, the better model, already. If the developer asked for one, tell them so."
+# The note that starts Opus's first turn, which it speaks first.
+HAND_OVER = (
+    "You're Opus, taking over this call from Haiku at the developer's request. Say briefly that you're on "
+    "the line, then carry on from where it was."
+)
 # Pipecat expects every setting to be given. The session sets its own, so only the model is.
 SETTINGS = LLMSettings(
     **{f.name: None for f in fields(LLMSettings) if f.name != "extra"}
@@ -57,15 +72,23 @@ class ClaudeCodeLLMService(LLMService):
         log: Callable[[str], None],
         link: Link | None = None,
         haiku: Haiku | None = None,
+        tell: Callable[[str], Awaitable[None]] | None = None,
         **kwargs,
     ):
         super().__init__(settings=SETTINGS, **kwargs)
         self._instructions = instructions
-        self._haiku = haiku  # its session, if the call started it already
+        self._haiku = haiku  # its session, if the call started it already; Opus's once it took over
         self._own_haiku = False  # started here, so it's closed here
         self._timeline = timeline
         self._log = log
         self._link = link  # to the calling session, if there is one
+        # Gives the voice a note, which runs it once it has stopped speaking and you aren't.
+        self._tell = tell
+        self._handing_over = False  # you heard Haiku say it's putting Opus on: Opus takes the next turn
+        self._hand_over_told = False  # the note that starts that turn was given
+        self._hand_over_only = False  # the last context brought nothing new but that note
+        self._switch: asyncio.Future | None = None  # Haiku's process closing and Opus's starting
+        self._unsent = ""  # notes for a turn you interrupted while Opus started
         self._said = ""  # your words in the last turn sent
         self._turn = 0  # turns sent to Haiku
         self._held: list[dict] = []  # messages and answers for the session, until you've heard them announced
@@ -88,8 +111,7 @@ class ClaudeCodeLLMService(LLMService):
             self._haiku = Haiku(self._instructions, self._log, tools=self._link is not None)
             self._own_haiku = True
             await self._haiku.start()
-        if self._link:
-            self.create_task(self._pass_heard())
+        self.create_task(self._pass_heard())
         # Haiku was asked for the opening when it started, and writes it meanwhile. It waits
         # in the queue until it can be spoken.
         self._turn = self._unfinished = 1
@@ -104,8 +126,9 @@ class ClaudeCodeLLMService(LLMService):
         await self._close()
 
     async def _close(self):
+        # You hung up: Opus isn't needed any more, but what you'd heard announced still goes.
+        self._held = [h for h in self._held if h["kind"] != "model"]
         if self._link:
-            # You hung up: what you'd heard announced still goes.
             heard = len(self._timeline.heard(time.monotonic()).split())
             self._pass(lambda h: self._needed(h) <= heard, dropped="you hung up first")
             self._write_reply()
@@ -123,7 +146,13 @@ class ClaudeCodeLLMService(LLMService):
 
     async def _answer(self, context):
         self._haiku.used = True
+        said = self._said
         words = self._new_words(context)
+        if self._hand_over_only and not self._handing_over:
+            # The note that was to start Opus's first turn came after Opus took your words:
+            # nothing new, so your last words stay the last.
+            self._said = said
+            return
         if self._opening is not None and not words:
             t, self._opening = self._opening, None
         else:
@@ -133,20 +162,31 @@ class ClaudeCodeLLMService(LLMService):
             while self._unfinished and await self._next_text() is not None:
                 pass
             self._write_reply()
-            note = self._cut_off_note()
+            note = self._unsent + self._cut_off_note()
             # What the last reply announced goes to the session if you heard it announced.
             heard = self._heard_words
             note += self._pass(
                 lambda h: heard is None or self._needed(h) <= heard, dropped="you cut the voice off first"
             )
+            if self._handing_over:
+                self._handing_over = False
+                self._switch = asyncio.ensure_future(self._hand_over())
+            handed = self._switch is not None
+            if handed:
+                # Opus starts even if you speak meanwhile, and then this turn's notes go to
+                # it with your words.
+                self._unsent = note
+                await asyncio.shield(self._switch)
+                self._switch, self._unsent = None, ""
+                note = f"[{HAND_OVER}]\n" + note
             if note:
-                self._log(f"told Haiku: {note.strip()}")
+                self._log(f"told {self._haiku.name}: {note.strip()}")
             if self._link and self._link.transcript:
                 transcript = self._link.transcript
                 for line in note.splitlines():
                     transcript.add("Note to the voice", line.strip("[]"))
                 transcript.add("Developer", self._said)
-            t = await self._send(note + (words or "[Carry on.]"))
+            t = await self._send(note + (words or ("" if handed else "[Carry on.]")))
         await self.push_frame(LLMFullResponseStartFrame())
         await self.start_processing_metrics()
         await self.start_ttfb_metrics()
@@ -159,7 +199,7 @@ class ClaudeCodeLLMService(LLMService):
                     # When they came, which for an opening written while the phone rang
                     # was before it's spoken.
                     came = self._haiku.first_words or time.monotonic()
-                    self._log(f"Haiku: first words after {came - t:.2f} s")
+                    self._log(f"{self._haiku.name}: first words after {came - t:.2f} s")
                 if text:
                     await self._push_llm_text(text)
             # Written as soon as it's complete, so it comes before what it passed on.
@@ -182,12 +222,17 @@ class ClaudeCodeLLMService(LLMService):
         self._quiet = False
         self._ack, self._opener = "", None
         self._turn += 1
-        if self._link:
-            # From your first words on, Haiku's tool calls are yours to pass on (see haiku.py).
-            self._haiku.take_tools(self._tool)
+        # From your first words on, Haiku's tool calls are yours to pass on (see haiku.py).
+        self._haiku.take_tools(self._tool)
         t = await self._haiku.send(message)
         self._unfinished += 1
         return t
+
+    async def _hand_over(self) -> None:
+        """Puts Opus on the call in Haiku's place."""
+        t = time.monotonic()
+        await self._haiku.hand_over()
+        self._log(f"handed over: Haiku closed and Opus started on its session in {time.monotonic() - t:.2f} s")
 
     async def _next_text(self) -> str | None:
         """The next piece of reply text ("" for other events), or None if the session ended."""
@@ -207,7 +252,7 @@ class ClaudeCodeLLMService(LLMService):
                 self._log(f"not spoken, after passing a message: {self._unsaid.strip()!r}")
                 self._unsaid = ""
             if event.get("is_error"):
-                self._log(f"Haiku: error {event.get('result')!r}")
+                self._log(f"{self._haiku.name}: error {event.get('result')!r}")
             return ""
         stream = event.get("event", {}) if event.get("type") == "stream_event" else {}
         if stream.get("type") == "content_block_start":
@@ -250,6 +295,10 @@ class ClaudeCodeLLMService(LLMService):
             self._written = True
 
     def _tool(self, name: str, arguments: dict) -> str:
+        if name == BETTER_MODEL:
+            return self._better_model()
+        if not self._link:
+            return "Nothing done: this call isn't for a session."
         if name == "answer_permission":
             return self._answer_permission(arguments)
         if name == "answer_question":
@@ -259,7 +308,7 @@ class ClaudeCodeLLMService(LLMService):
             return "Nothing passed: pass_to_session needs a message."
         message = message.strip()
         self._hold("message", message, lambda: self._link.send(message))
-        self._log(f"Haiku → session, held until heard: {message!r}")
+        self._log(f"{self._haiku.name} → session, held until heard: {message!r}")
         return HELD
 
     def _answer_permission(self, arguments: dict) -> str:
@@ -271,7 +320,7 @@ class ClaudeCodeLLMService(LLMService):
         verdict, said = "allow" if allow else "deny", self._words(arguments)
         text = f"{ask.name}: {verdict} ({said!r})"
         self._hold("answer", text, lambda: self._link.answer(ask.id, verdict, said))
-        self._log(f"Haiku answers the session, held until heard: {text}")
+        self._log(f"{self._haiku.name} answers the session, held until heard: {text}")
         return ANSWER_HELD
 
     def _answer_question(self, arguments: dict) -> str:
@@ -284,8 +333,22 @@ class ClaudeCodeLLMService(LLMService):
         said = self._words(arguments)
         text = f"{ask.name}: {answers} ({said!r})"
         self._hold("answer", text, lambda: self._link.answer(ask.id, "answered", said, answers))
-        self._log(f"Haiku answers the session, held until heard: {text}")
+        self._log(f"{self._haiku.name} answers the session, held until heard: {text}")
         return ANSWER_HELD
+
+    def _better_model(self) -> str:
+        if self._haiku.model == "opus":
+            self._log("Opus asked for a better model: nothing done")
+            return OPUS_ALREADY
+        if not self._handing_over and not any(h["kind"] == "model" for h in self._held):
+            self._hold("model", "Opus takes the call over from Haiku", self._heard_hand_over)
+            self._log("Haiku puts Opus on, held until heard")
+        return HAND_OVER_HELD
+
+    def _heard_hand_over(self) -> None:
+        # Opus takes the next turn: started by a note once the voice has stopped, or by your
+        # words if they come first.
+        self._handing_over = True
 
     def _words(self, arguments: dict) -> str:
         """Your words that Haiku gave with its answer, or else your last turn as recognised."""
@@ -316,21 +379,40 @@ class ClaudeCodeLLMService(LLMService):
         return acked + max(1, len(rest[: end or len(rest)].split()))
 
     async def _pass_heard(self):
-        """Passes a message or an answer on as soon as you've heard the reply up to where
-        Haiku gave it."""
+        """Passes a message or an answer on, or puts Opus on, as soon as you've heard the
+        reply up to where Haiku gave it."""
         while True:
             await asyncio.sleep(0.1)
             if self._held and not self._cut:
                 heard = len(self._timeline.heard(time.monotonic()).split())
                 self._pass(lambda h: h["turn"] == self._turn and self._needed(h) <= heard)
+            if self._handing_over and not self._hand_over_told and self._tell:
+                # Opus's first turn: Pipecat runs it once the voice has finished speaking.
+                self._hand_over_told = True
+                await self._tell(HAND_OVER)
 
     def _pass(self, goes: Callable[[dict], bool], dropped: str | None = None) -> str:
-        """Passes on the held messages and answers that go; drops the rest if dropped gives
-        why. Returns a note for Haiku about those dropped."""
+        """Passes on the held messages, answers and hand-over that go; drops the rest if
+        dropped gives why. Returns a note for Haiku about those dropped."""
         note = ""
         for held in list(self._held):
             message = held["kind"] == "message"
             text = repr(held["text"]) if message else held["text"]
+            if held["kind"] == "model":
+                if goes(held):
+                    self._held.remove(held)
+                    held["give"]()
+                    self._log(f"heard: {text}")
+                elif dropped:
+                    self._held.remove(held)
+                    self._log(f"not handed over, {dropped}: {text}")
+                    if self._link and self._link.transcript:
+                        self._link.transcript.add(f"Not handed over, {dropped}", text)
+                    note += (
+                        "[Opus didn't take over, because the developer cut you off before hearing you say so. "
+                        "Call better_model again only if they still want it.]\n"
+                    )
+                continue
             if goes(held):
                 self._held.remove(held)
                 if held["give"]() is False:
@@ -358,10 +440,11 @@ class ClaudeCodeLLMService(LLMService):
         return note
 
     def _new_words(self, context) -> str:
-        """What the Pipecat context gained since the last turn: your words, and notes."""
+        """What the Pipecat context gained since the last turn: your words, and notes. The
+        note that starts Opus's first turn is left out: _answer gives it as Opus takes over."""
         messages = context.get_messages()
         new, self._seen = messages[self._seen :], len(messages)
-        parts, said = [], []
+        parts, said, hand_over = [], [], False
         for m in new:
             if not isinstance(m, dict):
                 continue
@@ -372,8 +455,11 @@ class ClaudeCodeLLMService(LLMService):
             if m.get("role") == "user":
                 parts.append(text)
                 said.append(text)
+            elif m.get("role") in ("developer", "system") and text == HAND_OVER:
+                hand_over = True
             elif m.get("role") in ("developer", "system"):
                 parts.append(f"[{text}]")
+        self._hand_over_only = hand_over and not parts
         self._said = "\n".join(said)
         return "\n".join(parts)
 

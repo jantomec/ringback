@@ -19,6 +19,8 @@ with both sides of the call, so keep it outside the repo:
 - A turn starts 1 s after the voice stops talking. Write it as `@S:...` to start it S
   seconds after the voice starts its reply instead, which interrupts it. If the voice
   doesn't answer a turn within 15 s, the next one starts anyway, or the call ends.
+- A `TURN` written `...` is you saying nothing: the next turn waits until the voice has
+  spoken again, as after asking for a better model, when Opus speaks first.
 - `--report` is what the voice reports, as for `ringback-voice serve`.
 - `--session` makes it a call for a session, with `--report` as the session's briefing:
   the voice can pass messages to the session, which are listed with the timings, and the
@@ -62,10 +64,23 @@ For a session asking permission mid-call, then you saying yes:
       "Okay, sounds good." "?Bash: git push --force origin fix-parser // I rebased it onto main." \
       "Yes, go ahead." "Thanks, that's all."
 
+For a better model on the line, waiting for Opus to speak first, then asking what only the
+earlier conversation tells:
+
+    uv run --project voice tools/call-check/call_check.py OUT_DIR --session --report briefing.txt \
+      "How long do the tests take now?" "Can I get a better model on the line?" "..." \
+      "What did I ask you before?" "Thanks, that's all."
+
 It prints the voice's log as the server would, then the timing measured on its own clock,
 from where your speech starts and ends in each clip:
 - when each of your turns started and ended, and whether the voice talked over you;
 - when the voice started each reply, and how long after you stopped;
 - how long it went on after you interrupted;
+- when Haiku put Opus on, when you'd heard it say so, and when Opus took over (or that it
+  didn't, because you cut the voice off first);
 - `NOT YOU`: an interruption or words that Parakeet heard while none of your turns was
   playing (or within 1 s of one ending), so they came from the background.
+
+Last, it names any session folder that Claude Code kept for the call's voice and that's
+left in `~/.claude/projects`: there should be none, because the voice deletes it when the
+call ends.

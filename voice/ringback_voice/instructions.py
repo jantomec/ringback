@@ -1,6 +1,6 @@
 """What the voice is told: how to talk on the phone (the conversation rules in docs/design.md),
-what it can do for the session, how to put what the session asks to the developer, then the
-session's briefing.
+when to put a better model on, what it can do for the session, how to put what the session
+asks to the developer, then the session's briefing.
 
 On a call rung by hand there's no session: the briefing is the report file given to the
 server, or STAND_IN.
@@ -30,6 +30,11 @@ Notes in square brackets come from the call, not from the developer:
   before they spoke. They heard nothing after that. Answer what they said, and don't
   repeat what they already heard.
 - Other notes say what happened on the call. Follow them.
+
+A better model:
+- If the developer asks for a better or smarter model, or for Opus, say a short line such
+  as "Sure, I'll put Opus on.", then call better_model. Opus then takes over the call,
+  with everything said so far. Don't offer it unprompted.
 
 """
 

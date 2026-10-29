@@ -1,12 +1,13 @@
-"""The voice's tools on a call for a session: a small MCP server that `claude -p` starts.
+"""The voice's tools on a call: a small MCP server that `claude -p` starts.
 
-    python -m ringback_voice.call_tools SOCKET
+    python -m ringback_voice.call_tools SOCKET [TOOL...]
 
 It speaks MCP over stdin and stdout, and relays each tool call to the call that started
 Haiku, over SOCKET in that call's private folder. A tool call ends Haiku's turn until its
 result comes back, so Haiku can't go on to imagine the session's answer, as it did when it
-passed messages in tags. Its tools pass the session a message, or answer the permission or
-questions the session asks you. Only the standard library, so it starts fast.
+passed messages in tags. Its tools pass the session a message, answer the permission or
+questions the session asks you, or put a better model on the line. It offers the TOOLs
+named, or all. Only the standard library, so it starts fast.
 """
 
 import json
@@ -77,6 +78,15 @@ TOOLS = [
             "required": ["question", "answers", "said"],
         },
     },
+    {
+        "name": "better_model",
+        "description": (
+            "Put a better model, Opus, on the line in your place, when the developer asks for a better or "
+            "smarter model, or for Opus. Opus takes over this call with everything said so far. Say in a "
+            "few words that you're putting Opus on before you call this."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -87,7 +97,7 @@ def relay(path: str, name: str, arguments: dict) -> str:
         return json.loads(s.makefile().readline())["text"]
 
 
-def answer(path: str, request: dict) -> dict | None:
+def answer(path: str, request: dict, tools: list[dict] = TOOLS) -> dict | None:
     method, params = request.get("method"), request.get("params") or {}
     if method == "initialize":
         return {
@@ -96,7 +106,7 @@ def answer(path: str, request: dict) -> dict | None:
             "serverInfo": {"name": "ringback", "version": "0.1.0"},
         }
     if method == "tools/list":
-        return {"tools": TOOLS}
+        return {"tools": tools}
     if method == "tools/call":
         try:
             text = relay(path, params.get("name", ""), params.get("arguments") or {})
@@ -109,7 +119,8 @@ def answer(path: str, request: dict) -> dict | None:
 
 
 def main() -> None:
-    path = sys.argv[1]
+    path, names = sys.argv[1], sys.argv[2:]
+    tools = [tool for tool in TOOLS if not names or tool["name"] in names]
     for line in sys.stdin:
         try:
             request = json.loads(line)
@@ -117,7 +128,7 @@ def main() -> None:
             continue
         if "id" not in request:
             continue  # a notification, such as notifications/initialized
-        result = answer(path, request)
+        result = answer(path, request, tools)
         if result is None:
             response = {"jsonrpc": "2.0", "id": request["id"], "error": {"code": -32601, "message": "unknown method"}}
         else:

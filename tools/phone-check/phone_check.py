@@ -16,14 +16,15 @@ times each, each timed to the first audio that isn't silence:
   call's did before; timed from the offer.
 As on the phone, the microphone sends nothing until you answer. It also declines a call
 and offers it again, replaces a live offer with a new one, answers a call with a reply for
-Haiku to pass to the session, and checks the calls' transcripts. Prints the voice's log,
-the checks and the timings.
+Haiku to pass to the session, and checks the calls' transcripts, and that no Claude Code
+session folder is left. Prints the voice's log, the checks and the timings.
 """
 
 import argparse
 import asyncio
 import fractions
 import json
+import os
 import re
 import secrets
 import shutil
@@ -184,6 +185,13 @@ def free(address: str) -> bool:
             return False
 
 
+def kept() -> set[Path]:
+    """The folders where Claude Code keeps the voice's sessions, which it deletes at the end
+    of a call (forget in voice/ringback_voice/haiku.py)."""
+    home = Path(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude").expanduser()
+    return set((home / "projects").glob("*ringback-voice-*"))
+
+
 async def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--runs", type=int, default=3, help="calls of each kind (default 3)")
@@ -194,6 +202,7 @@ async def main() -> int:
         if not free(address):
             sys.exit(f"{address} is in use: is another phone check running?")
 
+    sessions = kept()
     tmp = Path(tempfile.mkdtemp(prefix="ringback-phone-check-"))
     sock, voice_log, project = tmp / "voice.sock", tmp / "voice.log", tmp / "demo"
     project.mkdir()
@@ -218,7 +227,7 @@ async def main() -> int:
 
     def haikus() -> int:
         """Haiku sessions the voice server runs now."""
-        found = subprocess.run(["pgrep", "-P", str(voice.pid), "-f", "no-session-persistence"], capture_output=True)
+        found = subprocess.run(["pgrep", "-P", str(voice.pid), "-f", "input-format stream-json"], capture_output=True)
         return len(found.stdout.split())
 
     async def haikus_gone(since: float) -> float | None:
@@ -413,6 +422,10 @@ async def main() -> int:
               len(transcripts) == answered_calls)  # fmt: skip
         firsts_in = [re.search(r"^\*\*(.+?):\*\*", t.read_text(), re.M) for t in transcripts]
         check("each transcript starts with the voice's opening", all(m and m[1] == "Voice" for m in firsts_in))
+        gone = await haikus_gone(time.monotonic())
+        left = sorted(p.name for p in kept() - sessions)
+        check(f"no Haiku left, and no Claude Code session folders in ~/.claude/projects: {left}",
+              gone is not None and not left)  # fmt: skip
         if transcripts:
             print(f"--- the last transcript\n{transcripts[-1].read_text()}")
     finally:

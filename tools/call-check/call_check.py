@@ -14,14 +14,17 @@ is the session asking your permission for a tool call, and "??QUESTION | LABEL: 
 makes the call one placed to ask it. The answers the voice gives are printed, held and
 given or dropped. A turn starts 1 s after
 the voice stops talking. A turn written "@S:..." starts S seconds after the voice starts its reply
-instead, to interrupt it. The call's audio connects CONNECT seconds after it starts, as on
+instead, to interrupt it, and one written "..." says nothing: the next waits until the voice
+has spoken again. The call's audio connects CONNECT seconds after it starts, as on
 the phone. A background SOUND (text spoken by a third Kokoro voice, or a CLIP) plays under
 the whole call, looped. Prints the voice's own log, then each turn's timing measured here,
-and writes both sides of the call to OUT_DIR/call.wav.
+and any session folder Claude Code kept for the voice and that's left, and writes both
+sides of the call to OUT_DIR/call.wav.
 """
 
 import argparse
 import asyncio
+import os
 import re
 import time
 import wave
@@ -50,6 +53,12 @@ LIMIT = 300  # seconds before a call that never finishes is given up
 CONNECT = 2.5  # seconds from the start of a call to connected audio (2.2–2.9 s on the phone)
 UNANSWERED = 15  # seconds after your last turn without a reply before the call ends
 AFTER_YOU = 1.0  # seconds after your turn in which the voice's log can still be about it
+# The voice's log lines listed with the timings: its answers to the session, and handing over
+# to Opus.
+LISTED = (
+    "Haiku answers the session", "Opus answers the session", "answered the session", "not answered", "not given",
+    "Haiku puts Opus on", "heard: Opus", "handed over", "not handed over",
+)  # fmt: skip
 
 
 class Call:
@@ -145,7 +154,9 @@ class ScriptedInput(BaseInputTransport):
             if playing is None and turns and isinstance(turns[0][1], tuple) and self._due(None):
                 kind, what = turns.pop(0)[1]
                 c.your_end = c.now()  # the next turn waits for the voice to answer it
-                if kind == "news":
+                if kind == "wait":
+                    c.timings.append(f"you waited at {c.now():.1f} s for the voice to go on")
+                elif kind == "news":
                     c.timings.append(f"news from the session at {c.now():.1f} s: {what!r}")
                     await c.link.news(what)
                 else:
@@ -282,7 +293,9 @@ def asked(turn: str) -> tuple[str, dict] | None:
 
 async def your_turn(turn: str) -> tuple[float | None, np.ndarray | tuple, float, float]:
     """When it's due, its audio, and where in it your speech starts and ends (s); or, for
-    the session's news or what it asks, its kind and what it says."""
+    the session's news or what it asks, or you waiting, its kind and what it says."""
+    if turn == "...":
+        return None, ("wait", ""), 0.0, 0.0
     if turn.startswith("!"):
         return None, ("news", turn[1:]), 0.0, 0.0
     if ask := asked(turn):
@@ -305,6 +318,13 @@ def save(recording, path: Path):
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1), w.setsampwidth(2), w.setframerate(models.SPEAKING_RATE)
         w.writeframes(np.clip(mix, -32768, 32767).astype(np.int16).tobytes())
+
+
+def kept() -> set[Path]:
+    """The folders where Claude Code keeps the voice's sessions, which it deletes at the end
+    of a call (forget in voice/ringback_voice/haiku.py)."""
+    home = Path(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude").expanduser()
+    return set((home / "projects").glob("*ringback-voice-*"))
 
 
 def level(audio: np.ndarray) -> str:
@@ -331,7 +351,7 @@ async def run(turns: list[str], report: str | None, turn_wait: float, out: Path,
         print(f"{datetime.now():%H:%M:%S.%f}"[:-3] + f"  {call.now():5.1f} s  {line}", flush=True)
         if line.startswith(("interrupted", "you (")) and not call.you_spoke():
             call.timings.append(f"NOT YOU at {call.now():.1f} s: {line}")
-        if line.startswith(("Haiku answers the session", "answered the session", "not answered", "not given")):
+        if line.startswith(LISTED):
             call.timings.append(f"{line} (at {call.now():.1f} s)")
 
     if args.session:
@@ -340,7 +360,7 @@ async def run(turns: list[str], report: str | None, turn_wait: float, out: Path,
             call.timings.append(f"passed to the session at {call.now():.1f} s: {text!r}")
 
         first = None
-        if turns and isinstance(turns[0][1], tuple) and turns[0][1][0] != "news":
+        if turns and isinstance(turns[0][1], tuple) and turns[0][1][0] not in ("news", "wait"):
             # A call placed to ask it: its briefing does.
             kind, what = turns.pop(0)[1]
             first = Ask(new_id({}), kind, "call-check", what)
@@ -350,6 +370,7 @@ async def run(turns: list[str], report: str | None, turn_wait: float, out: Path,
         if first:
             call.ask(first, briefed=True)
         print(f"transcript: {call.link.transcript.path}")
+    sessions = kept()
     task = call_task(
         ScriptedTransport(turns, background, call), report, say, turn_wait, args.sensitivity, args.background_filter,
         call.link,
@@ -371,6 +392,8 @@ async def run(turns: list[str], report: str | None, turn_wait: float, out: Path,
         print("\nwhat the session asked, and the answers it got:")
         for ask in call.asks.values():
             print(f"  {ask.answered() if ask.outcome else f'{ask.name}: no answer'}")
+    left = sorted(p.name for p in kept() - sessions)
+    print(f"\nClaude Code session folders the call left in ~/.claude/projects: {', '.join(left) or 'none'}")
     if background is not None:
         played = np.take(background, range(call.background_len), mode="wrap")
         call.recording.append((call.background_at, soxr.resample(played, models.HEARING_RATE, models.SPEAKING_RATE)))

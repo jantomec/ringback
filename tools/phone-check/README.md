@@ -31,7 +31,9 @@ It also checks:
 - nothing reaches the session from calls where you said nothing, and your one reply ("Yes,
   push it and open the pull request.", spoken by Kokoro) does;
 - one transcript for each answered call, each starting with the voice's opening;
-- no Haiku is left after each call.
+- no Haiku is left after each call, and at the end no session folder that Claude Code keeps
+  for the voice's sessions is left in `~/.claude/projects` (the voice deletes it when a
+  call's session closes; see `tools/handover-check`).
 
 Run from the repo root. It uses your Claude subscription, one Haiku session for each call
 (`3 N + 5`):
@@ -74,6 +76,11 @@ median 0.58 s (0.58–0.67), answered 0.65 s (0.62–0.68), by hand 2.60 s (2.28
 With the voice server holding its audio until you answer, and the check above (three runs
 of each kind, all 25 checks passed): ringing median 0.67 s (0.57–0.67), answered 0.74 s
 (0.63–0.79), by hand 2.85 s (2.80–3.23).
+
+With the voice's sessions kept on disk under a known ID until the call ends, so Opus can
+take a call over, and calls rung by hand given the better-model tool (2026-10-30, one run
+of each kind, all 20 checks passed): ringing 0.53 s, answered 0.63 s, by hand 2.65 s. No
+session folder was left.
 
 In an earlier version, a tool call Haiku made in its opening waited for the call's voice.
 Once, the opening stalled 8.7 s on it, and a message nobody had said reached the session.
