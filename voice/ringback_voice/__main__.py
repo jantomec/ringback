@@ -26,7 +26,7 @@ from loguru import logger
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMRunFrame
+from pipecat.frames.frames import LLMMessagesAppendFrame, LLMRunFrame
 from pipecat.observers.user_bot_latency_observer import UserBotLatencyObserver
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -74,8 +74,10 @@ def call_task(
     turn_wait: float = TURN_WAIT,
     sensitivity: float = hearing.SENSITIVITY,
     gate: float = hearing.GATE,
+    link: sessions.Link | None = None,
 ) -> PipelineTask:
-    """The conversation, between transport's input and output."""
+    """The conversation, between transport's input and output. With a link, the voice can
+    pass messages to the session, and the session's news reaches the call."""
     timeline = Timeline()
     end_of_turn = LocalSmartTurnAnalyzerV3(params=SmartTurnParams(stop_secs=turn_wait))
     vad = hearing.thresholds(sensitivity, gate)
@@ -92,7 +94,7 @@ def call_task(
         transport.input(),
         ParakeetSTTService(say),
         user,
-        ClaudeCodeLLMService(instructions(report), timeline, say),
+        ClaudeCodeLLMService(instructions(report, session=link is not None), timeline, say, link),
         Pieces(timeline, say),
         KokoroTTSService(timeline, say),
         transport.output(),
@@ -107,6 +109,18 @@ def call_task(
         observers=[latency],
     )
 
+    if link:
+
+        async def notify(text: str) -> None:
+            # Through the assistant's side, Pipecat holds it until the voice has finished
+            # speaking and you aren't, then runs Haiku on it.
+            say(f"news from the session: {text[:80]!r}")
+            await assistant.queue_frame(
+                LLMMessagesAppendFrame([{"role": "developer", "content": f"The session: {text}"}], run_llm=True)
+            )
+
+        link.notify = notify
+
     @latency.event_handler("on_first_bot_speech_latency")
     async def first_words(observer, secs):
         say(f"voice started {secs:.2f} s after connecting")
@@ -119,14 +133,20 @@ def call_task(
 
 
 async def run_call(
-    conn: SmallWebRTCConnection, call: str, t0: float, text: str | None, sensitivity: float, gate: float
+    conn: SmallWebRTCConnection,
+    call: str,
+    t0: float,
+    text: str | None,
+    sensitivity: float,
+    gate: float,
+    link: sessions.Link | None = None,
 ) -> None:
     say = lambda line: log(f"call {call}: {line}")
     since = lambda: f"{time.monotonic() - t0:.2f} s after the offer"
     transport = SmallWebRTCTransport(
         webrtc_connection=conn, params=TransportParams(audio_in_enabled=True, audio_out_enabled=True)
     )
-    task = call_task(transport, text, say, sensitivity=sensitivity, gate=gate)
+    task = call_task(transport, text, say, sensitivity=sensitivity, gate=gate, link=link)
 
     @transport.event_handler("on_client_connected")
     async def connected(transport, connection):
@@ -169,8 +189,11 @@ def main() -> None:
         t0 = time.monotonic()
         call_id = str(body.get("call_id", ""))
         call = calls.answer(call_id)
+        link = None
         if call:
-            text = call.briefing
+            text, link = call.briefing, call.link
+            if link and link.transcript:
+                log(f"call {call_id[:8]}: transcript {link.transcript.path}")
         elif args.report:
             # A call rung by hand, to try the voice: it can't reach any session.
             try:
@@ -188,7 +211,7 @@ def main() -> None:
 
         async def talk():
             try:
-                await run_call(conn, call_id[:8], t0, text, sensitivity, gate)
+                await run_call(conn, call_id[:8], t0, text, sensitivity, gate, link)
             finally:
                 await calls.end(call_id)
 

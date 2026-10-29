@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Plays a scripted call through the voice's pipeline on this Mac, without the phone.
 
-    uv run --project voice tools/call-check/call_check.py OUT_DIR TURN... [--report FILE] [--turn-wait S]
-        [--sensitivity S] [--background-filter G] [--background SOUND [--background-db DB]]
+    uv run --project voice tools/call-check/call_check.py OUT_DIR TURN... [--report FILE] [--session]
+        [--turn-wait S] [--sensitivity S] [--background-filter G] [--background SOUND [--background-db DB]]
 
 Each TURN is what you say: text, which another Kokoro voice speaks ("[1.2]" in it is a
 pause of that many seconds), or a CLIP: a 16 kHz mono WAV file, optionally cut to a span
-("file.wav:12.5-19"). A turn starts 1 s after the voice
-stops talking. A turn written "@S:..." starts S seconds after the voice starts its reply
+("file.wav:12.5-19"). With --session, the call is for a session: what the voice passes to
+it is printed, the transcript goes to OUT_DIR/.ringback/calls/, and a TURN written "!TEXT"
+is the session's answer arriving as news instead of your speech. A turn starts 1 s after
+the voice stops talking. A turn written "@S:..." starts S seconds after the voice starts its reply
 instead, to interrupt it. The call's audio connects CONNECT seconds after it starts, as on
 the phone. A background SOUND (text spoken by a third Kokoro voice, or a CLIP) plays under
 the whole call, looped. Prints the voice's own log, then each turn's timing measured here,
@@ -32,6 +34,8 @@ from pipecat.transports.base_transport import BaseTransport, TransportParams
 
 from ringback_voice import hearing, models
 from ringback_voice.__main__ import TURN_WAIT, call_task
+from ringback_voice.sessions import Link
+from ringback_voice.transcript import Transcript
 
 YOUR_VOICE = "am_michael"  # Kokoro voice for text turns
 SOMEONE_ELSE = "bf_emma"  # Kokoro voice for a background of text
@@ -62,6 +66,7 @@ class Call:
         self.background_len = 0  # samples of it played
         self.timings: list[str] = []
         self.done = asyncio.Event()
+        self.link: Link | None = None  # to the session, on a call for one
 
     def now(self) -> float:
         return time.monotonic() - self.t0
@@ -116,7 +121,12 @@ class ScriptedInput(BaseInputTransport):
         while True:
             if playing is None and (turns or not c.done.is_set()) and self._unanswered():
                 c.timings.append(f"the voice didn't answer within {UNANSWERED} s")
-            if playing is None and turns and self._due(turns[0][0]):
+            if playing is None and turns and isinstance(turns[0][1], str) and self._due(None):
+                news = turns.pop(0)[1]
+                c.timings.append(f"news from the session at {c.now():.1f} s: {news!r}")
+                c.your_end = c.now()  # the next turn waits for the voice to answer it
+                await c.link.news(news)
+            if playing is None and turns and not isinstance(turns[0][1], str) and self._due(turns[0][0]):
                 at, playing, onset, offset = turns.pop(0)
                 pos, started = 0, c.now()
                 c.recording.append((started, soxr.resample(playing, models.HEARING_RATE, models.SPEAKING_RATE)))
@@ -229,8 +239,11 @@ async def sound(spec: str, voice: str) -> np.ndarray:
     return (np.clip(speech, -1, 1) * 32767).astype(np.int16)
 
 
-async def your_turn(turn: str) -> tuple[float | None, np.ndarray, float, float]:
-    """When it's due, its audio, and where in it your speech starts and ends (s)."""
+async def your_turn(turn: str) -> tuple[float | None, np.ndarray | str, float, float]:
+    """When it's due, its audio, and where in it your speech starts and ends (s); or, for
+    the session's news, its text."""
+    if turn.startswith("!"):
+        return None, turn[1:], 0.0, 0.0
     at = None
     if turn.startswith("@"):
         head, turn = turn[1:].split(":", 1)
@@ -267,7 +280,8 @@ async def run(turns: list[str], report: str | None, turn_wait: float, out: Path,
     if args.background:
         b = (await sound(args.background, SOMEONE_ELSE)).astype(np.float64) * 10 ** (args.background_db / 20)
         background = np.clip(b, -32768, 32767).astype(np.int16)
-        print(f"background {level(background)}, your turns {level(np.concatenate([t[1] for t in turns]))} (RMS while there's sound)")
+        yours = np.concatenate([t[1] for t in turns if not isinstance(t[1], str)])
+        print(f"background {level(background)}, your turns {level(yours)} (RMS while there's sound)")
     call = Call()
 
     def say(line: str):
@@ -275,7 +289,18 @@ async def run(turns: list[str], report: str | None, turn_wait: float, out: Path,
         if line.startswith(("interrupted", "you (")) and not call.you_spoke():
             call.timings.append(f"NOT YOU at {call.now():.1f} s: {line}")
 
-    task = call_task(ScriptedTransport(turns, background, call), report, say, turn_wait, args.sensitivity, args.background_filter)
+    if args.session:
+
+        def send(text: str):
+            call.timings.append(f"passed to the session at {call.now():.1f} s: {text!r}")
+
+        out.mkdir(parents=True, exist_ok=True)
+        call.link = Link(send, Transcript(out, "call-check", report or ""))
+        print(f"transcript: {call.link.transcript.path}")
+    task = call_task(
+        ScriptedTransport(turns, background, call), report, say, turn_wait, args.sensitivity, args.background_filter,
+        call.link,
+    )  # fmt: skip
     runner = asyncio.create_task(PipelineRunner(handle_sigint=False).run(task))
     await asyncio.sleep(CONNECT)
     call.timings.append(f"audio connected at {call.now():.1f} s")
@@ -302,6 +327,7 @@ def main():
     p.add_argument("out", type=Path)
     p.add_argument("turns", nargs="+")
     p.add_argument("--report", type=Path)
+    p.add_argument("--session", action="store_true", help="a call for a session; !TEXT turns are its news")
     p.add_argument("--turn-wait", type=float, default=TURN_WAIT)
     p.add_argument("--sensitivity", type=float, default=hearing.SENSITIVITY, help="0 to 1, as in the app")
     p.add_argument("--background-filter", type=float, default=hearing.GATE, help="0 (off) to 1, as in the app")

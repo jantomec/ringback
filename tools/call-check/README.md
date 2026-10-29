@@ -10,8 +10,8 @@ of it.
 Run from the repo root. It uses your Claude subscription, and `OUT_DIR` gets `call.wav`
 with both sides of the call, so keep it outside the repo:
 
-    uv run --project voice tools/call-check/call_check.py OUT_DIR TURN... [--report FILE] [--turn-wait S]
-        [--sensitivity S] [--background-filter G] [--background SOUND [--background-db DB]]
+    uv run --project voice tools/call-check/call_check.py OUT_DIR TURN... [--report FILE] [--session]
+        [--turn-wait S] [--sensitivity S] [--background-filter G] [--background SOUND [--background-db DB]]
 
 - Each `TURN` is what you say: text, or a `CLIP`: a 16 kHz mono WAV file, optionally cut
   to a span in seconds (`speech.wav:12.5-19`), so stretches of your own recordings can be
@@ -20,6 +20,11 @@ with both sides of the call, so keep it outside the repo:
   seconds after the voice starts its reply instead, which interrupts it. If the voice
   doesn't answer a turn within 15 s, the next one starts anyway, or the call ends.
 - `--report` is what the voice reports, as for `ringback-voice serve`.
+- `--session` makes it a call for a session, with `--report` as the session's briefing:
+  the voice can pass messages to the session, which are listed with the timings, and the
+  call's transcript goes to `OUT_DIR/.ringback/calls/`. A `TURN` written `!TEXT` is the
+  session's answer arriving as news, instead of your speech; it's due when a spoken turn
+  would be.
 - `--turn-wait` overrides how long the voice waits for the end of your turn when Pipecat's
   end-of-turn model thinks you haven't finished (`TURN_WAIT` in the voice).
 - `--sensitivity` is the app's interruption sensitivity, from 0 to 1 (0.5 by default), and
@@ -34,6 +39,12 @@ For example, interrupting the voice's opening, then two normal turns:
 
     uv run --project voice tools/call-check/call_check.py OUT_DIR \
       "@3:Sorry, which Mac is that?" "How much memory did it use before?" "Thanks, that's all."
+
+For a session, answering the briefing's question, then the session's news, then wrapping
+up:
+
+    uv run --project voice tools/call-check/call_check.py OUT_DIR --session --report briefing.txt \
+      "Yes, push it and open the pull request." "!Pushed it and opened pull request 42." "Thanks, that's all."
 
 It prints the voice's log as the server would, then the timing measured on its own clock,
 from where your speech starts and ends in each clip:

@@ -1,8 +1,8 @@
 # Setup
 
 How to run ringback as built so far (Stage 3 in progress: a session with `/ringback` on
-places a call when it finishes, so far tried only without the phone, and your replies
-don't reach the session yet). Replace the example addresses with your own.
+places a call when it finishes, and what you tell the voice reaches the session, so far
+tried only without the phone; voice approvals of permissions don't work yet). Replace the example addresses with your own.
 
 ## You need
 
@@ -118,8 +118,10 @@ or load it in one session with `claude --plugin-dir /path/to/ringback/mod`.
 
 It does nothing until you run `/ringback` in a session. The dim line under the prompt
 then ends with "☎ ringback on". Each time the session finishes, it writes a short
-briefing, and the voice server rings your phone with it. Run `/ringback` again when you're
-back.
+briefing, and the voice server rings your phone with it. What you ask the voice to pass on
+reaches the session, and its answer comes back to the call, or a new call if you've hung
+up. Each call's transcript is kept in the project's `.ringback/calls/`, which git ignores.
+Run `/ringback` again when you're back.
 
 `tools/session-check` tries a session's call without the phone.
 

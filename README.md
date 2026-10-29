@@ -16,7 +16,8 @@ API key.
 Status: early. A locked iPhone rings, and the voice talks about a report you give it,
 answers you and stops when you interrupt. Sessions are learning to call (Stage 3, in
 progress): with `/ringback` on, a session writes a briefing when it finishes and places a
-call, so far tried only without the phone, and your replies don't reach it yet. See
+call, and what you tell the voice reaches the session, so far tried only without the
+phone. See
 [docs/design.md](docs/design.md).
 
 - `app/`: the iPhone app (generate the Xcode project with `xcodegen` in `app/`);

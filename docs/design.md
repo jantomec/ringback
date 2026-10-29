@@ -57,10 +57,10 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      The session has its whole context then and its prompt cache is warm, so this extra
      turn is quick and cheap. The mod gives the briefing to the voice server on the same
      Mac, which places the call. If you're on a call with that session already, the
-     voice gets the session's answer as news instead (Stage 3).
-   - It collects what you said for the session from the voice server and submits it to
-     the session as a prompt. A question the voice forwards goes the same way, and the
-     session's answer goes back to the voice (Stage 3).
+     voice gets the session's answer as news instead.
+   - Once a second, it collects what the voice passed on for the session and submits each
+     message to the session as a prompt, with the call transcript's path. A question the
+     voice forwards goes the same way, and the session's answer goes back to the call.
    - When the session needs a permission while ringback is on, the mod holds the tool
      call and puts it to you on a call. Your clear yes or no decides it. If the call
      brings no answer, the usual permission prompt appears in the terminal (Stage 3).
@@ -74,9 +74,9 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      server runs with `--report`, and talks about that report.
    - It holds a sleep assertion from placing a call until the call ends, or until 15 min
      have passed without an answer.
-   - It keeps what you say for each session until that session's mod collects it
-     (Stage 3).
-   - **Call transcripts** (Stage 3). It writes each call's transcript into the calling
+   - It keeps what the voice passes on for each session until that session's mod
+     collects it, and takes the session's answers back as news for the call.
+   - **Call transcripts.** It writes each call's transcript into the calling
      session's project, under `.ringback/calls/`: the briefing, your words as recognised,
      what the voice said and where you cut it off, and what went to the session. The
      folder holds its own `.gitignore` of `*`, so git ignores it without a change to the
@@ -171,11 +171,19 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
    - The voice is a fast front end that holds the session's briefing as context, because
      a Claude Code turn is too slow for live conversation. A call rung by hand talks
      about a report file instead.
-   - **Acting on the call** (Stage 3). Haiku passes what you say for the session to its
-     mod, forwards questions it can't answer to the session and tells you the answer
-     when it comes, and answers a held permission on your clear yes or no. It does these
-     by writing short tags in its reply, which the voice server takes out before the
-     reply is spoken.
+   - **Acting on the call.** Haiku passes what you want the session to do or know, and
+     questions it can't answer, with its one tool, `pass_to_session`: a small MCP server
+     that `claude -p` starts for the call (`voice/ringback_voice/call_tools.py`), which
+     relays to the call over a socket in its private folder.
+     - Haiku says it's passing something on, then calls the tool. The message is held
+       until you've heard the reply up to that point, and dropped if you cut the voice off
+       before; Haiku is then told, and passes it again if you still want it. A message
+       can't be recalled once it's passed, but you can send a correction.
+     - What Haiku writes after the tool isn't spoken, if it said something before: it
+       tends to say the same thing again.
+     - The session's answer comes back as a note, "[The session: ...]". Pipecat holds it
+       until the voice has finished speaking and you aren't, then Haiku tells you.
+     - Answering a held permission on your clear yes or no comes in step 3 (Stage 3).
    - **A better model** (Stage 3). When you ask for one, the call carries on with Opus,
      with the conversation so far. Its replies take longer.
    - Speech-to-text was chosen by measuring on accented English with `tools/stt-eval`
@@ -195,7 +203,8 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
    - act on a permission prompt only after a clear yes or no, otherwise ask again
      (Stage 3);
    - the session writes its call briefing (a subject, what's new, what needs you) in a
-     form that can be spoken, and answers forwarded questions the same way (Stage 3).
+     form that can be spoken, and its answers to what the voice passes on go back to the
+     call, where the voice puts them in spoken words.
 6. **iPhone app** (Swift):
    - a PushKit VoIP push triggers CallKit, which rings on the lock screen and in your
      headphones;
@@ -391,6 +400,16 @@ Each entry says why it lost and what would make it worth retrying.
   than a call needs: the first turn slows down with a long history, and every call uses
   more of the subscription. The briefing the session writes is the middle ground. Retry
   if briefings prove too thin for the voice to answer from.
+- **Tags in the voice's reply for messages to the session** (`<session>…</session>`,
+  taken out before the reply is spoken). Nothing ends Haiku's turn after a tag, so it
+  goes on and imagines the conversation. In an offline call (`tools/call-check`), one
+  instruction became three messages in one reply, and between them Haiku wrote the
+  session's answers itself ("Pushed fix-parser and opened the pull request") before the
+  session had done anything. A tool call ends Haiku's turn until its result comes back.
+- **Passing a message as soon as Haiku writes it.** In the same call you cut the reply
+  off before hearing any of it, but its messages had already gone, one of them wrong: it
+  was written before the second half of your turn arrived. Messages are now held until
+  you've heard them announced.
 - **A separate Haiku call for each call's subject.** The session writes the subject with
   its briefing instead, so nothing extra runs.
 - **Running the voice's Haiku in the project folder, to keep Claude Code's own transcript
@@ -561,7 +580,22 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
       line under the prompt shows.
    2. Replies: what you say reaches the session, questions and answers go both ways, and
       when the session is done it calls again, or tells the call you're on. Each call's
-      transcript is saved in the project for the session to read.
+      transcript is saved in the project for the session to read. Built, and tried
+      offline, not yet on the phone:
+      - The voice (`tools/call-check --session`, a scripted call run four times while
+        this was refined): you answer the briefing's question, the session's news
+        arrives, you wrap up. Each time, Pipecat split your answer ("Yes, push it and
+        open the pull request." / "Don't backport it.") into two turns. Haiku's message
+        for the first half wrongly said the backport was still undecided, and was
+        dropped, because you'd cut that reply off unheard. One combined message then
+        went to the session as soon as its announcement had been heard, and Haiku's first
+        words on the session's news came 1.3–1.5 s after it arrived. In the last run
+        the voice didn't repeat itself after passing the message.
+      - The session (`tools/session-check`, one run): a message left for it was answered,
+        and with no call live, the session wrote a new briefing and called again 5 s
+        after the message was left.
+      - Not tried: news reaching a call through the voice server (offline it went to the
+        call directly), and a real session acting on a real instruction.
    3. Permissions by voice.
    4. A better model on the line.
    5. Call back from the app's call history.

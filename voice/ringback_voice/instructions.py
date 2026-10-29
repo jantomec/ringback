@@ -1,7 +1,8 @@
 """What the voice is told: how to talk on the phone (the conversation rules in docs/design.md),
-then the session's briefing.
+what it can do for the session, then the session's briefing.
 
-On a call rung by hand, the briefing is the report file given to the server, or STAND_IN.
+On a call rung by hand there's no session: the briefing is the report file given to the
+server, or STAND_IN.
 """
 
 RULES = """\
@@ -29,6 +30,29 @@ Notes in square brackets come from the call, not from the developer:
   repeat what they already heard.
 - Other notes say what happened on the call. Follow them.
 
+"""
+
+SESSION = """\
+Passing things to the session:
+- Your pass_to_session tool passes a message to the session. Use it for what the
+  developer wants the session to do or know: an instruction, a decision, an answer to its
+  question, or a question the briefing doesn't answer. Write the message as from the
+  developer, keeping their own words where they matter. If what they said was too garbled
+  to be sure, ask them first.
+- Before you call the tool, say in a few words that you're passing it on. The message
+  goes only once the developer has heard you say so. After the tool, don't say it again.
+- Pass each thing once. Don't make up what the session will answer or do: you only know
+  what's in the briefing and in its notes.
+- The session works on it, which can take a while, and its answer comes back to you as a
+  note: "[The session: ...]". Only such a note is the session's answer. Tell the developer
+  what it says, briefly and in your own spoken words.
+- You can't approve permissions for the session yet. If the developer asks you to, say
+  that this isn't possible yet.
+
+The session's briefing:
+"""
+
+NO_SESSION = """\
 You can't act on the session yet: you can't pass it messages or approve anything for it.
 If the developer asks you to, say that this isn't possible yet.
 
@@ -41,5 +65,5 @@ so there's nothing to report. Say so briefly, then talk about whatever the devel
 wants."""
 
 
-def instructions(report: str | None) -> str:
-    return RULES + (report or STAND_IN).strip() + "\n"
+def instructions(report: str | None, session: bool = False) -> str:
+    return RULES + (SESSION if session else NO_SESSION) + (report or STAND_IN).strip() + "\n"

@@ -1,23 +1,53 @@
-"""The voice server's session side: the calls that sessions' ringback mods place.
+"""The voice server's session side: the calls that sessions' ringback mods place, and what
+passes between a call and its session.
 
 Each Mac's sessions reach their voice server over a Unix socket that only you can open (see
 "Voice server's session side" in docs/design.md). For each briefing it makes a random call
 ID, the call's secret, and asks the switchboard to ring the phone with it. The ID reaches
 the phone only through Apple's push, and the offer that answers the call must carry it.
+
+During the call, what the voice passes to the session waits here until the session's mod
+collects it. When the session has finished with it, the mod brings its answer back as
+news: the voice tells you if you're still on the call, and otherwise the session calls
+again.
 """
 
 import asyncio
 import os
 import secrets
 import time
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from aiohttp import ClientError, ClientSession, ClientTimeout, web
 
+from ringback_voice.transcript import Transcript
+
 SOCKET = Path("~/.local/state/ringback/voice.sock").expanduser()
 UNANSWERED = 15 * 60  # seconds a placed call waits to be answered before it's forgotten
+
+
+class Link:
+    """What a call's voice can do with its session: pass it messages and hear its news."""
+
+    def __init__(self, send: Callable[[str], None], transcript: Transcript | None = None):
+        self._send = send
+        self.transcript = transcript
+        # Set by the call: tells the voice the session's news, when you've both stopped
+        # talking.
+        self.notify: Callable[[str], Awaitable[None]] | None = None
+
+    def send(self, text: str) -> None:
+        self._send(text)
+        if self.transcript:
+            self.transcript.add("Passed to the session", text)
+
+    async def news(self, text: str) -> None:
+        if self.transcript:
+            self.transcript.add("The session's answer", text)
+        if self.notify:
+            await self.notify(text)
 
 
 @dataclass
@@ -25,28 +55,32 @@ class Call:
     id: str
     session: str
     project: str
+    cwd: str  # the session's working directory, where the transcript goes
     subject: str
     briefing: str
     placed: float
     answered: bool = False
+    link: Link | None = field(default=None, repr=False)
 
 
 class Calls:
-    """The calls placed and not yet ended. The Mac stays awake while there are any."""
+    """The calls placed and not yet ended, and what waits for each session. The Mac stays
+    awake while there are calls."""
 
     def __init__(self, switchboard: str | None, voice: str, log: Callable[[str], None]):
         self._switchboard = switchboard
         self._voice = voice  # this server's address on Nebula, which the phone calls
         self._log = log
         self._calls: dict[str, Call] = {}
+        self._waiting: dict[str, list[dict]] = {}  # messages for each session
         self._awake: asyncio.subprocess.Process | None = None
 
-    async def place(self, session: str, project: str, subject: str, briefing: str) -> Call:
+    async def place(self, session: str, project: str, cwd: str, subject: str, briefing: str) -> Call:
         """Asks the switchboard to ring the phone; raises RuntimeError if it can't."""
         if not self._switchboard:
             raise RuntimeError("the voice server was started without --switchboard")
         self._forget_unanswered()
-        call = Call(secrets.token_urlsafe(24), session, project, subject, briefing, time.monotonic())
+        call = Call(secrets.token_urlsafe(24), session, project, cwd, subject, briefing, time.monotonic())
         body = {"project": project, "subject": subject, "voice": f"http://{self._voice}", "call_id": call.id}
         try:
             async with ClientSession(timeout=ClientTimeout(total=10)) as http:
@@ -61,16 +95,43 @@ class Calls:
         return call
 
     def answer(self, call_id: str) -> Call | None:
-        """The call an offer answers, if it's one this server placed."""
+        """The call an offer answers, if it's one this server placed, with its link to the
+        session."""
         self._forget_unanswered()
         call = self._calls.get(call_id)
         if call:
             call.answered = True
+            transcript = None
+            if call.cwd:
+                try:
+                    transcript = Transcript(Path(call.cwd), call.subject, call.briefing)
+                except OSError as e:
+                    self._log(f"call {call_id[:8]}: no transcript ({e})")
+            call.link = Link(
+                lambda text: self.send(call.session, text, transcript.relative if transcript else None), transcript
+            )
         return call
 
     async def end(self, call_id: str) -> None:
         self._calls.pop(call_id, None)
         await self._stay_awake()
+
+    def send(self, session: str, text: str, transcript: str | None = None) -> None:
+        """Keeps a message for a session until its mod collects it."""
+        self._waiting.setdefault(session, []).append({"text": text, "transcript": transcript})
+        self._log(f"for session {session[:8]}: {text!r}")
+
+    def collect(self, session: str) -> list[dict]:
+        return self._waiting.pop(session, [])
+
+    async def news(self, session: str, text: str) -> bool:
+        """Tells the call you're on with a session its news; False if there's no such call."""
+        for call in self._calls.values():
+            if call.session == session and call.link and call.link.notify:
+                self._log(f"call {call.id[:8]}: news from the session: {text[:80]!r}")
+                await call.link.news(text)
+                return True
+        return False
 
     def _forget_unanswered(self) -> None:
         for call in list(self._calls.values()):
@@ -89,23 +150,58 @@ class Calls:
 
 
 def session_side(calls: Calls) -> web.Application:
-    """The endpoints the mods call: `POST /calls` places a call with a session's briefing."""
+    """The endpoints the mods call:
+    - `POST /calls` places a call with a session's briefing;
+    - `GET /sessions/{id}/messages` collects what waits for a session;
+    - `POST /sessions/{id}/messages` leaves one, as the voice does (for tools);
+    - `POST /sessions/{id}/news` brings a session's answer: `{"live": true}` if the voice
+      told the call you're on, false if the session should call you.
+    """
+
+    async def body_of(request: web.Request, *keys: str) -> dict:
+        body = await request.json()
+        if not isinstance(body, dict) or any(not isinstance(body.get(k), str) for k in keys):
+            raise ValueError
+        return body
 
     async def place(request: web.Request) -> web.Response:
         try:
-            body = await request.json()
-            session, project = str(body["session_id"]), str(body["project"])
-            subject, briefing = str(body.get("subject", "")), str(body["briefing"])
-        except (ValueError, KeyError):
+            body = await body_of(request, "session_id", "project", "briefing")
+        except ValueError:
             return web.json_response({"error": "needs session_id, project and briefing"}, status=400)
         try:
-            await calls.place(session, project, subject, briefing)
+            await calls.place(
+                body["session_id"], body["project"], str(body.get("cwd", "")), str(body.get("subject", "")), body["briefing"]
+            )
         except RuntimeError as e:
             return web.json_response({"error": str(e)}, status=502)
         return web.json_response({"ok": True})
 
+    async def collect(request: web.Request) -> web.Response:
+        return web.json_response({"messages": calls.collect(request.match_info["id"])})
+
+    async def leave(request: web.Request) -> web.Response:
+        try:
+            body = await body_of(request, "text")
+        except ValueError:
+            return web.json_response({"error": "needs text"}, status=400)
+        calls.send(request.match_info["id"], body["text"], body.get("transcript"))
+        return web.json_response({"ok": True})
+
+    async def news(request: web.Request) -> web.Response:
+        try:
+            body = await body_of(request, "text")
+        except ValueError:
+            return web.json_response({"error": "needs text"}, status=400)
+        return web.json_response({"live": await calls.news(request.match_info["id"], body["text"])})
+
     app = web.Application()
-    app.add_routes([web.post("/calls", place)])
+    app.add_routes([
+        web.post("/calls", place),
+        web.get("/sessions/{id}/messages", collect),
+        web.post("/sessions/{id}/messages", leave),
+        web.post("/sessions/{id}/news", news),
+    ])  # fmt: skip
     return app
 
 
