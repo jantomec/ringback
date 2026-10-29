@@ -82,6 +82,31 @@ class Offer:
         self.ended = asyncio.Event()  # its pipeline has ended
 
 
+class HeldConnection(SmallWebRTCConnection):
+    """The call's WebRTC connection, whose voice sends nothing until you've answered. Made
+    while the phone rings, it would otherwise send silence from the start, which the phone
+    queues until you answer and then plays first: the voice started about 2 s late and
+    garbled on the first call that connected while ringing (Stage 3)."""
+
+    def __init__(self, answered: asyncio.Future):
+        super().__init__()
+        self._answered = answered
+
+    def replace_audio_track(self, track):
+        recv = track.recv
+
+        async def held():
+            if not self._answered.done():
+                await asyncio.shield(self._answered)
+                # Pipecat paces its frames from when the track was made: start that clock
+                # now, or the time held would go out at once.
+                track._start = time.time()
+            return await recv()
+
+        track.recv = held
+        super().replace_audio_track(track)
+
+
 def call_task(
     transport: BaseTransport,
     report: str | None,
@@ -287,7 +312,8 @@ def main() -> None:
             return web.json_response({"error": "unknown call"}, status=403)
         sensitivity = setting(body, "sensitivity", hearing.SENSITIVITY)
         gate = setting(body, "background_filter", hearing.GATE)
-        conn = SmallWebRTCConnection()
+        this = Offer()
+        conn = HeldConnection(this.answered)
         await conn.initialize(sdp=body["sdp"], type=body["type"])
         if earlier := offered.get(call_id):
             # The phone gave up on its earlier offer, such as one made while it rang that
@@ -305,7 +331,7 @@ def main() -> None:
                 await call.haiku.close()
                 call.haiku = None
             haiku = call.haiku
-        this = offered[call_id] = Offer()
+        offered[call_id] = this
         if not ringing:
             mark_answered(call_id)
 

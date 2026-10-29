@@ -231,7 +231,10 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      mobile data only the phone can start a Nebula tunnel (see Stage 0).
      - **Connecting while ringing.** Once the voice server answers (reaching the Mac
        first, below), the app makes its offer with `"ringing": true`, so the connection is
-       up by the time you answer. Until then it sends no microphone and plays nothing.
+       up by the time you answer. Until then it sends no microphone and plays nothing,
+       and the voice server sends nothing either: silence it sent while the phone rang
+       queued up on the phone and played first, so on the first such call the voice
+       started about 2 s late and garbled.
        When you answer, it tells the voice server (`/answered`), which then lets the
        voice speak. If the ringing offer failed, or you answered before it went, one offer
        goes after answering, without the flag, and counts as answered. A new offer for a
@@ -491,9 +494,6 @@ Each entry says why it lost and what would make it worth retrying.
 - Every placed call now costs a Haiku opening on the subscription, even if you decline
   it, and a declined call keeps its Haiku and the Mac awake until it's forgotten after
   90 s.
-- With the connection made while ringing, WebRTC's audio starts on an already open
-  connection when CallKit activates the audio session, and silence received while
-  ringing could delay or rush the opening's first second. Neither has run on the phone.
 - Pipecat expects a WebRTC data channel and logs a warning without one. Nothing needs one
   yet: the interruption settings go with the offer.
 - Xcode needs device support for the phone's iOS version to install development builds.
@@ -687,8 +687,15 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
           both parts out of the silence on the phone too; untested.
         - Call outcomes (`tools/session-check`, five runs): both calls' outcomes, not
           answered, reached the session within 40 s, started no turn and no call, and
-          asked at the prompt, the session quoted them. The "answered" outcome was only
-          tried outside a session.
+          asked at the prompt, the session quoted them.
+        - On the phone (2026-10-29, on mobile data, AirPods, two calls): both connected
+          while ringing, only over Nebula (0.94 and 0.38 s after the offer, 2.1 and
+          1.5 s before you answered), and the voice started 0.18 and 0.37 s after the
+          Mac heard you'd answered. On the first you heard it about 2 s late and garbled:
+          the Mac had sent silence while the phone rang. With that held until you answer,
+          the second started very quickly and sounded clean. Both calls' "answered"
+          outcomes were queued for the session; whether the dim line showed wasn't
+          checked. Not tried: answering the instant it rings, before audio connects.
    3. Permissions by voice.
    4. A better model on the line.
    5. Call back from the app's call history.

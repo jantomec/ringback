@@ -9,26 +9,27 @@ session) is in progress**, as five steps under Stage 3 in `docs/design.md`. Step
 are built, checked offline (`tools/session-check`, `tools/call-check --session`) and
 worked on the phone (three calls, including the session calling again after you hung up);
 still untried: the app reaching the Mac through a stale Nebula tunnel (the first test
-call's audio failed on one). Built after that phone test and tried only offline
-(`tools/phone-check`): Haiku starts when the call is placed and thinks of its opening
-while the phone rings, the app connects the audio while it rings and tells the Mac when
-you answer, and the session is told how each call went in a note that starts no turn.
-Until step 3, a session with ringback on stops silently at a permission prompt. How it
-works: the ringback mod (`mod/`) adds `/ringback`; while it's on, each finished turn has
-the session write a call briefing, and the voice server places the call through the
-switchboard's `/call`. On the call, the voice passes what you say to the session with its
-one tool, held until you've heard it announced; the session's answer comes back to the
-call, or the session calls again if you've hung up; the transcript goes to the project's
-`.ringback/calls/`. Mods replaced the planned hooks and MCP channel, and a tool replaced
-tags in Haiku's reply (rejected alternatives). Stage 2 (conversation) works: Parakeet v2 →
-Haiku → Kokoro `af_heart` on the phone, interruptions included (`voice/ringback_voice/`,
-results under Stage 2 in `docs/design.md`). Its last test is left open: two interruption
-settings are built and checked offline, not yet on the phone: the sensitivity, and a
-background filter ("Ignore Background Noise"), a rough level gate that ignores speech
-quieter than yours. They still need a phone test with gym-like noise and with someone
-talking nearby. Tuning the filter waits until testers report a problem. VoxLock (a model
-keeping only your voice, from a sample recorded in the app) is parked on the branch
-`voxlock`; see rejected alternatives in `docs/design.md`.
+call's audio failed on one). Built after that and tried on the phone (two calls; offline
+with `tools/phone-check`): Haiku starts when the call is placed and thinks of its opening
+while the phone rings, the app connects the audio while it rings, only over Nebula, and
+tells the Mac when you answer, which sends nothing until then; the voice started 0.2–0.4 s
+after the Mac heard you answer, and sounded clean. The session is told how each call went
+in a note that starts no turn. Until step 3, a session with ringback on stops silently at
+a permission prompt. How it works: the ringback mod (`mod/`) adds `/ringback`; while it's
+on, each finished turn has the session write a call briefing, and the voice server places
+the call through the switchboard's `/call`. On the call, the voice passes what you say to
+the session with its one tool, held until you've heard it announced; the session's answer
+comes back to the call, or the session calls again if you've hung up; the transcript goes
+to the project's `.ringback/calls/`. Mods replaced the planned hooks and MCP channel, and
+a tool replaced tags in Haiku's reply (rejected alternatives). Stage 2 (conversation)
+works: Parakeet v2 → Haiku → Kokoro `af_heart` on the phone, interruptions included
+(`voice/ringback_voice/`, results under Stage 2 in `docs/design.md`). Its last test is
+left open: two interruption settings are built and checked offline, not yet on the phone:
+the sensitivity, and a background filter ("Ignore Background Noise"), a rough level gate
+that ignores speech quieter than yours. They still need a phone test with gym-like noise
+and with someone talking nearby. Tuning the filter waits until testers report a problem.
+VoxLock (a model keeping only your voice, from a sample recorded in the app) is parked on
+the branch `voxlock`; see rejected alternatives in `docs/design.md`.
 
 The app warns you when calls can't reach the phone because Nebula is off: the switchboard
 wakes it every 30 min to check (the connection check in `docs/design.md`).

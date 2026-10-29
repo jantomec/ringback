@@ -100,6 +100,7 @@ class Phone:
         self.pc.addTrack(self.mic)
         self.first_audio: float | None = None  # when the voice was first heard
         self.last_audio: float | None = None
+        self.frames = 0  # audio frames received, silent ones too
         self._listener: asyncio.Task | None = None
 
         @self.pc.on("track")
@@ -113,6 +114,7 @@ class Phone:
                 frame = await track.recv()
             except MediaStreamError:
                 return
+            self.frames += 1
             if np.abs(frame.to_ndarray().astype(np.int32)).max(initial=0) > LOUD:
                 self.last_audio = time.monotonic()
                 self.first_audio = self.first_audio or self.last_audio
@@ -269,6 +271,8 @@ async def main() -> int:
         check("a ringing offer is answered (200)", await phone.offer(call_id, ringing=True) == 200)
         await asyncio.sleep(3)
         check("no voice while it rings", phone.first_audio is None)
+        # Silence sent while it rings would queue up on the phone and play first.
+        check(f"nothing at all sent while it rings ({phone.frames} frames)", phone.frames == 0)
         hung_up = time.monotonic()
         await phone.hang_up()
         took = await finished(call_id, hung_up)

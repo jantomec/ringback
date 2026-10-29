@@ -20,6 +20,8 @@ when you answer to the first audio that isn't silence, in three ways, `N` times 
 It also checks:
 - `/answered` is refused (404) for a call with no offer live: never offered, before its
   offer, and after the phone hung up;
+- nothing at all, not even silence, reaches the phone while it rings: silence queued on
+  the phone played first when you answered, about 2 s late and garbled;
 - a call declined while it rings: its pipeline ends, it leaves no transcript, and the call
   stays placed with its Haiku. Offered again once you answer, as the app does when its
   offer made while ringing failed, it uses that Haiku's opening;
@@ -68,6 +70,10 @@ checks passed): ringing 0.58–1.01 s, answered 0.62–1.60 s, by hand 2.90–3.
 After merging with the call-outcome notes, which are queued for the session too and which
 the check therefore leaves out (three runs of each kind, all 24 checks passed): ringing
 median 0.58 s (0.58–0.67), answered 0.65 s (0.62–0.68), by hand 2.60 s (2.28–2.92).
+
+With the voice server holding its audio until you answer, and the check above (three runs
+of each kind, all 25 checks passed): ringing median 0.67 s (0.57–0.67), answered 0.74 s
+(0.63–0.79), by hand 2.85 s (2.80–3.23).
 
 In an earlier version, a tool call Haiku made in its opening waited for the call's voice.
 Once, the opening stalled 8.7 s on it, and a message nobody had said reached the session.
