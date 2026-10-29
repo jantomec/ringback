@@ -47,6 +47,12 @@ xcrun devicectl device install app --device <UDID> build/Build/Products/Debug-ip
 Open the app, allow the microphone, and enter the switchboard's Nebula address, e.g.
 `10.0.0.1` (port 8787 is the default). The top row turns green: "Ready for calls".
 
+Then, under Interruptions, open **Your voice** and record yourself reading the text shown,
+with the microphone you take calls with (your AirPods, say). Each call sends 3 s of it to
+the Mac, so that only your voice stops Claude, not other people talking near you. The
+**Sensitivity** slider below it sets how easily you stop Claude; it applies from the next
+call. During your first call, turn on Voice Isolation in Control Center (Mic Mode).
+
 ## 3. The switchboard (one always-on Mac)
 
 Build it on a Mac with Xcode. The binary runs on Intel and Apple silicon Macs with macOS
@@ -78,7 +84,8 @@ cd voice && uv run ringback-voice serve --listen 10.0.0.1:8788 --report report.t
 
 It needs a Mac with Apple silicon, and Claude Code signed in to your Claude subscription:
 the voice runs Haiku through `claude`. The first start downloads the speech models
-(Parakeet v2 and Kokoro) from Hugging Face. After that, loading them takes a few seconds.
+(Parakeet v2 and Kokoro) and VoxLock's model (74 MB) from Hugging Face. After that,
+loading them takes a few seconds.
 
 Until sessions call (Stage 3), the voice talks about `report.txt`: a few plain sentences
 on what a session did and what needs you. It's read again for every call, so you can

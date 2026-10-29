@@ -5,8 +5,9 @@ posts its WebRTC offer here over Nebula (on mobile data only the phone can open 
 
 The call is a conversation: Parakeet v2 hears you, Haiku answers in a Claude Code session
 that stays open for the call, and Kokoro speaks the answer in growing pieces. You can
-interrupt it at any time. Until sessions call (Stage 3), the voice talks about the report
-in FILE, which is read again for every call.
+interrupt it at any time, and only your voice stops it: the phone sends the voice sample you
+recorded in the app, and your interruption sensitivity. Until sessions call (Stage 3), the
+voice talks about the report in FILE, which is read again for every call.
 """
 
 import argparse
@@ -17,6 +18,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 from aiohttp import web
 from loguru import logger
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
@@ -39,7 +41,7 @@ from pipecat.turns.empty_user_turn import EmptyUserTurnConfig
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
-from ringback_voice import models
+from ringback_voice import hearing, models
 from ringback_voice.claude_code import ClaudeCodeLLMService
 from ringback_voice.instructions import instructions
 from ringback_voice.kokoro import KokoroTTSService
@@ -64,15 +66,22 @@ def log(line: str) -> None:
 
 
 def call_task(
-    transport: BaseTransport, report: str | None, say: Callable[[str], None], turn_wait: float = TURN_WAIT
+    transport: BaseTransport,
+    report: str | None,
+    say: Callable[[str], None],
+    turn_wait: float = TURN_WAIT,
+    sensitivity: float = hearing.SENSITIVITY,
 ) -> PipelineTask:
-    """The conversation, between transport's input and output."""
+    """The conversation, between transport's input and output. The transport's input should
+    filter your voice (hearing.your_voice)."""
     timeline = Timeline()
     end_of_turn = LocalSmartTurnAnalyzerV3(params=SmartTurnParams(stop_secs=turn_wait))
+    vad = hearing.thresholds(sensitivity)
+    say(f"sensitivity {sensitivity:.2f}: {hearing.describe(vad)}")
     user, assistant = LLMContextAggregatorPair(
         LLMContext(),
         user_params=LLMUserAggregatorParams(
-            vad_analyzer=SileroVADAnalyzer(),
+            vad_analyzer=SileroVADAnalyzer(params=vad),
             user_turn_strategies=UserTurnStrategies(stop=[TurnAnalyzerUserTurnStopStrategy(turn_analyzer=end_of_turn)]),
             empty_user_turn=EmptyUserTurnConfig(interrupted_prompt=NOISE),
         ),
@@ -107,7 +116,14 @@ def call_task(
     return task
 
 
-async def run_call(conn: SmallWebRTCConnection, call: str, t0: float, report: Path | None) -> None:
+async def run_call(
+    conn: SmallWebRTCConnection,
+    call: str,
+    t0: float,
+    report: Path | None,
+    sample: np.ndarray | None,
+    sensitivity: float,
+) -> None:
     say = lambda line: log(f"call {call}: {line}")
     since = lambda: f"{time.monotonic() - t0:.2f} s after the offer"
     text = None
@@ -116,10 +132,14 @@ async def run_call(conn: SmallWebRTCConnection, call: str, t0: float, report: Pa
             text = report.read_text()
         except OSError as e:
             say(f"no report ({e}), using the stand-in")
+    say("VoxLock: " + ("your voice sample" if sample is not None else "learns your voice from your first 3 s of speech"))
     transport = SmallWebRTCTransport(
-        webrtc_connection=conn, params=TransportParams(audio_in_enabled=True, audio_out_enabled=True)
+        webrtc_connection=conn,
+        params=TransportParams(
+            audio_in_enabled=True, audio_out_enabled=True, audio_in_filter=hearing.your_voice(sample)
+        ),
     )
-    task = call_task(transport, text, say)
+    task = call_task(transport, text, say, sensitivity=sensitivity)
 
     @transport.event_handler("on_client_connected")
     async def connected(transport, connection):
@@ -150,15 +170,28 @@ def main() -> None:
         body = await request.json()
         t0 = time.monotonic()
         call = str(body.get("call_id", "?"))[:8]
+        sample = None
+        if body.get("voice_sample"):
+            try:
+                sample = hearing.decode_sample(body["voice_sample"])
+            except ValueError as e:
+                log(f"call {call}: no voice sample ({e})")
+        try:
+            sensitivity = float(body.get("sensitivity", hearing.SENSITIVITY))
+        except (TypeError, ValueError):
+            sensitivity = hearing.SENSITIVITY
+        if not 0 <= sensitivity <= 1:  # also NaN
+            sensitivity = hearing.SENSITIVITY
         conn = SmallWebRTCConnection()
         await conn.initialize(sdp=body["sdp"], type=body["type"])
-        asyncio.create_task(run_call(conn, call, t0, args.report))
+        asyncio.create_task(run_call(conn, call, t0, args.report, sample, sensitivity))
         log(f"call {call}: offer answered in {time.monotonic() - t0:.2f} s")
         return web.json_response(conn.get_answer())
 
     t = time.monotonic()
-    log("loading Parakeet and Kokoro")
+    log("loading Parakeet, Kokoro and VoxLock")
     models.load()
+    hearing.load()
     host, port = args.listen.rsplit(":", 1)
     app = web.Application()
     app.add_routes([web.post("/offer", offer)])

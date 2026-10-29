@@ -2,10 +2,16 @@
 """Transcribe every utterance of every recording with one model, timing each.
 
     uv run --with mlx-audio==0.6.2 tools/stt-eval/transcribe.py MODEL DATA_DIR
+    uv run --with mlx-audio==0.6.2 --with voxlock==1.2.1 tools/stt-eval/transcribe.py MODEL DATA_DIR SAMPLE
 
 MODEL is a key of MODELS. Reads DATA_DIR/wav/*.wav and DATA_DIR/segments/*.json
 (from segment.py) and writes DATA_DIR/hyp/MODEL/<recording>.json. The first
 utterance is transcribed once untimed, so model loading and warm-up don't count.
+
+With SAMPLE (a WAV file of your voice, optionally cut to a span: "file.wav:0-15"), each
+recording first goes through VoxLock as on a call, streamed in 80 ms chunks, and the
+results go to DATA_DIR/hyp/MODEL+voxlock/. The utterances stay where segment.py found
+them in the unfiltered recording.
 """
 
 import json
@@ -33,6 +39,25 @@ def read_wav(path):
         return np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768
 
 
+def read_clip(spec):
+    path, _, span = spec.partition(":")
+    audio = read_wav(Path(path).expanduser())
+    if span:
+        start, end = (float(x) for x in span.split("-"))
+        audio = audio[int(start * 16000) : int(end * 16000)]
+    return audio
+
+
+def isolate(vl, sample, audio, chunk=1280):
+    """audio through VoxLock in chunks of 80 ms, as the voice's filter runs it, and the
+    seconds that took."""
+    stream, out, t = vl.stream(sample), [], time.perf_counter()
+    for i in range(0, len(audio), chunk):
+        out.append(stream.push(audio[i : i + chunk]))
+    out.append(stream.flush())
+    return np.concatenate(out)[: len(audio)], time.perf_counter() - t
+
+
 def peak_memory_gb():
     get = getattr(mx, "get_peak_memory", None) or mx.metal.get_peak_memory
     return get() / 1e9
@@ -42,12 +67,20 @@ def main():
     name, data = sys.argv[1], Path(sys.argv[2]).expanduser()
     repo, kwargs = MODELS[name]
     model = load(repo)
-    out = data / "hyp" / name
+    vl = sample = None
+    if len(sys.argv) > 3:
+        from voxlock.core import VoxLock
+
+        vl, sample = VoxLock(precision="int8", threads=1), read_clip(sys.argv[3])
+    out = data / "hyp" / (name + ("+voxlock" if vl else ""))
     out.mkdir(parents=True, exist_ok=True)
 
     warmed = False
     for path in sorted((data / "wav").glob("*.wav")):
         audio = read_wav(path)
+        if vl:
+            audio, secs = isolate(vl, sample, audio)
+            print(f"VoxLock {path.stem}: {len(audio) / 16000:.0f} s in {secs:.1f} s ({secs * 16000 / len(audio):.2f}x real time)")
         rows = []
         for start, end in json.loads((data / "segments" / f"{path.stem}.json").read_text()):
             clip = mx.array(audio[int(start * 16000) : int(end * 16000)])
@@ -57,7 +90,8 @@ def main():
             t = time.perf_counter()
             text = model.generate(clip, **kwargs).text.strip()
             rows.append({"start": start, "end": end, "text": text, "secs": round(time.perf_counter() - t, 3)})
-        (out / f"{path.stem}.json").write_text(json.dumps({"model": repo, "options": kwargs, "utterances": rows}, indent=1))
+        options = kwargs | ({"voxlock_sample": sys.argv[3]} if vl else {})
+        (out / f"{path.stem}.json").write_text(json.dumps({"model": repo, "options": options, "utterances": rows}, indent=1))
 
         speech = sum(r["end"] - r["start"] for r in rows)
         compute = sum(r["secs"] for r in rows)

@@ -11,16 +11,26 @@ Run from the repo root. It uses your Claude subscription, and `OUT_DIR` gets `ca
 with both sides of the call, so keep it outside the repo:
 
     uv run --project voice tools/call-check/call_check.py OUT_DIR TURN... [--report FILE] [--turn-wait S]
+        [--voice-sample CLIP | --no-voxlock] [--sensitivity S] [--background SOUND [--background-db DB]]
 
-- Each `TURN` is what you say: text, or a 16 kHz mono WAV file, optionally cut to a span
-  in seconds (`speech.wav:12.5-19`), so stretches of your own recordings can be turns.
-  In text, `[1.2]` is a pause of that many seconds.
+- Each `TURN` is what you say: text, or a `CLIP`: a 16 kHz mono WAV file, optionally cut
+  to a span in seconds (`speech.wav:12.5-19`), so stretches of your own recordings can be
+  turns. In text, `[1.2]` is a pause of that many seconds.
 - A turn starts 1 s after the voice stops talking. Write it as `@S:...` to start it S
   seconds after the voice starts its reply instead, which interrupts it. If the voice
   doesn't answer a turn within 15 s, the next one starts anyway, or the call ends.
 - `--report` is what the voice reports, as for `ringback-voice serve`.
 - `--turn-wait` overrides how long the voice waits for the end of your turn when Pipecat's
   end-of-turn model thinks you haven't finished (`TURN_WAIT` in the voice).
+- Your side goes through VoxLock, as on a call. `--voice-sample CLIP` is the voice sample
+  the app would send (at least 3 s of the voice your turns are in). Without it, VoxLock
+  learns your voice from your first 3 s of speech, as before you record one in the app.
+  `--no-voxlock` hears the call unfiltered. Text turns are a Kokoro voice, so with a
+  recording of yours as the sample, VoxLock filters them out: use your own clips as turns.
+- `--sensitivity` is the app's interruption sensitivity, from 0 to 1 (0.5 by default).
+- `--background SOUND` plays under the whole call, looped: a `CLIP` (such as gym noise), or
+  text that a third Kokoro voice speaks (someone else talking). `--background-db` turns it
+  up or down; the levels of both sides are printed first.
 - Audio connects 2.5 s after the call starts, as on the phone.
 
 For example, interrupting the voice's opening, then two normal turns:
@@ -32,4 +42,6 @@ It prints the voice's log as the server would, then the timing measured on its o
 from where your speech starts and ends in each clip:
 - when each of your turns started and ended, and whether the voice talked over you;
 - when the voice started each reply, and how long after you stopped;
-- how long it went on after you interrupted.
+- how long it went on after you interrupted;
+- `NOT YOU`: an interruption or words that Parakeet heard while none of your turns was
+  playing (or within 1 s of one ending), so they came from the background.

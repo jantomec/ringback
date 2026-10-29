@@ -7,12 +7,15 @@ architecture, rejected alternatives, risks and the stage plan. Read it first.
 Status (2026-10-28, `de00ed5`): Stages 0 (Nebula) and 1 (ring + audio) are done. **Stage 2
 (conversation) is in progress.** Parakeet v2 → Haiku → Kokoro `af_heart` works on the
 phone, interruptions included (`voice/ringback_voice/`, results under Stage 2 in
-`docs/design.md`). Still to do in Stage 2:
+`docs/design.md`). VoxLock with the app's voice sample and the interruption sensitivity
+setting are built and checked offline, not yet on the phone. Still to do in Stage 2: test
+them on the phone, test with gym-like noise, and decide what VoxLock does without a voice
+sample (offline it locked onto someone else who spoke first).
+
+Left until testers report them as real problems, because the calls so far went fine:
 - very short words can go unheard: a recorded "Great." offline, and once "wait" on the
   phone while the voice talked (Silero needs 0.2 s of speech to start a turn);
-- a stop where no words are recognised should make the voice carry on (untested);
-- VoxLock with the app's voice sample, the interruption sensitivity setting, and tests
-  with gym-like noise.
+- a stop where no words are recognised should make the voice carry on (built, untested).
 
 Try a change offline with `tools/call-check` before calling the phone.
 

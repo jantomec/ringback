@@ -7,8 +7,10 @@ struct SettingsView: View {
     let push: PushService
     let calls: CallService
     @AppStorage(Switchboard.urlKey) private var switchboardURL = ""
+    @AppStorage(AudioLink.sensitivityKey) private var sensitivity = AudioLink.defaultSensitivity
     @Environment(\.scenePhase) private var scenePhase
     @State private var microphoneOff = false
+    @State private var voice = YourVoice()
 
     var body: some View {
         NavigationStack {
@@ -33,6 +35,29 @@ struct SettingsView: View {
                     }
                 } footer: {
                     if switchboardURL.isEmpty { AddressFields.footer }
+                }
+                Section {
+                    NavigationLink {
+                        YourVoiceView(voice: voice)
+                    } label: {
+                        YourVoiceRow(recordedAt: voice.recordedAt)
+                    }
+                    VStack(alignment: .leading) {
+                        Text("Sensitivity")
+                        Slider(value: $sensitivity, in: 0...1, step: 0.1) {
+                            Text("Sensitivity")
+                        } minimumValueLabel: {
+                            Text("Less")
+                        } maximumValueLabel: {
+                            Text("More")
+                        }
+                    }
+                } header: {
+                    Text("Interruptions")
+                } footer: {
+                    Text(
+                        "How easily you stop Claude by speaking. More stops it at quieter or shorter speech, for quiet places. Less needs clearer, longer speech, for noisy ones. Changes apply from the next call."
+                    )
                 }
                 Section("Calls") {
                     if state.calls.isEmpty {
@@ -86,6 +111,27 @@ private struct MicrophoneBanner: View {
                 if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
             }
         }
+    }
+}
+
+/// Whether your voice is recorded. Until it is, this is the reminder to record it.
+private struct YourVoiceRow: View {
+    let recordedAt: Date?
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "person.wave.2.fill")
+                .font(.title2)
+                .foregroundStyle(recordedAt == nil ? .orange : .accentColor)
+                .frame(width: 36)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Your voice").font(.headline)
+                Text(recordedAt.map { "Recorded \($0.formatted(date: .abbreviated, time: .omitted))" }
+                    ?? "Record it so only your voice stops Claude.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 6)
     }
 }
 

@@ -13,6 +13,11 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
         return RTCPeerConnectionFactory()
     }()
 
+    /// How easily your speech stops the voice, from 0 to 1, set in the app and sent with each
+    /// call. The Mac turns it into the thresholds of its voice-activity detection.
+    static let sensitivityKey = "interruptionSensitivity"
+    static let defaultSensitivity = 0.5
+
     private var peer: RTCPeerConnection?
     private var microphone: RTCAudioTrack?
     private let started = Date.now
@@ -48,7 +53,8 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     }
 
     /// Offers audio to the voice server and applies its answer. The Mac's server doesn't
-    /// take ICE candidates one by one, so the offer waits until they're all gathered.
+    /// take ICE candidates one by one, so the offer waits until they're all gathered. The
+    /// offer also carries your interruption sensitivity and your voice sample.
     func start(voiceURL: URL, callID: String) async throws {
         let config = RTCConfiguration()
         config.sdpSemantics = .unifiedPlan
@@ -72,9 +78,12 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
         var request = URLRequest(url: voiceURL.appending(path: "offer"), timeoutInterval: 15)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "sdp": local.sdp, "type": "offer", "call_id": callID,
-        ])
+            "sensitivity": UserDefaults.standard.object(forKey: Self.sensitivityKey) as? Double ?? Self.defaultSensitivity,
+        ]
+        if let sample = YourVoice.sampleForCall() { body["voice_sample"] = sample }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, _) = try await URLSession.shared.data(for: request)
         guard let answer = try JSONSerialization.jsonObject(with: data) as? [String: Any],
             let sdp = answer["sdp"] as? String

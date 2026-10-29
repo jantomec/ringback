@@ -3160,6 +3160,7 @@ dependencies = [
     { name = "misaki", extra = ["en"] },
     { name = "mlx-audio" },
     { name = "pipecat-ai", extra = ["webrtc"] },
+    { name = "voxlock", extra = ["pipecat"] },
 ]
 
 [package.metadata]
@@ -3169,6 +3170,7 @@ requires-dist = [
     { name = "misaki", extras = ["en"], specifier = "==0.9.4" },
     { name = "mlx-audio", specifier = "==0.6.2" },
     { name = "pipecat-ai", extras = ["webrtc"], specifier = "==1.14.0" },
+    { name = "voxlock", extras = ["pipecat"], specifier = "==1.2.1" },
 ]
 
 [[package]]
@@ -4008,6 +4010,27 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e3/05/b17359e1cefb4f909b5e40b1b90a496d987258916dbbf88e842c729f510e/urllib3-2.8.0.tar.gz", hash = "sha256:63bf2ead4c879426ebf22ef2a781eeb4aa3b4ae798a0435506f8687fd5bb9b63", size = 458972, upload-time = "2026-09-15T19:29:36.253Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/92/9d/c4e665119135114480843e7ab388fa94d8480650450e6f8e26b70d323a4c/urllib3-2.8.0-py3-none-any.whl", hash = "sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3", size = 135717, upload-time = "2026-09-15T19:29:34.577Z" },
+]
+
+[[package]]
+name = "voxlock"
+version = "1.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "numpy" },
+    { name = "onnxruntime" },
+    { name = "soundfile" },
+    { name = "soxr" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0e/5c/1d2cdd0fd4e2ce81c68a25416cc288cd0af5cff7556d690b124cf4cc5cb2/voxlock-1.2.1.tar.gz", hash = "sha256:c36fe651eeb90c87ec9f417b4a385bb7ba1184a212f4816cd40f176cffa7a0b7", size = 24717, upload-time = "2026-10-28T08:15:12.564Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/94/b599cd4db68293f733d23e4a50581bfd7c8304bcecd51237a1b5cb6a0a8d/voxlock-1.2.1-py3-none-any.whl", hash = "sha256:512eb54ea9519fc0b29860bf923b5368151f49a5d8f623c307958d6c6675b789", size = 18288, upload-time = "2026-10-28T08:15:11.178Z" },
+]
+
+[package.optional-dependencies]
+pipecat = [
+    { name = "pipecat-ai" },
 ]
 
 [[package]]

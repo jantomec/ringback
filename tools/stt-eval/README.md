@@ -27,6 +27,14 @@ you said; `DATA_DIR` below is that private folder.
 
        uv run --with mlx-audio==0.6.2 tools/stt-eval/transcribe.py parakeet-v2 DATA_DIR
 
+   To measure what VoxLock does to the transcripts (see `voice/ringback_voice/hearing.py`),
+   give it a sample of your voice, as the app would: at least 3 s of a recording made with
+   the same microphone (below, the first 15 s of one that is also scored). It writes `<model>+voxlock` results and prints how fast
+   VoxLock ran:
+
+       uv run --with mlx-audio==0.6.2 --with voxlock==1.2.1 tools/stt-eval/transcribe.py \
+         parakeet-v2 DATA_DIR DATA_DIR/wav/airpods-quiet.wav:0-15
+
 5. **Reference for free speech:** take the best transcript and correct it into
    `DATA_DIR/ref/<recording>.txt`, one line per utterance. Lines starting with `#` are
    ignored. The correction starts from one model's text, so that model is favoured on

@@ -11,6 +11,7 @@ dependencies = [
     # Kokoro's text-to-phoneme step needs spaCy's English model, and would otherwise
     # download it on first use.
     "en-core-web-sm==3.8.0",
+    "voxlock[pipecat]==1.2.1",
 ]
 
 [tool.uv.sources]
