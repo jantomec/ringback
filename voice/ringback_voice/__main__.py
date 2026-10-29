@@ -19,6 +19,7 @@ for every call.
 
 import argparse
 import asyncio
+import ipaddress
 import sys
 import time
 from collections.abc import Callable
@@ -210,6 +211,21 @@ async def run_call(
     say("finished")
 
 
+def only_address(host: str) -> None:
+    """WebRTC on this side offers the phone only host, the address the phone's offer comes
+    to: its Nebula address, so that path is known to work. Offered every address, WebRTC also
+    checked pairs that can't connect, and audio took 2.5-2.8 s to connect (Stage 3). Left
+    alone for loopback or every address, as for checks on this Mac."""
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return
+    if ip.version == 4 and not ip.is_loopback and not ip.is_unspecified:
+        import aioice.ice
+
+        aioice.ice.get_host_addresses = lambda use_ipv4, use_ipv6: [host]
+
+
 def setting(body: dict, key: str, default: float) -> float:
     """A setting from 0 to 1 sent with the offer, or default if it's missing or invalid."""
     try:
@@ -231,6 +247,7 @@ def main() -> None:
         help="the Unix socket where sessions' mods reach it (default ~/.local/state/ringback/voice.sock)",
     )  # fmt: skip
     args = p.parse_args()
+    only_address(args.listen.rsplit(":", 1)[0])
 
     logger.remove()
     logger.add(sys.stderr, level="WARNING")

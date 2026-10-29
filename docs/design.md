@@ -236,6 +236,14 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
        voice speak. If the ringing offer failed, or you answered before it went, one offer
        goes after answering, without the flag, and counts as answered. A new offer for a
        call replaces the earlier one on the Mac.
+     - **Only Nebula's addresses.** The offer reaches the voice server over Nebula, so
+       that path is known to work, and both sides offer only it: the phone gathers
+       addresses only on its VPN adapters, which is how iOS shows Nebula to WebRTC, and
+       the voice server only on the address it listens on. Offered every address, WebRTC
+       also checked pairs that can't connect, such as mobile data against the Mac's
+       Wi-Fi, and audio connected 2.1–2.4 s after the offer; with only Nebula's, 0.94 s
+       (one call on the phone, on mobile data). If the VPN adapters give no address, the
+       phone offers every adapter.
      - The audio is WebRTC, using Google's WebRTC library directly. Pipecat's iOS client
        would take over the audio session.
      - WebRTC runs in manual-audio mode: CallKit activates the voice-processing audio

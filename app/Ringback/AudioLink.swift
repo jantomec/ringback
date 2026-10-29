@@ -38,6 +38,8 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     private var voice: RTCMediaStreamTrack?
     private var muted = false
     private var stopped = false
+    /// Which addresses the offer gave, for the switchboard's log.
+    private(set) var addresses = ""
     /// True while the phone rings. The link then neither sends your microphone nor plays the
     /// voice: a call you're on may be using them (call waiting). An offer that goes while it's
     /// true says so, and the voice server then waits for `answered` before it talks.
@@ -107,6 +109,55 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     /// actor, as `stop` is, so once the link is stopped no offer goes and no answer is applied.
     @MainActor
     func start(voiceURL: URL, callID: String) async throws -> Bool {
+        var local = try await gather(nebulaOnly: true)
+        guard !stopped else { throw CancellationError() }
+        var found = Self.candidates(local)
+        addresses = "Nebula only (\(found))"
+        if found == 0 {
+            // iOS didn't show Nebula to WebRTC as a VPN: offer every adapter instead.
+            peer?.close()
+            local = try await gather(nebulaOnly: false)
+            found = Self.candidates(local)
+            addresses = "every adapter (\(found)), as Nebula alone gave none"
+        }
+        guard !stopped else { throw CancellationError() }
+
+        let ringing = ringing
+        var body: [String: Any] = [
+            "sdp": local.sdp, "type": "offer", "call_id": callID,
+            "sensitivity": UserDefaults.standard.object(forKey: Self.sensitivityKey) as? Double ?? Self.defaultSensitivity,
+            "background_filter": Self.backgroundFilter,
+        ]
+        if ringing { body["ringing"] = true }
+        var request = URLRequest(url: voiceURL.appending(path: "offer"), timeoutInterval: 15)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, _) = try await URLSession.shared.data(for: request)
+        guard !stopped else { throw CancellationError() }
+        guard let answer = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let sdp = answer["sdp"] as? String
+        else { throw URLError(.badServerResponse) }
+        guard let peer else { throw CancellationError() }
+        try await peer.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp))
+        return ringing
+    }
+
+    /// Makes the peer connection and its offer, with all its addresses gathered. Nebula shows
+    /// to WebRTC as a VPN adapter, and the offer reaches the voice server over Nebula, so that
+    /// path is known to work. With every adapter, WebRTC also checks pairs of addresses that
+    /// can't connect, such as mobile data against the Mac's Wi-Fi; audio then took 2.5–2.8 s
+    /// to connect over Nebula (Stage 3).
+    @MainActor
+    private func gather(nebulaOnly: Bool) async throws -> RTCSessionDescription {
+        let options = RTCPeerConnectionFactoryOptions()
+        if nebulaOnly {
+            options.ignoreWiFiNetworkAdapter = true
+            options.ignoreCellularNetworkAdapter = true
+            options.ignoreEthernetNetworkAdapter = true
+            options.ignoreLoopbackNetworkAdapter = true
+        }
+        Self.factory.setOptions(options)
         let config = RTCConfiguration()
         config.sdpSemantics = .unifiedPlan
         config.continualGatheringPolicy = .gatherOnce
@@ -127,26 +178,11 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
             try await Task.sleep(for: .milliseconds(50))
         }
         guard let local = peer.localDescription else { throw URLError(.cannotConnectToHost) }
-        guard !stopped else { throw CancellationError() }
+        return local
+    }
 
-        let ringing = ringing
-        var body: [String: Any] = [
-            "sdp": local.sdp, "type": "offer", "call_id": callID,
-            "sensitivity": UserDefaults.standard.object(forKey: Self.sensitivityKey) as? Double ?? Self.defaultSensitivity,
-            "background_filter": Self.backgroundFilter,
-        ]
-        if ringing { body["ringing"] = true }
-        var request = URLRequest(url: voiceURL.appending(path: "offer"), timeoutInterval: 15)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await URLSession.shared.data(for: request)
-        guard !stopped else { throw CancellationError() }
-        guard let answer = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let sdp = answer["sdp"] as? String
-        else { throw URLError(.badServerResponse) }
-        try await peer.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp))
-        return ringing
+    private static func candidates(_ description: RTCSessionDescription) -> Int {
+        description.sdp.components(separatedBy: "a=candidate:").count - 1
     }
 
     /// Tells the voice server you answered a call whose offer went while the phone rang, so

@@ -308,6 +308,7 @@ final class CallService: NSObject, CXProviderDelegate {
         if state.activeCall?.uuid == uuid { state.activeCall?.audio = .connected }
         guard let call = state.calls.first(where: { $0.id == callID }), let answeredAt = call.answeredAt else { return }
         var note = offerNote(uuid) + String(format: ", connected %.1f s after ringing", at.timeIntervalSince(call.ringAt))
+        if let link = links[uuid] { note += ", addresses: \(link.addresses)" }
         if at < answeredAt { note += String(format: ", %.1f s before answering", answeredAt.timeIntervalSince(at)) }
         Switchboard.report(
             callID: callID, event: "audio connected",
