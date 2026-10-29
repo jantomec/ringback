@@ -4,7 +4,7 @@ Claude Code sessions call the user's iPhone when they're done, talk the result t
 take spoken replies. `docs/design.md` is the source of truth for requirements,
 architecture, rejected alternatives, risks and the stage plan. Read it first.
 
-Status (2026-10-29): Stages 0 (Nebula) and 1 (ring + audio) are done. **Stage 3 (one
+Status (2026-10-30): Stages 0 (Nebula) and 1 (ring + audio) are done. **Stage 3 (one
 session) is in progress**, as five steps under Stage 3 in `docs/design.md`. Steps 1 and 2
 are built, checked offline (`tools/session-check`, `tools/call-check --session`) and
 worked on the phone (three calls, including the session calling again after you hung up);
@@ -18,10 +18,12 @@ in a note that starts no turn. Step 3 is built, tried offline (`tools/session-ch
 --asks`, `tools/ask-check`, `tools/call-check`) and on the phone (two calls): a permission
 prompt shows in the terminal and goes to the call at once, whichever answers first
 decides; the session's questions (AskUserQuestion) go to the call instead of the terminal.
-How it works: the ringback mod (`mod/`) adds `/ringback`; while it's on, each finished
-turn has the session write a call briefing, and the voice server places the call through
-the switchboard's `/call`. On the call, the voice passes what you say to the session with
-its one tool, held until you've heard it announced; the session's answer comes back to the
+Step 4 (a better model on the line: Opus resumes the call's session) is built and tried
+offline (`tools/call-check`, `tools/handover-check`), not yet on the phone. How it works:
+the ringback mod (`mod/`) adds `/ringback`; while it's on, each finished turn has the
+session write a call briefing, and the voice server places the call through the
+switchboard's `/call`. On the call, the voice passes what you say to the session with its
+one tool, held until you've heard it announced; the session's answer comes back to the
 call, or the session calls again if you've hung up; the transcript goes to the project's
 `.ringback/calls/`. Mods replaced the planned hooks and MCP channel, and a tool replaced
 tags in Haiku's reply (rejected alternatives). Stage 2 (conversation) works: Parakeet v2 →
@@ -49,8 +51,8 @@ one Swift binary that needs nothing but macOS), `voice/` (the calling Mac's audi
 voice), `mod/` (the Claude Code mod in each session, TypeScript), `tools/` (checks for
 Nebula, speech-to-text, speech speed, reply speed, briefings, scripted calls
 (`call-check`), sessions' calls and asks (`session-check`), the phone's side of calls
-(`phone-check`) and what sessions ask the voice server (`ask-check`)). How to set it all
-up and place a test call: `docs/setup.md`.
+(`phone-check`) what sessions ask the voice server (`ask-check`) and Opus taking a call
+over (`handover-check`)). How to set it all up and place a test call: `docs/setup.md`.
 
 ## Checks
 
@@ -76,7 +78,7 @@ keys or certificates.
 
 Requirements: a Mac with Apple silicon and Xcode, a paid Apple Developer Program account, an iPhone, and
 Nebula on both the Mac and the iPhone, with a lighthouse that acts as a relay, and Claude Code
-on a Claude subscription.
+on a Claude subscription that includes Opus (for a better model on the line).
 
 ## Working rules
 

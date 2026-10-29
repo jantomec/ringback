@@ -195,7 +195,9 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      - On a call for a session it starts when the call is placed (thinking before you
        answer); on a call rung by hand, when the phone's offer comes. It stays open until
        hang-up (`claude -p --input-format stream-json --output-format stream-json`), so it
-       holds the whole call.
+       holds the whole call. It runs with a known `--session-id`, so Claude Code keeps it
+       at `~/.claude/projects/<cwd>/<id>.jsonl`, where Opus can resume it (a better
+       model); the voice deletes that folder when the call ends.
      - Pipecat has no Claude Code service, so we write one around that process.
      - Measured (`tools/reply-speed`): the first words come about 1.2 s after each of
        your turns (0.9–3.2 s), and 1.0–3.2 s on the first turn, which includes start-up.
@@ -233,8 +235,22 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
        options, and takes your choice or your own words; it never chooses for you.
      - Notes from the session wait until the voice has started its opening, so Haiku
        doesn't answer a note in place of its opening.
-   - **A better model** (Stage 3). When you ask for one, the call carries on with Opus,
-     with the conversation so far. Its replies take longer.
+   - **A better model.** When you ask for one ("can I get a better model on the line?"),
+     Haiku says so and calls its `better_model` tool, which is held until you've heard it,
+     like the others, and dropped if you cut it off. Then Haiku's process is closed and
+     the session resumed with `--resume <id> --model opus`, with the same flags and tools,
+     so Opus has the whole conversation, tool calls included; the session reuses its own
+     record of the system prompt. Opus gets a note that it's taking over, and speaks
+     first. It works on calls rung by hand too.
+     - Offline (`tools/call-check`, 8 scripted calls; `tools/handover-check`, 11 runs):
+       from the end of your request to Opus's first words took 6.3–6.9 s, Haiku's short
+       line and then 2.5–3.2 s of silence. Opus knew the earlier conversation, and passing
+       messages, the session's news and a permission all worked under it. Its first words
+       came a median 0.73 s after your turns, against Haiku's 1.04 s in the same calls
+       (short replies). Its first turn is mostly uncached: about as much usage as ten
+       later Opus turns, once.
+     - If Opus isn't available (a usage limit, or a plan without it), the voice goes
+       silent, as on a Haiku error; there's no way back to Haiku.
    - Speech-to-text was chosen by measuring on accented English with `tools/stt-eval`
      (464 scripted words plus 519 of free speech):
      - Parakeet v2 got about 6% of words wrong at about 40 ms per utterance.
@@ -529,6 +545,8 @@ Each entry says why it lost and what would make it worth retrying.
 - Every placed call now costs a Haiku opening on the subscription, even if you decline
   it, and a declined call keeps its Haiku and the Mac awake until it's forgotten after
   90 s.
+- If the voice server crashes mid-call, that call's Claude Code session stays in
+  `~/.claude/projects`; nothing cleans it up at the next start.
 - Pipecat expects a WebRTC data channel and logs a warning without one. Nothing needs one
   yet: the interruption settings go with the offer.
 - Xcode needs device support for the phone's iOS version to install development builds.
@@ -777,7 +795,8 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
       - Open: the split-answer case above. Answering took longer when Haiku called the
         tool before speaking, 2.1–3.6 s after your words on the phone; the voice now says
         "Okay." at once then (acting on the call).
-   4. A better model on the line.
+   4. A better model on the line. Built, and tried offline (see "A better model"), not
+      yet on the phone.
    5. Call back from the app's call history.
 4. **Several sessions + retries.** A second session waits for the first call to end.
    "Not now" retries on schedule while the queue waits. A final decline holds all calls

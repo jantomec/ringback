@@ -94,7 +94,8 @@ cd voice && uv run ringback-voice serve --listen 10.0.0.2:8788 --switchboard 10.
 a socket only you can open, `~/.local/state/ringback/voice.sock`.
 
 It needs a Mac with Apple silicon, and Claude Code signed in to your Claude subscription:
-the voice runs Haiku through `claude`. The first start downloads the speech models
+the voice runs Haiku through `claude`, and Opus when you ask for a better model on the
+line, so the plan must include Opus. The first start downloads the speech models
 (Parakeet v2 and Kokoro) from Hugging Face. After that, loading them takes a few seconds.
 
 The voice server answers only calls it placed itself, for a session. To try the voice on
