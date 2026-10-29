@@ -4,15 +4,16 @@ Claude Code sessions call the user's iPhone when they're done, talk the result t
 take spoken replies. `docs/design.md` is the source of truth for requirements,
 architecture, rejected alternatives, risks and the stage plan. Read it first.
 
-Status (2026-10-29): Stages 0 (Nebula) and 1 (ring + audio) are done. **Stage 2
-(conversation) is in progress.** Parakeet v2 → Haiku → Kokoro `af_heart` works on the
-phone, interruptions included (`voice/ringback_voice/`, results under Stage 2 in
-`docs/design.md`). Two interruption settings are built and checked offline, not yet on
-the phone: the sensitivity, and a background filter ("Ignore Background Noise"), a rough
-level gate that ignores speech quieter than yours. Still to do in Stage 2: test them on the phone, with gym-like
-noise and with someone talking nearby. Tuning the filter waits until testers report a
-problem. VoxLock (a model keeping only your voice, from a sample recorded in the app) is
-parked on the branch `voxlock`; see rejected alternatives in `docs/design.md`.
+Status (2026-10-29): Stages 0 (Nebula) and 1 (ring + audio) are done. **Stage 3 (one
+session) is next.** Stage 2 (conversation) works: Parakeet v2 → Haiku → Kokoro
+`af_heart` on the phone, interruptions included (`voice/ringback_voice/`, results under
+Stage 2 in `docs/design.md`). Its last test is left open: two interruption settings are
+built and checked offline, not yet on the phone: the sensitivity, and a background filter
+("Ignore Background Noise"), a rough level gate that ignores speech quieter than yours.
+They still need a phone test with gym-like noise and with someone talking nearby. Tuning
+the filter waits until testers report a problem. VoxLock (a model keeping only your
+voice, from a sample recorded in the app) is parked on the branch `voxlock`; see rejected
+alternatives in `docs/design.md`.
 
 The app warns you when calls can't reach the phone because Nebula is off: the switchboard
 wakes it every 30 min to check (the connection check in `docs/design.md`).

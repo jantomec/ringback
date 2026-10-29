@@ -5,8 +5,8 @@ Pings HOST every INTERVAL seconds for MINUTES minutes and prints one line per
 probe, then a summary: replies, round-trip times and every outage. An outage's
 length is measured from the last reply before it to the first reply after it.
 
-    tools/nebula_check.py <phone-nebula-ip>                          # every 30 s for 20 min
-    tools/nebula_check.py <phone-nebula-ip> --interval 1 --minutes 1 # every second for a minute
+    tools/nebula-check/nebula_check.py <phone-nebula-ip>                          # every 30 s for 20 min
+    tools/nebula-check/nebula_check.py <phone-nebula-ip> --interval 1 --minutes 1 # every second for a minute
 
 On macOS it keeps the Mac awake while it runs; a sleeping Mac would look like
 a lost phone. Stop early with Ctrl-C and the summary is still printed.

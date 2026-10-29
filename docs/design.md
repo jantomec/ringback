@@ -37,11 +37,13 @@ and on mobile data.
 Sessions can run on several Macs. All of them share one switchboard, so there is one
 queue, and each call's audio goes to the Mac whose session is calling.
 
-1. **Hooks** (in each session). A Stop hook, plus a Notification hook for
+Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is built.
+
+1. **Hooks** (in each session; Stage 3). A Stop hook, plus a Notification hook for
    `permission_prompt`/`idle_prompt`, sends `session_id`, `cwd`,
    `last_assistant_message` and `transcript_path` to the switchboard over Nebula and
    returns at once.
-2. **Channel** (a custom MCP channel server in each session):
+2. **Channel** (a custom MCP channel server in each session; Stage 3):
    - delivers your replies into its session (on the next turn if the session is busy);
    - relays permission prompts (`experimental['claude/channel/permission']`, needs
      Claude Code ≥ 2.1.234).
@@ -51,11 +53,12 @@ queue, and each call's audio goes to the Mac whose session is calling.
    Docs: https://code.claude.com/docs/en/channels-reference.md
 3. **Switchboard** (a daemon on one always-on Mac on the Nebula network, such as the
    lighthouse):
-   - keeps one FIFO queue for the sessions on every Mac and places one call at a time;
+   - keeps one FIFO queue for the sessions on every Mac and places one call at a time
+     (Stage 4; for now `ringback-switchboard ring` places a call by hand);
    - starts a call with a VoIP push through APNs that names the Mac taking the call;
    - on "not now" (declined or unanswered), retries on the schedule in requirement 3,
      with the whole queue paused in between. After a final decline it holds all calls
-     until the app calls that session back;
+     until the app calls that session back (Stage 4);
    - every 30 min, wakes the app with a background push so it checks that calls can still
      reach the phone (the connection check in the iPhone app);
    - is one Swift binary of about 470 KB that needs nothing but macOS 13 or later (Intel
@@ -64,7 +67,7 @@ queue, and each call's audio goes to the Mac whose session is calling.
      the next request for up to 5 s, which is within the app's 10 s timeout.
 4. **Voice pipeline** (on the Mac running the calling session). That Mac must be awake
    anyway, and this keeps the always-on Mac light. It holds a sleep assertion while its
-   call is queued or in progress.
+   call is queued or in progress (Stage 3).
    - Pipecat, with Parakeet TDT 0.6B v2 (MLX) for speech-to-text, Kokoro-82M (MLX, through
      mlx-audio) with the `af_heart` voice for speech, and Claude Haiku 5.5. Pipecat has no
      Parakeet service, and its own Kokoro service is too slow (see rejected
@@ -129,15 +132,16 @@ queue, and each call's audio goes to the Mac whose session is calling.
        --input-format stream-json --output-format stream-json`), so it holds the whole
        call.
      - It can start as a fork of the calling session (`--resume <id> --fork-session`) to
-       get that session's full context.
+       get that session's full context (Stage 3).
      - Pipecat has no Claude Code service, so we write one around that process.
      - Measured (`tools/reply-speed`): the first words come about 1.2 s after each of
        your turns (0.9–3.2 s), and 1.0–3.2 s on the first turn, which includes start-up.
        Neither lower effort nor turning thinking off made a clear difference.
    - The voice is a fast front end that holds the session's report as context, because a
-     Claude Code turn is too slow for live conversation.
+     Claude Code turn is too slow for live conversation. Until Stage 3, the report is a
+     file given to the voice server.
    - It delivers your replies to its session's channel. It forwards questions it can't
-     answer to the session and waits for the reply.
+     answer to the session and waits for the reply (Stage 3).
    - Speech-to-text was chosen by measuring on accented English with `tools/stt-eval`
      (464 scripted words plus 519 of free speech):
      - Parakeet v2 got about 6% of words wrong at about 40 ms per utterance.
@@ -145,15 +149,17 @@ queue, and each call's audio goes to the Mac whose session is calling.
        words on short clips.
      - Letting Haiku repair the transcript from context cut Parakeet's errors on the
        scripted commands from 31 to 18, but changed nothing in the free speech.
-5. **Conversation rules**, in the voice's instructions and in a skill for the session:
+5. **Conversation rules**, in the voice's instructions and in a skill for the session
+   (the skill is Stage 3):
    - spoken style: short sentences, rounded numbers, no tables, lists or code read
      aloud; offer detail instead of reciting it; stop at once when interrupted;
    - your words come from speech recognition, so expect similar-sounding wrong words,
      especially technical terms. Read them in context, and ask when a reply is too
      garbled to be sure;
-   - act on a permission prompt only after a clear yes or no, otherwise ask again;
+   - act on a permission prompt only after a clear yes or no, otherwise ask again
+     (Stage 3);
    - the session writes its call briefing (project, what's new, what needs you) in a
-     form that can be spoken, and answers forwarded questions the same way.
+     form that can be spoken, and answers forwarded questions the same way (Stage 3).
 6. **iPhone app** (Swift):
    - a PushKit VoIP push triggers CallKit, which rings on the lock screen and in your
      headphones;
@@ -203,15 +209,16 @@ queue, and each call's audio goes to the Mac whose session is calling.
    - **Calls:** the whole call history.
      - Each call shows its caller ("Claude from \<project\>") and a 3–8 word subject.
        Before the call is queued, the calling Mac asks Haiku for that subject, based on
-       the session's last message, and the push carries it.
+       the session's last message, and the push carries it (Stage 3; for now `ring
+       --subject` sets it).
      - A green phone and the duration mean answered. A red one means declined, missed
        or busy.
      - The history is stored on the phone for now and will move to iCloud later.
    - **Call back** (Stage 3). Tapping a declined or missed call starts a call to that
      session straight away, without ringing. The voice has the same context the missed
      call had. If the session has moved on since, it says what changed first.
-   - **Held calls.** While all calls are held after a final decline, the app says so and
-     shows which call to call back. Calling it back releases them.
+   - **Held calls** (Stage 4). While all calls are held after a final decline, the app
+     says so and shows which call to call back. Calling it back releases them.
    - **Settings:**
      - **Switchboard:** the switchboard's Nebula address. The app registers its push
        token there.
@@ -380,7 +387,7 @@ Verify each stage on the real phone (locked, on mobile data, with headphones) be
 next. A simulator run or a unit test isn't evidence for ringing, push or audio.
 
 0. **Nebula** (done). With the phone on mobile data, the phone loads a page served by the
-   Mac at its Nebula IP, then `tools/nebula_check.py` pings the phone from the Mac.
+   Mac at its Nebula IP, then `tools/nebula-check` pings the phone from the Mac.
    Mobile Nebula drops all inbound traffic by default, so the ping needs an inbound ICMP
    rule for the Mac. Results:
    - the Mac can't open a tunnel to the phone, whether it's locked or not;
@@ -409,8 +416,9 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
      data rang 5 s after the push and was answered from AirPods; two-way audio came up
      2.7 s after answering, and ringing, answered, audio connected and ended all reached
      the switchboard (one call).
-2. **Conversation** (in progress). To pick speech-to-text for a new voice, record
-   `tools/stt-eval/sentences.txt` and score the candidates (see `tools/stt-eval/README.md`).
+2. **Conversation** (works; the tests under "Not yet tested" are left open). To pick
+   speech-to-text for a new voice, record `tools/stt-eval/sentences.txt` and score the
+   candidates (see `tools/stt-eval/README.md`).
    Then interrupt mid-sentence, measure how quickly speech stops when you start talking
    and how long a reply takes, and test with gym-like noise. Results so far:
    - **The conversation works** on a locked phone on mobile data, with AirPods (two

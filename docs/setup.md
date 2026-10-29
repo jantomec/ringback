@@ -17,7 +17,7 @@ own.
   - each Mac lists the lighthouse in `relay.relays`;
   - on mobile data, the phone can only reach the Macs through that relay (see
     `docs/design.md`, Stage 0).
-- **Optional, for `tools/nebula_check.py`:** Mobile Nebula drops all inbound traffic by
+- **Optional, for `tools/nebula-check`:** Mobile Nebula drops all inbound traffic by
   default, so pinging the phone needs an inbound ICMP rule for the Mac.
 
 ## 1. APNs key
