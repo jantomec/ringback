@@ -24,10 +24,25 @@ final class CallService: NSObject, CXProviderDelegate {
     private var callIDs: [UUID: String] = [:]
     /// Where each call's audio comes from: the calling Mac's voice server.
     private var voiceURLs: [UUID: URL] = [:]
+    /// Each call's audio, one link at a time: a new offer goes only after the last one has
+    /// failed and its link is closed.
     private var links: [UUID: AudioLink] = [:]
-    /// Trying to reach each call's voice server, from when the phone rings.
-    private var reaching: [UUID: Task<(at: Date, tries: Int)?, Never>] = [:]
+    /// Reaching each call's voice server from when the phone rings, then connecting the call's
+    /// audio while it still rings. Its value is when the voice server answered and after how
+    /// many tries; nil if it never did.
+    private var connecting: [UUID: Task<(at: Date, tries: Int)?, Never>] = [:]
+    /// How each call's audio fared while the phone rang, for when you answer.
+    private var ringingAudio: [UUID: RingingAudio] = [:]
     private var heartbeatTimer: Timer?
+
+    private struct RingingAudio {
+        /// The offer went while the phone rang, so the voice server waits to hear you answered.
+        var offered = false
+        /// When the audio connected, if that was before you answered.
+        var connectedAt: Date?
+        /// Why connecting while ringing failed, if it did. Answering then makes a new offer.
+        var failure: String?
+    }
 
     init(state: AppState) {
         let config = CXProviderConfiguration()
@@ -69,13 +84,17 @@ final class CallService: NSObject, CXProviderDelegate {
         callIDs[uuid] = callID
         if let voice = (payload["voice"] as? String).flatMap({ URL(string: $0) }) {
             voiceURLs[uuid] = voice
-            // Brings the Nebula tunnel to the Mac up while the phone rings, so the audio
-            // can start as soon as you answer.
+            // Brings the Nebula tunnel to the Mac up while the phone rings, then connects the
+            // call's audio, so the voice can start as soon as you answer.
             let deadline = Date.now + Self.ringTimeout + Self.reachTimeout
-            reaching[uuid] = Task { @MainActor in
-                let task = UIApplication.shared.beginBackgroundTask(withName: "reach the voice server")
+            connecting[uuid] = Task { @MainActor [self] in
+                let task = UIApplication.shared.beginBackgroundTask(withName: "connect while ringing")
                 defer { UIApplication.shared.endBackgroundTask(task) }
-                return await AudioLink.reach(voice, until: deadline)
+                guard let reached = await AudioLink.reach(voice, until: deadline), callIDs[uuid] != nil
+                else { return nil }
+                reportReached(callID, reached)
+                await connectWhileRinging(uuid, callID, voice)
+                return reached
             }
         }
         state.add(record)
@@ -88,8 +107,7 @@ final class CallService: NSObject, CXProviderDelegate {
                 Switchboard.report(
                     callID: callID, event: "ringing", extra: onAnotherCall ? ["on_another_call": "yes"] : [:])
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.ringTimeout) { [self] in
-                    guard let id = callIDs[uuid], state.calls.first(where: { $0.id == id })?.outcome == .ringing
-                    else { return }
+                    guard isRinging(uuid) else { return }
                     provider.reportCall(with: uuid, endedAt: nil, reason: .unanswered)
                     finish(uuid, .missed, event: "missed")
                 }
@@ -122,7 +140,8 @@ final class CallService: NSObject, CXProviderDelegate {
     /// Ends our record of a call and tells the switchboard.
     private func finish(_ uuid: UUID, _ outcome: CallRecord.Outcome, event: String, extra: [String: String] = [:]) {
         links.removeValue(forKey: uuid)?.stop()
-        reaching.removeValue(forKey: uuid)?.cancel()
+        connecting.removeValue(forKey: uuid)?.cancel()
+        ringingAudio[uuid] = nil
         voiceURLs[uuid] = nil
         if state.activeCall?.uuid == uuid { endHeartbeat() }
         guard let callID = callIDs.removeValue(forKey: uuid) else { return }
@@ -173,6 +192,142 @@ final class CallService: NSObject, CXProviderDelegate {
         UserDefaults.standard.removeObject(forKey: Self.liveCallAtKey)
     }
 
+    // MARK: The call's audio
+
+    /// Whether the call still rings: not yet answered, declined or missed.
+    private func isRinging(_ uuid: UUID) -> Bool {
+        guard let callID = callIDs[uuid] else { return false }
+        return state.calls.first(where: { $0.id == callID })?.outcome == .ringing
+    }
+
+    /// Connects the call's audio if the phone still rings. If you answer before the offer
+    /// goes, it goes as it would after answering. If connecting fails before you answer, the
+    /// link is dropped and answering makes a new offer.
+    @MainActor
+    private func connectWhileRinging(_ uuid: UUID, _ callID: String, _ voiceURL: URL) async {
+        guard isRinging(uuid) else { return }
+        AudioLink.useManualAudio(keepingCallAudio: state.activeCall != nil)
+        let link = makeLink(uuid, callID)
+        link.ringing = true
+        ringingAudio[uuid] = RingingAudio()
+        do {
+            let offered = try await link.start(voiceURL: voiceURL, callID: callID)
+            if links[uuid] === link { ringingAudio[uuid]?.offered = offered }
+        } catch {
+            dropRingingLink(uuid, link, error.localizedDescription)
+        }
+    }
+
+    private func dropRingingLink(_ uuid: UUID, _ link: AudioLink, _ reason: String) {
+        guard links[uuid] === link else { return }
+        links[uuid] = nil
+        link.stop()
+        ringingAudio[uuid] = RingingAudio(failure: reason)
+    }
+
+    /// Once you've answered: tells the voice server, if the offer went while the phone rang,
+    /// so it starts talking. Otherwise connects the call's audio as a new offer. It first waits
+    /// for reaching the voice server and for an offer still on its way.
+    private func startAudio(_ uuid: UUID, _ callID: String, _ voiceURL: URL) {
+        let answeredAt = Date.now
+        Task { @MainActor [self] in
+            let reached = await connecting[uuid]?.value
+            guard callIDs[uuid] != nil else { return }
+            if links[uuid] != nil {
+                if ringingAudio[uuid]?.offered == true { await tellAnswered(uuid, callID, voiceURL) }
+                return
+            }
+            // The offer goes once the voice server has answered, so a retry can't start a
+            // second conversation.
+            guard let reached, reached.at.timeIntervalSince(answeredAt) < Self.reachTimeout else {
+                return audioFailed(uuid, callID, ReachError().localizedDescription, note: nil)
+            }
+            let link = makeLink(uuid, callID)
+            do {
+                _ = try await link.start(voiceURL: voiceURL, callID: callID)
+            } catch {
+                if links[uuid] === link { audioFailed(uuid, callID, error.localizedDescription, note: offerNote(uuid)) }
+            }
+        }
+    }
+
+    /// A new link for the call, which tells the in-call screen and the switchboard when its
+    /// audio connects or fails. While the phone rings, a failure only drops it.
+    private func makeLink(_ uuid: UUID, _ callID: String) -> AudioLink {
+        let link = AudioLink()
+        links[uuid] = link
+        if state.activeCall?.uuid == uuid, state.activeCall?.muted == true { link.setMuted(true) }
+        link.onConnected = { [self, weak link] at in
+            guard let link, links[uuid] === link else { return }
+            if isRinging(uuid) {
+                ringingAudio[uuid]?.connectedAt = at
+            } else {
+                audioConnected(uuid, callID, at: at)
+            }
+        }
+        link.onFailed = { [self, weak link] reason in
+            guard let link, links[uuid] === link else { return }
+            if isRinging(uuid) {
+                dropRingingLink(uuid, link, reason)
+            } else {
+                audioFailed(uuid, callID, reason, note: offerNote(uuid))
+            }
+        }
+        return link
+    }
+
+    /// Tells the voice server you answered, and the switchboard if that didn't get through.
+    @MainActor
+    private func tellAnswered(_ uuid: UUID, _ callID: String, _ voiceURL: URL) async {
+        let task = UIApplication.shared.beginBackgroundTask(withName: "tell the voice you answered")
+        defer { UIApplication.shared.endBackgroundTask(task) }
+        do {
+            try await AudioLink.answered(voiceURL, callID: callID)
+        } catch {
+            guard callIDs[uuid] != nil else { return }
+            Switchboard.report(
+                callID: callID, event: "answer not delivered", extra: ["error": error.localizedDescription])
+        }
+    }
+
+    /// Tells the switchboard when the voice server answered, after the ring and after you
+    /// answered, if you had.
+    private func reportReached(_ callID: String, _ reached: (at: Date, tries: Int)) {
+        guard let call = state.calls.first(where: { $0.id == callID }) else { return }
+        let answered = call.answeredAt.map {
+            String(format: "%.1f s after answering", max(0, reached.at.timeIntervalSince($0)))
+        }
+        let note = String(format: "%.1f s after ringing, ", reached.at.timeIntervalSince(call.ringAt))
+            + (answered ?? "before answering") + ", \(reached.tries) tries"
+        Switchboard.report(callID: callID, event: "voice reached", extra: ["note": note])
+    }
+
+    /// The call's audio connected. `since_answer_s` is how long after you answered it could
+    /// flow: 0 if it was ready when you did.
+    private func audioConnected(_ uuid: UUID, _ callID: String, at: Date) {
+        if state.activeCall?.uuid == uuid { state.activeCall?.audio = .connected }
+        guard let call = state.calls.first(where: { $0.id == callID }), let answeredAt = call.answeredAt else { return }
+        var note = offerNote(uuid) + String(format: ", connected %.1f s after ringing", at.timeIntervalSince(call.ringAt))
+        if at < answeredAt { note += String(format: ", %.1f s before answering", answeredAt.timeIntervalSince(at)) }
+        Switchboard.report(
+            callID: callID, event: "audio connected",
+            extra: ["since_answer_s": String(format: "%.2f", max(0, at.timeIntervalSince(answeredAt))), "note": note])
+    }
+
+    private func audioFailed(_ uuid: UUID, _ callID: String, _ reason: String, note: String?) {
+        if state.activeCall?.uuid == uuid { state.activeCall?.audio = .failed(reason) }
+        var extra = ["error": reason]
+        extra["note"] = note
+        Switchboard.report(callID: callID, event: "audio failed", extra: extra)
+    }
+
+    /// When the call's offer went, for the switchboard's log.
+    private func offerNote(_ uuid: UUID) -> String {
+        guard let ringing = ringingAudio[uuid] else { return "offered after answering" }
+        if let failure = ringing.failure { return "offered after answering, as connecting while ringing failed (\(failure))" }
+        return ringing.offered ? "offered while ringing" : "offered after answering"
+    }
+
     // MARK: CXProviderDelegate
 
     func providerDidReset(_ provider: CXProvider) {
@@ -194,45 +349,12 @@ final class CallService: NSObject, CXProviderDelegate {
             }
             startHeartbeat(callID)
             Switchboard.report(callID: callID, event: "answered")
+            // A link made while ringing now sends your microphone and plays the voice.
+            links[uuid]?.ringing = false
+            if let at = ringingAudio[uuid]?.connectedAt { audioConnected(uuid, callID, at: at) }
             if let voiceURL = voiceURLs[uuid] { startAudio(uuid, callID, voiceURL) }
         }
         action.fulfill()
-    }
-
-    /// Connects the call's audio to the calling Mac, and reports how long that took from
-    /// answering, or why it failed.
-    private func startAudio(_ uuid: UUID, _ callID: String, _ voiceURL: URL) {
-        let link = AudioLink()
-        links[uuid] = link
-        link.onConnected = { [self] seconds in
-            state.activeCall?.audio = .connected
-            Switchboard.report(
-                callID: callID, event: "audio connected", extra: ["since_answer_s": String(format: "%.2f", seconds)])
-        }
-        link.onFailed = { [self] reason in
-            state.activeCall?.audio = .failed(reason)
-            Switchboard.report(callID: callID, event: "audio failed", extra: ["error": reason])
-        }
-        let ringAt = state.calls.first(where: { $0.id == callID })?.ringAt ?? .now
-        let answeredAt = Date.now
-        Task { @MainActor [self] in
-            do {
-                // The offer goes once, when the voice server has answered, so a retry can't
-                // start a second conversation.
-                guard let reached = await reaching[uuid]?.value, reached.at.timeIntervalSince(answeredAt) < Self.reachTimeout
-                else { throw ReachError() }
-                Switchboard.report(
-                    callID: callID, event: "voice reached",
-                    extra: ["note": String(
-                        format: "%.1f s after ringing, %.1f s after answering, %d tries",
-                        reached.at.timeIntervalSince(ringAt), max(0, reached.at.timeIntervalSince(answeredAt)),
-                        reached.tries)])
-                try await link.start(voiceURL: voiceURL, callID: callID)
-            } catch {
-                state.activeCall?.audio = .failed(error.localizedDescription)
-                Switchboard.report(callID: callID, event: "audio failed", extra: ["error": error.localizedDescription])
-            }
-        }
     }
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {

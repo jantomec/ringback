@@ -3,7 +3,8 @@ import Foundation
 import WebRTC
 
 /// A call's audio: a WebRTC connection that the phone opens to the calling Mac's voice server
-/// over Nebula. (On mobile data only the phone can open a Nebula tunnel.)
+/// over Nebula. (On mobile data only the phone can open a Nebula tunnel.) It's made while the
+/// phone rings, so the voice can start as soon as you answer.
 ///
 /// CallKit owns the audio session, so WebRTC runs in manual-audio mode: CallKit activates
 /// the session and `activate`/`deactivate` hand it to WebRTC.
@@ -33,9 +34,18 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
 
     private var peer: RTCPeerConnection?
     private var microphone: RTCAudioTrack?
-    private let started = Date.now
-    /// Called once, on the main queue, when audio is connected; with the seconds it took.
-    var onConnected: ((TimeInterval) -> Void)?
+    /// What the voice server sends.
+    private var voice: RTCMediaStreamTrack?
+    private var muted = false
+    private var stopped = false
+    /// True while the phone rings. The link then neither sends your microphone nor plays the
+    /// voice: a call you're on may be using them (call waiting). An offer that goes while it's
+    /// true says so, and the voice server then waits for `answered` before it talks.
+    var ringing = false {
+        didSet { updateTracks() }
+    }
+    /// Called once, on the main queue, when audio is connected; with when.
+    var onConnected: ((Date) -> Void)?
     var onFailed: ((String) -> Void)?
 
     /// Tries to reach the voice server over Nebula until it answers or `deadline` passes, and
@@ -54,9 +64,11 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
         return nil
     }
 
-    /// Before CallKit activates the audio session: WebRTC must not start audio by itself,
-    /// and uses the same voice-chat settings as the call.
-    static func prepareAudioSession() {
+    /// Before a connection is made while the phone rings: WebRTC must not start audio by
+    /// itself, because CallKit owns the audio session until you answer and then hands it over
+    /// (`activate`). This sets only WebRTC's own flags, not the audio session, so the ringtone
+    /// and CallKit carry on as before. While you're on another ringback call, its audio stays on.
+    static func useManualAudio(keepingCallAudio: Bool) {
         let config = RTCAudioSessionConfiguration.webRTC()
         config.category = AVAudioSession.Category.playAndRecord.rawValue
         config.mode = AVAudioSession.Mode.voiceChat.rawValue
@@ -65,9 +77,16 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
 
         let session = RTCAudioSession.sharedInstance()
         session.useManualAudio = true
-        session.isAudioEnabled = false
+        if !keepingCallAudio { session.isAudioEnabled = false }
+    }
+
+    /// When you answer, before CallKit activates the audio session: WebRTC must not start
+    /// audio by itself, and uses the same voice-chat settings as the call.
+    static func prepareAudioSession() {
+        useManualAudio(keepingCallAudio: false)
+        let session = RTCAudioSession.sharedInstance()
         session.lockForConfiguration()
-        try? session.setConfiguration(config)
+        try? session.setConfiguration(RTCAudioSessionConfiguration.webRTC())
         session.unlockForConfiguration()
     }
 
@@ -83,8 +102,11 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
 
     /// Offers audio to the voice server and applies its answer. The Mac's server doesn't
     /// take ICE candidates one by one, so the offer waits until they're all gathered. The
-    /// offer also carries your interruption sensitivity and background filter.
-    func start(voiceURL: URL, callID: String) async throws {
+    /// offer also carries your interruption sensitivity and background filter, and whether the
+    /// phone still rings (`ringing` as the offer goes). Returns whether it did. On the main
+    /// actor, as `stop` is, so once the link is stopped no offer goes and no answer is applied.
+    @MainActor
+    func start(voiceURL: URL, callID: String) async throws -> Bool {
         let config = RTCConfiguration()
         config.sdpSemantics = .unifiedPlan
         config.continualGatheringPolicy = .gatherOnce
@@ -96,6 +118,8 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
         let track = Self.factory.audioTrack(with: Self.factory.audioSource(with: none), trackId: "mic")
         peer.add(track, streamIds: ["call"])
         microphone = track
+        voice = peer.transceivers.first { $0.mediaType == .audio }?.receiver.track
+        updateTracks()
 
         let offer = try await peer.offer(for: none)
         try await peer.setLocalDescription(offer)
@@ -103,39 +127,83 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
             try await Task.sleep(for: .milliseconds(50))
         }
         guard let local = peer.localDescription else { throw URLError(.cannotConnectToHost) }
+        guard !stopped else { throw CancellationError() }
 
-        var request = URLRequest(url: voiceURL.appending(path: "offer"), timeoutInterval: 15)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
+        let ringing = ringing
+        var body: [String: Any] = [
             "sdp": local.sdp, "type": "offer", "call_id": callID,
             "sensitivity": UserDefaults.standard.object(forKey: Self.sensitivityKey) as? Double ?? Self.defaultSensitivity,
             "background_filter": Self.backgroundFilter,
-        ])
+        ]
+        if ringing { body["ringing"] = true }
+        var request = URLRequest(url: voiceURL.appending(path: "offer"), timeoutInterval: 15)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, _) = try await URLSession.shared.data(for: request)
+        guard !stopped else { throw CancellationError() }
         guard let answer = try JSONSerialization.jsonObject(with: data) as? [String: Any],
             let sdp = answer["sdp"] as? String
         else { throw URLError(.badServerResponse) }
         try await peer.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp))
+        return ringing
+    }
+
+    /// Tells the voice server you answered a call whose offer went while the phone rang, so
+    /// it starts talking. Tries four times within about 15 s. A 404 means the voice server
+    /// wasn't offered the call, so that isn't retried.
+    static func answered(_ voiceURL: URL, callID: String) async throws {
+        var request = URLRequest(url: voiceURL.appending(path: "answered"), timeoutInterval: 3)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["call_id": callID])
+        var failure: Error = URLError(.badServerResponse)
+        for delay in [0, 0.5, 1, 2] {
+            try await Task.sleep(for: .seconds(delay))
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                switch (response as? HTTPURLResponse)?.statusCode {
+                case 200: return
+                case 404: throw UnknownCall()
+                default: failure = URLError(.badServerResponse)
+                }
+            } catch let error as UnknownCall {
+                throw error
+            } catch {
+                failure = error
+            }
+        }
+        throw failure
     }
 
     func setMuted(_ muted: Bool) {
-        microphone?.isEnabled = !muted
+        self.muted = muted
+        updateTracks()
     }
 
     func stop() {
+        stopped = true
+        onConnected = nil
+        onFailed = nil
         peer?.close()
         peer = nil
         microphone = nil
+        voice = nil
+    }
+
+    private func updateTracks() {
+        microphone?.isEnabled = !ringing && !muted
+        voice?.isEnabled = !ringing
     }
 
     // MARK: RTCPeerConnectionDelegate (called on WebRTC's signalling thread)
 
     func peerConnection(_ peer: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
+        let at = Date.now
         DispatchQueue.main.async { [self] in
             switch newState {
             case .connected:
-                onConnected?(Date.now.timeIntervalSince(started))
+                onConnected?(at)
                 onConnected = nil
             case .failed:
                 onFailed?("ICE failed")
@@ -153,4 +221,9 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     func peerConnection(_ peer: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {}
     func peerConnection(_ peer: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
     func peerConnection(_ peer: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
+}
+
+/// The voice server answered `answered` with 404: it wasn't offered this call.
+private struct UnknownCall: LocalizedError {
+    var errorDescription: String? { "The voice server doesn't know this call" }
 }
