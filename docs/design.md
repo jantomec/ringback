@@ -215,6 +215,11 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
        sentence after it has been heard: Haiku often calls first, and the old rule let an
        answer go after a single heard word. A message can't be recalled once it's passed,
        but you can send a correction.
+     - When Haiku reaches for a tool after your words but before saying anything, the
+       voice says "Okay." at once, which doesn't count as saying what it does: the answer
+       still waits for the sentence after it. In scripted calls (`tools/call-check`) the
+       pause after your yes fell from 5.3 s to 1.7 s in that case (one run each); when
+       Haiku speaks first by itself, it stays 1.7–2.0 s.
      - What Haiku writes after the tool isn't spoken, if it said something before: it
        tends to say the same thing again.
      - The session's answer comes back as a note, "[The session: ...]". Pipecat holds it
@@ -769,9 +774,9 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
           calls after had no such line.
         - The first call met a stale Nebula tunnel: the phone reached the Mac after 4
           tries, 12.2 s into ringing, and audio started 10.5 s after you answered.
-      - Open: answering takes longer when Haiku calls the tool before speaking, 2.1–3.6 s
-        after your words on the phone, against about 1.1 s; and the split-answer case
-        above.
+      - Open: the split-answer case above. Answering took longer when Haiku called the
+        tool before speaking, 2.1–3.6 s after your words on the phone; the voice now says
+        "Okay." at once then (acting on the call).
    4. A better model on the line.
    5. Call back from the app's call history.
 4. **Several sessions + retries.** A second session waits for the first call to end.

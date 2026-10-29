@@ -14,6 +14,7 @@ voice off before that (see "Acting on the call" in docs/design.md).
 """
 
 import asyncio
+import re
 import time
 from collections.abc import Callable
 from dataclasses import fields
@@ -28,6 +29,8 @@ from ringback_voice.haiku import Haiku
 from ringback_voice.sessions import Link
 from ringback_voice.speech import Timeline
 
+ACK = "Okay. "  # said at once when Haiku reaches for a tool before saying anything
+OKAY = re.compile(r"^\s*(okay|ok|alright|all right)\b[,.!]?\s*", re.IGNORECASE)
 HELD = (
     "Held until the developer has heard you say you're passing it on, then passed to the session; "
     "if they cut you off before that, it's dropped and you'll be told. The session's answer comes "
@@ -68,6 +71,8 @@ class ClaudeCodeLLMService(LLMService):
         self._held: list[dict] = []  # messages and answers for the session, until you've heard them announced
         self._unsaid = ""  # reply text after a tool call, which isn't spoken
         self._quiet = False  # this reply passed a message after saying so: the rest isn't spoken
+        self._ack = ""  # ACK, said for Haiku when it reached for a tool before saying anything
+        self._opener: str | None = None  # Haiku's first words after the ACK, until checked
         self._heard_words: int | None = None  # of the last reply, if you cut it off
         self._seen = 0  # messages of the Pipecat context already sent
         self._unfinished = 0  # turns sent whose reply hasn't fully arrived
@@ -175,6 +180,7 @@ class ClaudeCodeLLMService(LLMService):
         self._written = False
         self._cut = False
         self._quiet = False
+        self._ack, self._opener = "", None
         self._turn += 1
         if self._link:
             # From your first words on, Haiku's tool calls are yours to pass on (see haiku.py).
@@ -192,6 +198,11 @@ class ClaudeCodeLLMService(LLMService):
             return None
         if event.get("type") == "result":
             self._unfinished -= 1
+            if self._opener:
+                # Haiku's words after the ACK were too short to check; say them as they are.
+                text, self._opener = self._opener, None
+                self._reply += text
+                return text
             if self._unsaid:
                 self._log(f"not spoken, after passing a message: {self._unsaid.strip()!r}")
                 self._unsaid = ""
@@ -205,6 +216,13 @@ class ClaudeCodeLLMService(LLMService):
                 # Haiku has said it's passing something on. Told so or not, it tends to
                 # say it again after the tool, so the rest of this reply isn't spoken.
                 self._quiet = True
+            elif block == "tool_use" and self._said.strip():
+                # Haiku answers you, or passes something on, before saying anything: its
+                # first words would come only after the tool, 2-3.6 s after yours on the
+                # phone. "Okay." fills that, and doesn't count as having said what it does.
+                self._ack, self._opener = ACK, ""
+                self._reply += ACK
+                return ACK
             elif block == "text" and not self._quiet and self._reply and not self._reply[-1].isspace():
                 # Text after a tool call starts a new block; keep a space between them.
                 self._reply += " "
@@ -214,8 +232,16 @@ class ClaudeCodeLLMService(LLMService):
             if self._quiet:
                 self._unsaid += delta["text"]
                 return ""
-            self._reply += delta["text"]
-            return delta["text"]
+            text = delta["text"]
+            if self._opener is not None:
+                # After the ACK, Haiku tends to start with its own "Okay": drop it.
+                self._opener += text
+                if len(self._opener) < 12 and not match_endofsentence(self._opener):
+                    return ""
+                text, self._opener = OKAY.sub("", self._opener, count=1), None
+                text = text[:1].upper() + text[1:]
+            self._reply += text
+            return text
         return ""
 
     def _write_reply(self) -> None:
@@ -274,7 +300,7 @@ class ClaudeCodeLLMService(LLMService):
         """Holds a message or an answer for the session until you've heard the reply so far."""
         # The words of the reply so far are what you must hear before it goes; None if Haiku
         # said nothing first.
-        words = len(self._reply.split()) or None
+        words = len(self._reply[len(self._ack) :].split()) or None
         self._held.append({"turn": self._turn, "words": words, "kind": kind, "text": text, "give": give})
 
     def _needed(self, held: dict) -> int:
@@ -282,10 +308,12 @@ class ClaudeCodeLLMService(LLMService):
         Haiku gave it, or if it said nothing first, the sentence that follows. Once it
         answered your yes before saying anything, and the answer went when you'd heard
         "Okay,"."""
+        acked = len(self._ack.split())
         if held["words"] is not None:
-            return held["words"]
-        end = match_endofsentence(self._reply)
-        return max(1, len(self._reply[: end or len(self._reply)].split()))
+            return acked + held["words"]
+        rest = self._reply[len(self._ack) :]
+        end = match_endofsentence(rest)
+        return acked + max(1, len(rest[: end or len(rest)].split()))
 
     async def _pass_heard(self):
         """Passes a message or an answer on as soon as you've heard the reply up to where
