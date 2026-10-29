@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Plays a session's calls on this Mac, up to where the phone would ring.
 
-    uv run --project voice tools/session-check/session_check.py [--model MODEL] [--keep DIR] [WORK]
+    uv run --project voice tools/session-check/session_check.py [--model MODEL] [--unanswered S] [--keep DIR] [WORK]
 
 A Claude Code session (`claude -p`) loads the ringback mod from mod/, runs /ringback and
 then WORK. When WORK's turn ends, the mod has the session write its call briefing and gives
 it to a voice server started here, which asks a switchboard started here to ring. That
 switchboard knows only a made-up phone and has no APNs key, so nothing rings. Then a
 message is left for the session, as the voice leaves what you say: the session answers it,
-and since no call is live, it calls again. Prints the session's turns, both servers' logs
-and the checks.
+and since no call is live, it calls again. Neither call is answered, so after S seconds the
+session is told so, in notes that start no turn. Then it's asked at the prompt what it was
+told about its last call. Prints the session's turns, both servers' logs and the checks.
 
 Stop your own voice server first: both use the same socket.
 """
@@ -17,6 +18,7 @@ Stop your own voice server first: both use the same socket.
 import argparse
 import asyncio
 import json
+import os
 import re
 import shutil
 import socket
@@ -36,6 +38,9 @@ PHONE = "0" * 64  # a made-up device token
 CALL = r"call ([\w-]{8}): asked by (\S+) for (\S+): ?(.*)"
 WAIT = 180  # seconds for the session to place each call
 MESSAGE = "The developer says: reply with the single word pineapple, and nothing else."
+QUIET = 10  # seconds watched after the outcome notes, for a turn or call they'd set off
+QUESTION = "What were you told about how your last ringback call went? Quote it word for word."
+UNANSWERED = "wasn't answered within"  # what an unanswered call's outcome says
 
 
 def socket_in_use() -> bool:
@@ -61,10 +66,24 @@ async def wait_for(path: Path, pattern: str, seconds: float, nth: int = 1) -> re
     return None
 
 
+async def until(ready, seconds: float) -> bool:
+    end = time.monotonic() + seconds
+    while not ready():
+        if time.monotonic() > end:
+            return False
+        await asyncio.sleep(0.2)
+    return True
+
+
+def calls_in(path: Path) -> int:
+    return len(re.findall(CALL, path.read_text(errors="replace")))
+
+
 async def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("work", nargs="?", default="Say in one sentence that the session check works.")
     p.add_argument("--model", default="haiku", help="the session's model (default haiku)")
+    p.add_argument("--unanswered", type=int, default=10, help="seconds each call waits to be answered (default 10)")
     p.add_argument("--keep", type=Path, help="keep the logs in this directory")
     args = p.parse_args()
     if socket_in_use():
@@ -95,6 +114,7 @@ async def main() -> int:
         ))  # fmt: skip
         procs.append(subprocess.Popen(
             [sys.executable, "-m", "ringback_voice", "serve", "--listen", VOICE, "--switchboard", SWITCHBOARD],
+            env={**os.environ, "RINGBACK_UNANSWERED": str(args.unanswered)},
             stdout=voice_log.open("w"), stderr=subprocess.STDOUT,
         ))  # fmt: skip
         if not await wait_for(voice_log, r"voice listening", 120):
@@ -113,11 +133,14 @@ async def main() -> int:
             cwd=project, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT, limit=1 << 22,
         )  # fmt: skip
+        stream = (tmp / "session.jsonl").open("wb")  # everything the session printed
         turns: list[str] = []
+        outcomes: list[str] = []  # the calls' outcomes, as the mod showed them to you
         session_id = asyncio.get_running_loop().create_future()
 
         async def read():
             while line := await session.stdout.readline():
+                stream.write(line)
                 try:
                     event = json.loads(line)
                 except ValueError:
@@ -126,15 +149,22 @@ async def main() -> int:
                     session_id.set_result(event["session_id"])
                 if event.get("type") == "result":
                     turns.append(event.get("result") or "")
+                text = event.get("text") or ""
+                if event.get("subtype") == "ui_log" and event.get("plugin") == "ringback" and text.startswith("The call"):
+                    outcomes.append(text)
 
         reader = asyncio.create_task(read())
-        for text in ["/ringback", args.work]:
+
+        async def prompt(text: str) -> None:
             message = {"type": "user", "message": {"role": "user", "content": text}}
             session.stdin.write((json.dumps(message) + "\n").encode())
-        await session.stdin.drain()
+            await session.stdin.drain()
+
+        await prompt("/ringback")
+        await prompt(args.work)
         placed = await wait_for(switchboard_log, CALL, WAIT)
         took = time.monotonic() - t0
-        again = left = None
+        again = left = told = quiet = reply = None
         if placed:
             # As the voice leaves what you say on a call. No call is live, so when the
             # session has answered, it should call again.
@@ -146,6 +176,19 @@ async def main() -> int:
             t1 = time.monotonic()
             again = await wait_for(switchboard_log, CALL, WAIT, nth=2)
             took_again = time.monotonic() - t1
+        if again:
+            # Neither call is answered. Once each one's time is up, the session is told so
+            # in a note, which mustn't start a turn: with ringback on, that would call again.
+            told = await until(lambda: len(outcomes) >= 2, args.unanswered + 30)
+            turns_before, calls_before = len(turns), calls_in(switchboard_log)
+            await asyncio.sleep(QUIET)
+            quiet = len(turns) == turns_before and calls_in(switchboard_log) == calls_before
+            # Asked at the prompt, as when you're back, the session should know.
+            asked = len(turns)
+            await prompt(QUESTION)
+            if await until(lambda: len(turns) > asked, WAIT):
+                reply = turns[asked]
+            await wait_for(switchboard_log, CALL, WAIT, nth=3)  # it then calls again
         await asyncio.sleep(1)  # the switchboard's push
         session.stdin.close()
         try:
@@ -163,7 +206,7 @@ async def main() -> int:
         print(f"[{i}] {text.strip()}\n")
     print("--- switchboard log\n" + switchboard_log.read_text())
     print("--- voice log (session side)")
-    print("".join(line for line in voice_log.open() if re.search(r"call |voice listening", line)))
+    print("".join(line for line in voice_log.open() if re.search(r"call |outcome for|voice listening", line)))
 
     fails = 0
 
@@ -189,6 +232,18 @@ async def main() -> int:
         if again:
             print(f"      after {took_again:.0f} s, subject {again.group(4)!r}")
             check("the second call has a new ID", again.group(1) != call)
+            print(f"      outcomes shown: {outcomes}")
+            check(
+                f"each call's outcome, not answered, was shown in the session within {args.unanswered + 30} s",
+                bool(told) and all(UNANSWERED in o for o in outcomes[:2]),
+            )
+            check(f"the outcomes started no turn and no call in the next {QUIET} s", bool(quiet))
+            if reply is not None:
+                print(f"      asked {QUESTION!r}, it said: {reply.strip()!r}")
+            check(
+                "asked at the prompt, it quoted that its last call wasn't answered",
+                reply is not None and UNANSWERED in reply.replace("\u2019", "'"),
+            )
     if args.keep:
         shutil.copytree(tmp, args.keep, dirs_exist_ok=True)
     shutil.rmtree(tmp, ignore_errors=True)

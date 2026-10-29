@@ -4,9 +4,9 @@ type On = Parameters<Parameters<typeof test>[1]>[1]
 
 // What the engine beneath the mod is asked, and what the tests answer it. The voice server
 // answers by path: `live` says whether you're on a call with the session, and `waiting` is
-// what the voice passed on for it.
+// what the voice passed on for it. `logs` are the dim lines shown in the transcript.
 function engine(on: On, voice: { live?: boolean; waiting?: object[] } = {}) {
-  const asked = { prompts: [] as string[], fetches: [] as { url: string; init: any }[] }
+  const asked = { prompts: [] as string[], fetches: [] as { url: string; init: any }[], logs: [] as string[] }
   on('command.register', (_, e) => ({ value: { command: e.name } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: 'session-1234' }))
@@ -14,6 +14,11 @@ function engine(on: On, voice: { live?: boolean; waiting?: object[] } = {}) {
   on('env.get', () => ({ value: '/home/someone' }))
   on('prompt.submit', (_, e) => (asked.prompts.push(e.text), { text: e.text }))
   on('ui.invalidate', () => ({ value: undefined }))
+  on('ui.log', (_, e) => {
+    if (e.to === 'transcript') asked.logs.push(e.text)
+    return { value: undefined }
+  })
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
   on('http.fetch', (_, e) => {
     asked.fetches.push({ url: e.url, init: e.init })
@@ -102,6 +107,62 @@ test('what the voice passes on becomes a prompt, with the transcript', async ($,
   await clock.advance(1000)
   await settle()
   expect(asked.prompts.length).toBe(1)
+})
+
+const unanswered = `The call about "Tests pass" wasn't answered within 1 min 30 s: declined, missed, or its audio didn't connect.`
+const answered = 'The call about "Tests pass" was answered and lasted 1 min 5 s. Its transcript: .ringback/calls/x.md'
+
+test("a call's outcome is added to the conversation and shown to you, not submitted", async ($, on) => {
+  const waiting = [
+    { kind: 'message', text: 'The developer says: push it.', transcript: null },
+    { kind: 'outcome', text: unanswered, transcript: null },
+  ]
+  const asked = engine(on, { waiting })
+  const session = mock.session(on)
+  const clock = mock.clock(on)
+  await start($)
+  await clock.advance(1000)
+  await settle()
+  // The voice's message is still a prompt; the outcome isn't.
+  expect(asked.prompts.length).toBe(1)
+  expect(asked.prompts[0]).toContain('The developer says: push it.')
+  const rows = session.appended()
+  expect(rows.length).toBe(1)
+  expect(rows[0].door).toBe('note')
+  expect(rows[0].message.type).toBe('user')
+  // Signed, since the model reads it inside the next prompt's message.
+  expect(rows[0].message.content).toEqual([{ type: 'text', text: expect.stringContaining(unanswered) }])
+  expect((rows[0].message.content[0] as { text: string }).text).toStartWith('A note from ringback')
+  expect(asked.logs).toEqual([unanswered])
+})
+
+test("a call's outcome waits while a turn runs, and is added when it ends", async ($, on) => {
+  const waiting: object[] = []
+  const asked = engine(on, { waiting })
+  const session = mock.session(on)
+  const clock = mock.clock(on)
+  await start($)
+  await $.turn.start({ text: 'Fix the parser.', turnId: 't' })
+  waiting.push({ kind: 'outcome', text: answered, transcript: '.ringback/calls/x.md' })
+  await clock.advance(1000)
+  await settle()
+  expect(session.appended().length).toBe(0)
+  expect(asked.logs.length).toBe(0)
+  // A subagent's turn is no turn of the session's.
+  await $.turn.start({ text: 'Find the parser.', turnId: 'a', agentId: 'agent-1' })
+  await $.turn.complete(turn('Found it.', { turnId: 'a', agentId: 'agent-1' }))
+  await settle()
+  expect(session.appended().length).toBe(0)
+
+  await $.turn.complete(turn('Fixed the parser.'))
+  await settle()
+  expect(session.appended().map(row => row.message.content)).toEqual([
+    [{ type: 'text', text: expect.stringContaining(answered) }],
+  ])
+  expect(asked.logs).toEqual([answered])
+  // The turn's end still asks for a briefing, as with no outcome waiting.
+  expect(asked.prompts.length).toBe(1)
+  expect(asked.prompts[0]).toContain('Subject: ')
 })
 
 test('an interrupted briefing places no call', async ($, on) => {
