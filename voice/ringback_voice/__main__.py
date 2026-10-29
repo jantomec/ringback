@@ -220,8 +220,12 @@ def main() -> None:
         return web.json_response(conn.get_answer())
 
     async def serve_forever():
+        async def ping(request: web.Request) -> web.Response:
+            # The phone checks it can reach this Mac while it rings (AudioLink.reach).
+            return web.json_response({"ok": True})
+
         app = web.Application()
-        app.add_routes([web.post("/offer", offer)])
+        app.add_routes([web.post("/offer", offer), web.get("/ping", ping)])
         runner = web.AppRunner(app)
         await runner.setup()
         host, port = args.listen.rsplit(":", 1)

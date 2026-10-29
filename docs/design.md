@@ -216,7 +216,15 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      - WebRTC runs in manual-audio mode: CallKit activates the voice-processing audio
        session, which provides echo cancellation, and hands it to WebRTC.
      - The offer carries all ICE candidates at once, because the Mac's server doesn't
-       take them one by one;
+       take them one by one.
+     - **Reaching the Mac first.** After the phone moves from Wi-Fi to mobile data, its
+       Nebula tunnel to the Mac can stay stale: in the first phone test of Stage 3 the
+       offer timed out after 15 s without reaching the Mac, while the switchboard on the
+       lighthouse was reachable. So from the moment the phone rings, the app tries to
+       reach the voice server (`/ping`, 3 s per try) until it answers. Each try sends
+       fresh packets, so Nebula notices sooner and goes through the relay. The offer goes
+       once, when the voice server has answered, up to 45 s after you answer; the app
+       reports how long reaching it took and how many tries;
    - During another call (phone, WhatsApp, FaceTime), a ringback call rings as call
      waiting, with iOS's own Hold & Accept, End & Accept and Decline. The app doesn't
      end it by itself. `CXCallObserver` only records that you were on another call.
@@ -427,8 +435,13 @@ Each entry says why it lost and what would make it worth retrying.
 ## Risks (unverified)
 
 - Right after the phone leaves Wi-Fi, its first packets once took about 16 s to reach
-  the Mac. If that happens just before you answer, audio takes that long to start.
-  Answer-to-audio has been measured on mobile data only once (2.6 s).
+  the Mac, and on 2026-10-29 its offer didn't reach the Mac within the app's 15 s at all.
+  The Mac's Nebula log showed no new handshake from the phone during the call, and its
+  only tunnel to the phone was hours old, from when the phone was on the same Wi-Fi. The
+  app now tries to reach the Mac from the moment it rings (reaching the Mac first), but
+  that hasn't yet met a stale tunnel: in the next call the Mac answered the first try,
+  0.8 s into ringing. If it's still too slow, audio takes that long to start, up to the
+  45 s the app waits.
 - Pipecat expects a WebRTC data channel and logs a warning without one. Nothing needs one
   yet: the interruption settings go with the offer.
 - Xcode needs device support for the phone's iOS version to install development builds.
@@ -576,8 +589,16 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
       Built, and tried offline (`tools/session-check`, three runs, Haiku as the
       session's model): each call was placed 6 s after the session's first prompt, with a
       5-word subject and a briefing of 132–161 spoken words, and an offer for an unknown
-      call was refused. Not yet on the phone, nor in an interactive session, where the
-      line under the prompt shows.
+      call was refused.
+
+      On the phone (2026-10-29, an interactive session in a throwaway folder, the phone
+      locked on mobile data, AirPods): the first call rang with the session's subject,
+      but its audio never connected (reaching the Mac first, above). The second rang as
+      "Claude from ringback-trial" with the subject "Second stanza added to the autumn
+      poem", audio connected 2.8 s after answering, and the voice talked the briefing
+      through and asked its one decision. In between, the session stopped silently at a
+      permission prompt for a shell command until you switched it to auto mode: until
+      step 3, a session with ringback on can't reach you about a prompt.
    2. Replies: what you say reaches the session, questions and answers go both ways, and
       when the session is done it calls again, or tells the call you're on. Each call's
       transcript is saved in the project for the session to read. Built, and tried
@@ -594,8 +615,13 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
       - The session (`tools/session-check`, one run): a message left for it was answered,
         and with no call live, the session wrote a new briefing and called again 5 s
         after the message was left.
-      - Not tried: news reaching a call through the voice server (offline it went to the
-        call directly), and a real session acting on a real instruction.
+      - On the phone (the second call above): you asked the voice to read you the whole
+        poem. It said its briefing had only the new stanza and that it would ask the
+        session, and passed that on 6.5 s later, once you'd heard it say so. The session's
+        answer came back 6 s after that, and the voice read the poem until you stopped it.
+        You found the call good. Haiku's first words came 2.4–3.2 s after your turns,
+        against 1.1–1.5 s in Stage 2; why isn't measured.
+      - Not tried on the phone: the session calling again after you hang up.
    3. Permissions by voice.
    4. A better model on the line.
    5. Call back from the app's call history.
