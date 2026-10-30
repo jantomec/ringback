@@ -86,9 +86,10 @@ struct SettingsView: View {
                     )
                 }
                 Section("Calls") {
-                    if state.calls.isEmpty {
+                    if state.calls.isEmpty && state.waiting.isEmpty {
                         Text("No calls yet").foregroundStyle(.secondary)
                     }
+                    ForEach(state.waiting) { WaitingRow(call: $0, calls: calls) }
                     ForEach(state.calls) { CallRow(call: $0, calls: calls) }
                 }
             }
@@ -322,8 +323,40 @@ private struct StatusRow: View {
     }
 }
 
-/// One call in the history. Tapping a red one calls it back, as in the Phone app; a call back
-/// shows as an outgoing call.
+/// A call that waits for your work hours, at the top of the history in orange, with when it
+/// rings. Tapping it calls it now.
+private struct WaitingRow: View {
+    let call: WaitingCall
+    let calls: CallService
+
+    var body: some View {
+        Button { calls.callNow(call) } label: {
+            HStack {
+                Image(systemName: "clock.fill").foregroundStyle(.orange).frame(width: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(call.callerName).font(.body.weight(.medium))
+                    if let subject = call.subject {
+                        Text(subject).font(.subheadline)
+                    }
+                    Text("Waiting · rings at \(rings)").font(.caption).foregroundStyle(.orange)
+                }
+                Spacer()
+            }
+            .foregroundStyle(.primary)
+        }
+        .accessibilityHint("Calls it now")
+    }
+
+    /// "08:00", or "08:00 on Sat 31 Oct" when it isn't today.
+    private var rings: String {
+        let time = call.heldUntil.formatted(date: .omitted, time: .shortened)
+        guard !Calendar.current.isDateInToday(call.heldUntil) else { return time }
+        return "\(time) on \(call.heldUntil.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))"
+    }
+}
+
+/// One call in the history. Tapping a red one calls it back, as in the Phone app; a call back,
+/// or a waiting call you called, shows as an outgoing call.
 private struct CallRow: View {
     let call: CallRecord
     let calls: CallService
@@ -359,7 +392,7 @@ private struct CallRow: View {
     }
 
     private var icon: String {
-        if call.callsBack != nil { return "phone.arrow.up.right.fill" }
+        if call.isOutgoing { return "phone.arrow.up.right.fill" }
         switch call.outcome {
         case .answered, .onCall, .ringing: return "phone.fill"
         case .declined, .missed, .busy, .failed: return "phone.down.fill"
@@ -380,12 +413,14 @@ private struct CallRow: View {
     }
 
     private var outcomeText: String {
-        if call.callsBack != nil {
+        if call.isOutgoing {
+            // A waiting call you called is "Called".
+            let called = call.callsBack != nil ? "Called back" : "Called"
             switch call.outcome {
             case .onCall, .ringing: return "On call"
-            case .failed: return "Called back · didn't connect"
+            case .failed: return "\(called) · didn't connect"
             default:
-                return "Called back · " + Duration.seconds(call.duration ?? 0).formatted(.time(pattern: .minuteSecond))
+                return "\(called) · " + Duration.seconds(call.duration ?? 0).formatted(.time(pattern: .minuteSecond))
             }
         }
         return switch call.outcome {

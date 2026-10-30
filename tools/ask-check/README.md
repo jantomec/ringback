@@ -50,7 +50,19 @@ the switchboard does outside every phone's hours. It checks:
   `--unanswered` seconds after it rang, not after it was placed, and then no Haiku and no
   sleep assertion are left.
 
-Run from the repo root. It uses your Claude subscription, four Haiku sessions:
+Then calling a waiting call from the app, as the app does from its waiting calls (an offer
+marked `"now": true`):
+- an offer for a call that doesn't wait on this voice server gets 403;
+- a held call, asked about at least twice, is answered at once: the voice is heard, with a
+  Haiku started only then, and the call isn't asked about at the switchboard any more;
+- its voice picks up: it opens with what the call is about, and doesn't introduce itself or
+  say it's calling;
+- hung up, its session is told "The developer called about "…" from the app while it
+  waited and it lasted …";
+- a call that rang meanwhile, and wasn't answered yet, is answered as any offer is, and its
+  session is told it was answered.
+
+Run from the repo root. It uses your Claude subscription, six Haiku sessions:
 
     uv run --project voice tools/ask-check/ask_check.py [--unanswered S] [--reask S] [--keep DIR]
 
@@ -101,3 +113,14 @@ once. The held call's voice left the question waiting in the terminal for later,
 real call comes after its answer, where nothing is spoken. With its note saying to tell it at
 once, all 45 passed twice: the voice asked the permission and, in the same turn, said the
 question waits in the terminal.
+
+Result on 2026-10-30, with calling a waiting call now (Stage 5), two runs: all 51 checks
+passed each time (the 45 above and 6 new), in 3 min 51 s and 3 min 21 s with the models
+loading. The held call, asked about twice, was answered at once; the voice was heard 2.54
+and 2.53 s after the offer, and in the next 5 s the switchboard wasn't asked about it again.
+The voice opened "The config parser fix is done. It crashed on empty lines between sections,
+and I rebased the fix-parser branch onto main…", and in the second run "Hi, the session's
+news is that the config parser crash is fixed…". The session was told "The developer called
+about "Parser fix rebased" from the app while it waited and it lasted 24 s." The call that
+rang meanwhile was answered, its voice heard after 1.23 and 2.06 s. Both runs had the voice
+server keeping its state in a file (Stage 4).

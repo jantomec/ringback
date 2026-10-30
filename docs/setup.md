@@ -3,7 +3,9 @@
 How to run ringback as built so far (Stage 3 in progress: a session with `/ringback` on
 calls you when it finishes, what you tell the voice reaches the session, you can answer
 its permission prompts and questions on the call, and you can call back a call you missed
-from the app). Replace the example addresses with your own.
+from the app; built but not yet tried on the phone: staying up through restarts, and
+calling a call that waits for your work hours from the app). Replace the example addresses
+with your own.
 
 ## You need
 
@@ -56,7 +58,9 @@ people nearby, from stopping it. Changes apply from the next call. During your f
 turn on Voice Isolation in Control Center (Mic Mode), so background noise doesn't stop it.
 
 **Calls** lists every call. Tap a red one (declined, missed or failed) to call that session
-back at once. Calls from an app older than calling back can't be.
+back at once. Calls from an app older than calling back can't be. Calls that wait for your
+work hours show at the top in orange, with when they ring; tap one to call it now, without
+waiting.
 
 ## 3. The switchboard (one always-on Mac)
 
@@ -78,8 +82,9 @@ it:
 ```
 
 It listens only on its Nebula address. Phones register at `/register` and report call
-events at `/events`, and voice servers ask it to ring at `/call`. Those are kept in `~/.local/state/ringback/` (`devices.json` and
-`events.jsonl`).
+events at `/events`, and voice servers ask it to ring at `/call`. Those are kept in
+`~/.local/state/ringback/` (`devices.json` and `events.jsonl`), with the calls that wait for
+your work hours (`waiting.json`), which the app fetches at `/waiting`.
 
 Every 30 min it wakes each phone with a background push, and the app checks in at
 `/check` over Nebula; if it can't, the phone warns you. `ringback-switchboard check` does
@@ -88,7 +93,8 @@ that now, and `ringback-switchboard devices` shows when each phone last checked 
 To update it, copy the new binary over the old one, stop `serve` and start it again.
 Work hours (a setting in the app) need the voice servers updated too: one from before them
 takes a call the switchboard holds for one that rang, so the call is lost and its session
-hears it wasn't answered.
+hears it wasn't answered. Calling a waiting call from the app needs all three updated: a
+voice server from before it refuses the call, and the app says it isn't waiting any more.
 
 ## 4. The voice server (every Mac that runs sessions)
 
@@ -111,13 +117,72 @@ session did and what needs you, which the voice talks about instead. It's read a
 every call, so you can change it between calls.
 
 It remembers the calls it placed for a day after they end, so you can call them back from
-the app, but only in memory: after a restart, calling back an earlier call gets "Claude
-can't take this call back any more."
+the app. What it keeps for sessions survives a restart: it's written to
+`voice-state.json` beside its socket on every change, and read at start. That's the calls
+held outside your work hours, the calls to call back, what sessions asked you and what
+waits for their mods. A call you're on when it restarts ends, and its session is told so.
+
+To start it at login, and again whenever it stops, run it as a launchd agent. Write the
+agent's file from the `voice` folder, with your own addresses; it finds `uv` and `claude`
+on your `PATH` as you write it:
+
+```sh
+cd /path/to/ringback/voice
+cat > ~/Library/LaunchAgents/ringback.voice.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ringback.voice</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$(which uv)</string>
+    <string>run</string>
+    <string>--project</string>
+    <string>$PWD</string>
+    <string>ringback-voice</string>
+    <string>serve</string>
+    <string>--listen</string>
+    <string>10.0.0.2:8788</string>
+    <string>--switchboard</string>
+    <string>10.0.0.1:8787</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>$(dirname "$(which claude)"):/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>StandardOutPath</key>
+  <string>$HOME/Library/Logs/ringback-voice.log</string>
+  <key>StandardErrorPath</key>
+  <string>$HOME/Library/Logs/ringback-voice.log</string>
+</dict>
+</plist>
+EOF
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ringback.voice.plist
+```
+
+Stop any voice server you started by hand first: both would use the same socket. It runs at
+once and at each login. `RunAtLoad` starts it, `KeepAlive` starts it again whenever it stops,
+and `ThrottleInterval` waits at least 30 s between starts: while Nebula is down, starting
+fails, as it can't listen on its Nebula address, and launchd tries again every 30 s. Its log
+is `~/Library/Logs/ringback-voice.log`. To restart it, as after an update:
+`launchctl kickstart -k gui/$(id -u)/ringback.voice`. To stop it until you load it again:
+`launchctl bootout gui/$(id -u)/ringback.voice`. To stop it for good, also delete the file.
+`launchctl print gui/$(id -u)/ringback.voice` shows whether it runs.
 
 To try a change without the phone, `tools/call-check` plays a scripted call through the
 same pipeline, and `tools/phone-check` plays the phone's side of whole calls and times the
-silence after you answer (with `--back`, calls back calls you didn't answer). `--socket
-PATH` moves the session socket, for running a second voice server beside your own.
+silence after you answer (with `--back`, calls back calls you didn't answer), and
+`tools/restart-check` kills and restarts one with calls waiting. `--socket PATH` moves the
+session socket and the state file, for running a second voice server beside your own.
 
 The app and the voice server change together: since the app connects while the phone
 rings, a voice server without `/answered` stays silent on its calls, and one from before
@@ -139,7 +204,14 @@ then ends with "☎ ringback on". Each time the session finishes, it writes a sh
 briefing, and the voice server rings your phone with it. What you ask the voice to pass on
 reaches the session, and its answer comes back to the call, or a new call if you've hung
 up. Each call's transcript is kept in the project's `.ringback/calls/`, which git ignores.
-Run `/ringback` again when you're back.
+Run `/ringback` again when you're back. Until then it stays on, also when the mod reloads
+and when you resume the session after Claude Code restarts (`claude --resume`), within 30
+days of the session's last start.
+
+While the voice server is down, as while it restarts, the session doesn't give up: it
+offers its briefing again every 30 s for up to 30 min, and the dim line under the prompt
+ends with "☎ waiting for the voice server…". A permission or question it's asking you is
+asked again every 5 s, within its 15 min.
 
 When the session needs your permission, the prompt shows in the terminal and the voice
 asks you on a call; whichever you answer first decides. Questions the session asks you

@@ -28,14 +28,23 @@ prompt if you hang up without one. If you don't answer the call, what it asked w
 the next call with that session you answer: a call back, or its next call.
 
 A call you didn't answer can be called back from the phone's call history. Each call is
-remembered for a day after it's forgotten, in memory only, so a restart forgets them. The
-call back is a new call for the same session, with a fresh Haiku, answered at once: its
-voice has the missed call's briefing, and the session's latest one if it wrote a newer one
-since, for a later call or a held one. Work hours don't apply to it: you called.
+remembered for a day after it's forgotten. The call back is a new call for the same
+session, with a fresh Haiku, answered at once: its voice has the missed call's briefing, and
+the session's latest one if it wrote a newer one since, for a later call or a held one. Work
+hours don't apply to it: you called. A held call can be called from the app too, where it
+shows as waiting: it's released at once, without ringing, and its voice picks up as a call
+back's does.
+
+What it keeps is written to a file beside its socket on every change, and read again at
+start, so a restart loses nothing that matters: held calls are held again, calls are still
+remembered for calling back, and what sessions asked keeps its ids, so a mod's long poll
+carries on. A call that was ringing or on during the restart has ended: its session is told
+so, and what it asked waits as a missed call's does.
 """
 
 import asyncio
 import dataclasses
+import json
 import os
 import re
 import secrets
@@ -49,10 +58,13 @@ from pathlib import Path
 from aiohttp import ClientError, ClientSession, ClientTimeout, web
 
 from ringback_voice.haiku import PICKED_UP, Haiku
-from ringback_voice.instructions import called_back, instructions
+from ringback_voice.instructions import called_back, called_now, instructions
 from ringback_voice.transcript import Transcript
 
 SOCKET = Path("~/.local/state/ringback/voice.sock").expanduser()
+# What the voice server keeps across a restart, in the folder of its socket, so a check with a
+# socket of its own has its own.
+STATE = "voice-state.json"
 # Seconds a placed call waits to be answered before the session is told it wasn't and the
 # call is forgotten. The phone rings for 30 s, and its push can take about 16 s to arrive
 # after it leaves Wi-Fi. RINGBACK_UNANSWERED overrides it, for checks.
@@ -87,6 +99,8 @@ class Link:
     def __init__(self, send: Callable[[str], None], transcript: Transcript | None = None):
         self._send = send
         self.transcript = transcript
+        # Its transcript's path in the project, read from the state file after a restart.
+        self.transcript_path: str | None = None
         # False on a call back to a session that isn't listening any more: the voice can't
         # pass it anything or answer what it asked.
         self.listening = True
@@ -352,18 +366,24 @@ class Call:
     at: float = field(default_factory=time.time)
     # Once it's forgotten and remembered: what its briefing asks, by name ("permission abcd").
     asked: tuple[str, ...] = ()
-    back: "Call | None" = field(default=None, repr=False)  # on a call back: the call it calls back
+    # On a call you made: the call you called, as it was placed. A call back calls back a call
+    # you didn't answer; with `now`, you called a held call from the app while it waited.
+    back: "Call | None" = field(default=None, repr=False)
+    now: bool = False
 
 
 class Calls:
     """The calls placed and not yet ended, and what waits for each session. The Mac stays
     awake while there are calls, held ones too, so a call held overnight can ring in the
-    morning."""
+    morning. With a state file, what it keeps is written there on every change, and read
+    again by restore()."""
 
-    def __init__(self, switchboard: str | None, voice: str, log: Callable[[str], None]):
+    def __init__(self, switchboard: str | None, voice: str, log: Callable[[str], None], state: Path | None = None):
         self._switchboard = switchboard
         self._voice = voice  # this server's address on Nebula, which the phone calls
         self._log = log
+        self._state = state
+        self._written: str | None = None  # what the state file holds
         self._calls: dict[str, Call] = {}
         self._waiting: dict[str, list[dict]] = {}  # messages for each session
         self._asks: dict[str, Ask] = {}  # what sessions ask you, by its id
@@ -388,22 +408,27 @@ class Calls:
             held.at = time.time()
             held.link.rebriefed()
             self._log(f"call {held.id[:8]}: still held until {held.held_until}, with a new briefing: {subject}")
+            self._save()
             return held
         call = Call(secrets.token_urlsafe(24), session, project, cwd, subject, briefing, time.monotonic())
         held_until = await self._ask_switchboard(call)
-        # The transcript joins the link when you answer.
-        link = Link(lambda text: self.send(session, text, link.transcript.relative if link.transcript else None))
-        call.link = link
+        call.link = self._link(call)
         self._calls[call.id] = call
         if held_until:
             call.held_until = held_until
             self._log(f"call {call.id[:8]}: held until {held_until} for {project} ({session[:8]}): {subject}")
             call.holding = asyncio.create_task(self._hold(call))
+            self._save()
         else:
             self._log(f"call {call.id[:8]}: placed for {project} ({session[:8]}): {subject}")
             await self._ring(call)
         await self._stay_awake()
         return call
+
+    def _link(self, call: Call) -> Link:
+        """A call's link to its session. The transcript joins it when you answer."""
+        link = Link(lambda text: self.send(call.session, text, link.transcript.relative if link.transcript else None))
+        return link
 
     async def _ask_switchboard(self, call: Call) -> str | None:
         """Asks the switchboard to ring the phone for a call: None if it rings, or when it
@@ -437,6 +462,7 @@ class Calls:
             self._log(f"call {call.id[:8]}: Haiku didn't start ({e}); the call starts its own")
             await haiku.close()
         call.deadline = asyncio.create_task(self._deadline(call))
+        self._save()
 
     async def _hold(self, call: Call) -> None:
         """Asks the switchboard again about a held call when it said the call can ring, or
@@ -457,6 +483,7 @@ class Calls:
             if held_until != call.held_until:
                 self._log(f"call {call.id[:8]}: now held until {held_until}")
             call.held_until = held_until
+            self._save()
             due = wake(held_until)
         call.held_until = None
         self._log(f"call {call.id[:8]}: placed for {call.project} ({call.session[:8]}), held until now: {call.subject}")
@@ -465,7 +492,8 @@ class Calls:
     def offer(self, call_id: str) -> Call | None:
         """The call an offer is for, if it's one this server placed. The offer can come while
         the phone still rings, and a call you haven't answered stays placed until it's
-        forgotten, so the phone can offer again. A held one is refused (__main__.py)."""
+        forgotten, so the phone can offer again. A held one is refused (__main__.py), unless
+        the offer calls it now."""
         return self._calls.get(call_id)
 
     async def back(self, call_id: str) -> Call | None:
@@ -507,16 +535,44 @@ class Calls:
         settled = [name for name in missed.asked if name not in waiting]
         briefing = called_back(missed.briefing, time.time() - missed.at, since, settled)
         call = dataclasses.replace(missed, briefing=briefing, placed=time.monotonic(), back=missed)
-        link = Link(lambda text: self.send(call.session, text, link.transcript.relative if link.transcript else None))
-        link.listening = listening
-        call.link = link
+        call.link = self._link(call)
+        call.link.listening = listening
         self._calls[call.id] = call
         how = ("the session listens" if listening else "the session isn't listening") + (
             ", with a newer briefing since" if since else ""
         )
         self._log(f"call {call.id[:8]}: called back about {call.subject!r}, {how}")
+        await self._pick_up(call)
+        return call
+
+    async def now(self, call_id: str) -> Call | None:
+        """The call you make by calling a waiting call from the phone, which it answers at
+        once: a call held outside your work hours is released without ringing, and isn't asked
+        about at the switchboard any more. Its voice has the briefing with a lead that says you
+        called. A call that's no longer held but still placed (it rang meanwhile) is given as it
+        is, for an ordinary offer. None if there's no such call."""
+        held = self._calls.get(call_id)
+        if not held or not held.held_until:
+            return held
+        if held.holding:
+            held.holding.cancel()
+        # The held call's link goes with it: what it asks, and what its briefing asks.
+        call = dataclasses.replace(
+            held, briefing=called_now(held.briefing), placed=time.monotonic(), held_until=None, holding=None,
+            back=remembered(held), now=True,
+        )  # fmt: skip
+        self._calls[call.id] = call
+        self._log(f"call {call.id[:8]}: called now from the app, held until {held.held_until}: {call.subject!r}")
+        await self._pick_up(call)
+        return call
+
+    async def _pick_up(self, call: Call) -> None:
+        """A call you made, answered at once: Haiku writes the opening of a call you made, and
+        it's forgotten if its audio doesn't come within UNANSWERED s."""
         say = lambda line: self._log(f"call {call.id[:8]}: {line}")
-        haiku = Haiku(instructions(briefing, session=True, listening=listening), say, tools=listening, opening=PICKED_UP)
+        listening = call.link.listening
+        briefing = instructions(call.briefing, session=True, listening=listening)
+        haiku = Haiku(briefing, say, tools=listening, opening=PICKED_UP)
         try:
             await haiku.start()
             call.haiku = haiku
@@ -524,8 +580,8 @@ class Calls:
             self._log(f"call {call.id[:8]}: Haiku didn't start ({e}); the call starts its own")
             await haiku.close()
         call.deadline = asyncio.create_task(self._deadline(call))
+        self._save()
         await self._stay_awake()
-        return call
 
     def answered(self, call_id: str) -> Call | None:
         """Marks an offered call you've answered, once, and starts its transcript, so a call
@@ -544,6 +600,7 @@ class Calls:
                     # In a note, unless the briefing asks it: a call back's can.
                     call.link.ask(ask, briefed=ask.name in call.asked)
                     self._log(f"call {call_id[:8]}: {ask.name}, asked on a call you didn't answer, goes to this one")
+            self._save()
         return call
 
     async def end(self, call_id: str) -> None:
@@ -555,10 +612,13 @@ class Calls:
         (`message`), or how a call went (`outcome`), which the session reads as a note."""
         self._waiting.setdefault(session, []).append({"kind": kind, "text": text, "transcript": transcript})
         self._log(f"{kind} for session {session[:8]}: {text!r}")
+        self._save()
 
     def collect(self, session: str) -> list[dict]:
         self._seen[session] = time.monotonic()  # it's listening
-        return self._waiting.pop(session, [])
+        if messages := self._waiting.pop(session, []):
+            self._save()
+        return messages
 
     async def news(self, session: str, text: str) -> bool:
         """Tells the call you're on with a session its news; False if there's no such call."""
@@ -588,10 +648,14 @@ class Calls:
             how = "live" if call.answered_at is not None else "held" if call.held_until else "placed"
             self._asks[ask.id] = ask
         self._log(f"call {call.id[:8]}: {ask.name} for session {session[:8]}, {how}: {ask.details()[:100]!r}")
+        self._keep_until_read(ask)
+        self._save()
+        return ask, how, call.held_until
+
+    def _keep_until_read(self, ask: Ask) -> None:
         keeping = asyncio.create_task(self._keep(ask))
         self._keeping.add(keeping)
         keeping.add_done_callback(self._keeping.discard)
-        return ask, how, call.held_until
 
     def held_until(self, ask: Ask) -> str | None:
         """When the call that asks it can ring, while that call is held outside your work
@@ -610,6 +674,7 @@ class Calls:
         self._pool.get(ask.session, {}).pop(ask.id, None)
         for call in self._calls.values():
             call.link.drop(ask, f"it was answered outside the call, {ask.answered()}")
+        self._save()
         return True
 
     def withdraw(self, ask: Ask) -> None:
@@ -625,14 +690,19 @@ class Calls:
             else:
                 call.link.drop(ask, "it withdrew the question" if ask.kind == "question" else "it withdrew the request")
         ask.settle("withdrawn")  # wakes those waiting for it, who find it gone
+        self._save()
 
     async def _keep(self, ask: Ask) -> None:
-        """Logs the answer, and forgets it a while after."""
-        await ask.settled.wait()
-        self._log(f"{ask.answered()} (session {ask.session[:8]})")
+        """Logs the answer, and forgets it a while after. An answer the voice gives on a call
+        is saved here, once it's given."""
+        if not ask.settled.is_set():
+            await ask.settled.wait()
+            self._log(f"{ask.answered()} (session {ask.session[:8]})")
+            self._save()
         await asyncio.sleep(KEEP)
         if self._asks.get(ask.id) is ask:
             del self._asks[ask.id]
+            self._save()
 
     async def _deadline(self, call: Call) -> None:
         """Forgets a call that isn't answered in time, which tells its session."""
@@ -664,6 +734,7 @@ class Calls:
         # What's remembered is the call as it was placed, also after a call back.
         self._past[call.id] = (call.back or remembered(call), time.time())
         self._expire()
+        self._save()
         await self._stay_awake()
 
     def _close_haiku(self, call: Call) -> None:
@@ -687,6 +758,157 @@ class Calls:
             await self._awake.wait()
             self._awake = None
 
+    def _save(self) -> None:
+        """Writes what it keeps to the state file, if it changed: atomically, so a restart
+        finds either the old state or the new one. Only you can read it: it holds the calls'
+        IDs, which are their secrets."""
+        if not self._state:
+            return
+        text = json.dumps(self._snapshot(), ensure_ascii=False)
+        if text == self._written:
+            return
+        new = self._state.with_name(self._state.name + ".new")
+        try:
+            fd = os.open(new, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(text)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(new, self._state)
+            self._written = text
+        except OSError as e:
+            self._log(f"couldn't write {self._state}: {e}")
+
+    def _snapshot(self) -> dict:
+        """What it keeps, as JSON: each Ask once, which calls, the pool and the asks a mod can
+        read refer to by its place in "asks"."""
+        asks: list[Ask] = []
+        places: dict[int, int] = {}
+
+        def ref(ask: Ask) -> int:
+            if id(ask) not in places:
+                places[id(ask)] = len(asks)
+                asks.append(ask)
+            return places[id(ask)]
+
+        calls = [saved(call, ref) for call in self._calls.values()]
+        return {
+            "calls": calls,
+            "past": [saved(call, ref) | {"forgotten": at} for call, at in self._past.values()],
+            "pool": {session: [ref(a) for a in pool.values()] for session, pool in self._pool.items() if pool},
+            "kept": [ref(a) for a in self._asks.values()],
+            "waiting": {session: messages for session, messages in self._waiting.items() if messages},
+            "asks": [
+                {"id": a.id, "kind": a.kind, "session": a.session, "request": a.request, "outcome": a.outcome,
+                 "said": a.said, "answers": a.answers}
+                for a in asks
+            ],  # fmt: skip
+        }
+
+    async def restore(self) -> None:
+        """Reads what was kept before a restart. Held calls are held again, and ask the
+        switchboard when they're due. A call that was ringing or on has ended: its session is
+        told so, what it asked waits for the session's next call you answer, as a missed
+        call's does, and it can be called back. A state file it can't read is set aside."""
+        if not self._state:
+            return
+        try:
+            data = json.loads(self._state.read_text())
+            asks = [
+                Ask(a["id"], a["kind"], a["session"], a["request"], a["outcome"], a["said"], a["answers"])
+                for a in data["asks"]
+            ]
+            for ask in asks:
+                if ask.outcome:
+                    ask.settled.set()
+            calls = [self._loaded(c, asks) for c in data["calls"]]
+            past = {c["id"]: (self._loaded(c, asks), c["forgotten"]) for c in data["past"]}
+            pool = {session: {asks[i].id: asks[i] for i in refs} for session, refs in data["pool"].items()}
+            kept = {asks[i].id: asks[i] for i in data["kept"]}
+            waiting = {session: list(messages) for session, messages in data["waiting"].items()}
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError) as e:
+            aside = self._state.with_name(self._state.name + ".unreadable")
+            self._log(f"can't read {self._state} ({type(e).__name__}: {e}); set aside as {aside.name}, starting afresh")
+            self._state.replace(aside)
+            return
+        self._past, self._pool, self._asks, self._waiting = past, pool, kept, waiting
+        for call in calls:
+            if call.held_until:
+                self._calls[call.id] = call
+                self._log(f"call {call.id[:8]}: still held until {call.held_until} after a restart: {call.subject}")
+                call.holding = asyncio.create_task(self._hold(call))
+                continue
+            # It was ringing or on: it ended when the voice server stopped.
+            if call.link.listening:
+                self._pool.setdefault(call.session, {}).update(call.link.asks)
+            self._log(f"call {call.id[:8]}: ended by the restart: {call.subject}")
+            self._waiting.setdefault(call.session, []).append(
+                {"kind": "outcome", "text": restarted(call), "transcript": call.link.transcript_path}
+            )
+            self._past[call.id] = (call.back or remembered(call), time.time())
+        for ask in self._asks.values():
+            self._keep_until_read(ask)
+        self._expire()
+        self._log(
+            f"restored {sum(1 for c in self._calls.values() if c.held_until)} held calls, {len(self._past)} to call "
+            f"back, {len(self._asks)} asks, {sum(len(m) for m in self._waiting.values())} messages for sessions"
+        )
+        self._save()
+        await self._stay_awake()
+
+    def _loaded(self, data: dict, asks: list[Ask]) -> Call:
+        """A call as saved() wrote it, with its link to its session if it had one."""
+        call = Call(
+            data["id"], data["session"], data["project"], data["cwd"], data["subject"], data["briefing"],
+            time.monotonic(), at=data["at"], held_until=data["held_until"], asked=tuple(data["asked"]),
+            back=self._loaded(data["back"], asks) if data["back"] else None, now=data.get("now", False),
+            answered_at=time.monotonic() if data["answered"] else None,
+        )  # fmt: skip
+        if link := data["link"]:
+            call.link = self._link(call)
+            call.link.listening = link["listening"]
+            call.link.asks = {asks[i].id: asks[i] for i in link["asks"]}
+            call.link._briefed = [asks[i] for i in link["briefed"]]
+            call.link._notes = [(None if i is None else asks[i], text) for i, text in link["notes"]]
+            call.link.transcript_path = link["transcript"]
+        return call
+
+
+def saved(call: Call, ref: Callable[[Ask], int]) -> dict:
+    """A call as the state file keeps it: what it was placed with, its link's asks and notes
+    by their place in the file's asks, and its transcript, if you answered it."""
+    link = call.link
+    return {
+        "id": call.id, "session": call.session, "project": call.project, "cwd": call.cwd, "subject": call.subject,
+        "briefing": call.briefing, "at": call.at, "held_until": call.held_until, "asked": list(call.asked),
+        "answered": call.answered_at is not None, "now": call.now,
+        "back": saved(call.back, ref) if call.back else None,
+        "link": link and {
+            "listening": link.listening,
+            "asks": [ref(a) for a in link.asks.values()],
+            "briefed": [ref(a) for a in link._briefed],
+            "notes": [[None if a is None else ref(a), text] for a, text in link._notes],
+            "transcript": link.transcript.relative if link.transcript else link.transcript_path,
+        },
+    }  # fmt: skip
+
+
+def restarted(call: Call) -> str:
+    """The outcome of a call that was ringing or on when the voice server restarted."""
+    ended = "ended when the voice server restarted"
+    path = call.link.transcript_path
+    transcript = f" Its transcript: {path}" if path else ""
+    if call.back:
+        what = f'"{call.subject}"' if call.subject else "an earlier call"
+        how = f"called about {what} from the app while it waited" if call.now else f"called back about {what}"
+        return f"The developer {how}, and the call {ended}.{transcript}"
+    about = f'The call about "{call.subject}"' if call.subject else "The call"
+    if call.answered_at is not None:
+        return f"{about} was answered, and {ended}.{transcript}"
+    return f"{about} {ended}, before it was answered."
+
 
 def remembered(call: Call) -> Call:
     """What's remembered of a call once it's forgotten, so you can call it back: the call as
@@ -703,9 +925,11 @@ def outcome(call: Call, transcript: str | None) -> str:
     about = f'The call about "{call.subject}"' if call.subject else "The call"
     if call.back:
         what = f'"{call.subject}"' if call.subject else "an earlier call"
+        # From the app's call history, or a held call from the app's waiting calls.
+        how = f"called about {what} from the app while it waited" if call.now else f"called back about {what}"
         if call.answered_at is None:
-            return f"The developer called back about {what}, but the call didn't connect."
-        text = f"The developer called back about {what} and it lasted {duration(time.monotonic() - call.answered_at)}."
+            return f"The developer {how}, but the call didn't connect."
+        text = f"The developer {how} and it lasted {duration(time.monotonic() - call.answered_at)}."
         return f"{text} Its transcript: {transcript}" if transcript else text
     if call.answered_at is None:
         took = duration(time.monotonic() - call.placed)

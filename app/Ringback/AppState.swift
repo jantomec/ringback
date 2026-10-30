@@ -26,8 +26,14 @@ struct CallRecord: Codable, Identifiable {
     /// On a call you made by calling one back: the ID of the call it calls back, which its
     /// offer carries.
     var callsBack: String?
+    /// You called it from the waiting calls, while it was held outside your work hours. It
+    /// keeps the call's own ID.
+    var calledNow: Bool?
 
     var callerName: String { "Claude from \(project)" }
+
+    /// A call you made: a call back, or a waiting call you called now.
+    var isOutgoing: Bool { callsBack != nil || calledNow == true }
 
     /// A red call whose voice server is known: tapping it calls it back. A call back that
     /// didn't connect calls back the same call again.
@@ -39,6 +45,20 @@ struct CallRecord: Codable, Identifiable {
         guard let answeredAt, let endedAt else { return nil }
         return endedAt.timeIntervalSince(answeredAt)
     }
+}
+
+/// A call that waits to ring: held outside your work hours. The switchboard keeps them, and
+/// the app fetches them; tapping one calls it now.
+struct WaitingCall: Identifiable, Equatable {
+    let id: String  // the call's ID, which its offer carries
+    let project: String
+    let subject: String?
+    /// The voice server of the Mac whose session placed it.
+    let voice: URL
+    /// When it rings, once your work hours start.
+    let heldUntil: Date
+
+    var callerName: String { "Claude from \(project)" }
 }
 
 /// The call you're on, while it lasts; the in-call screen shows it.
@@ -85,8 +105,11 @@ final class AppState {
     var notificationToken: String?
     var connection: Connection = .notSetUp
     var activeCall: ActiveCall?
-    /// Why a call back ended by itself, shown once the in-call screen is gone.
+    /// Why a call you made ended by itself, a call back or a waiting call you called, shown
+    /// once the in-call screen is gone.
     var callBackProblem: String?
+    /// The calls that wait to ring, soonest first, as the switchboard last gave them.
+    var waiting: [WaitingCall] = []
     /// Counts successful checks you started yourself; the haptic tap plays on each.
     var confirmations = 0
     /// The last time the switchboard confirmed this phone, kept across launches.
@@ -105,6 +128,14 @@ final class AppState {
         guard let i = calls.firstIndex(where: { $0.id == id }) else { return }
         change(&calls[i])
         save()
+    }
+
+    /// Fetches the calls that wait from the switchboard. If it can't be reached, the list stays
+    /// as it was.
+    @MainActor
+    func refreshWaiting() async {
+        guard Switchboard.url != nil, let token else { return }
+        if let calls = try? await Switchboard.waiting(token: token) { waiting = calls }
     }
 
     private func save() {

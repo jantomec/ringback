@@ -5,7 +5,8 @@ asks to the developer, then the session's briefing.
 On a call rung by hand there's no session: the briefing is the report file given to the
 server, or STAND_IN. On a call back, the briefing is the missed call's, with a lead that says
 the developer called (called_back); if the session isn't listening any more, the voice is
-told it can't act on it.
+told it can't act on it. A waiting call the developer calls from the app gets a lead too
+(called_now).
 """
 
 RULES = """\
@@ -123,6 +124,13 @@ two differ, the newer one is right."""
 SETTLED = """\
 The session no longer waits for an answer to {names}, which the missed call's briefing asks:
 don't ask it."""
+# The lead of the briefing of a call that was waiting for the developer's work hours, which
+# they called from the app.
+CALLED_NOW = """\
+This call is the developer calling you. The session's call to them was waiting for their work
+hours to start; they saw it waiting in the app and called it now, and you've picked up. So
+don't introduce yourself, greet them at length, or say you're calling: open straight with
+what the call is about."""
 
 
 def instructions(report: str | None, session: bool = False, listening: bool = True) -> str:
@@ -141,6 +149,11 @@ def called_back(briefing: str, ago: float, since: tuple[str, float] | None = Non
         lead += "\n" + SETTLED.format(names=" or ".join(settled))
     text = f"{lead}\n\nThe missed call's briefing:\n{briefing.strip()}"
     return text + (f"\n\nSince then, the session's latest briefing:\n{since[0].strip()}" if since else "")
+
+
+def called_now(briefing: str) -> str:
+    """The briefing of a waiting call the developer called from the app, with a lead."""
+    return f"{CALLED_NOW}\n\nThe call's briefing:\n{briefing.strip()}"
 
 
 def while_ago(seconds: float) -> str:

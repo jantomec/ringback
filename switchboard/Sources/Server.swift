@@ -1,8 +1,8 @@
 import Foundation
 
-/// The HTTP endpoints the phone talks to over Nebula: `/register`, `/events` and `/check`;
-/// and `/call`, which the voice servers ask to ring the phone. Requests are small and rare,
-/// so they're handled one at a time. Each gets at most 5 s, so a
+/// The HTTP endpoints the phone talks to over Nebula: `/register`, `/events`, `/check` and
+/// `/waiting`; and `/call`, which the voice servers ask to ring the phone. Requests are small
+/// and rare, so they're handled one at a time. Each gets at most 5 s, so a
 /// stalled connection can't hold the next request past the app's 10 s timeout. Meanwhile it
 /// asks the phones to check their connection (Check.swift).
 func serve(listen address: String) -> Never {
@@ -50,12 +50,13 @@ private struct Request {
 }
 
 private struct BadRequest: Error {}
+private struct Forbidden: Error {}
 
 /// Runs the endpoint a request asks for, which answers its own JSON. The phone only checks for
-/// a 200.
+/// a 200, apart from `/waiting`.
 private func answer(_ request: Request?) -> (String, String) {
     let endpoints: [Substring: ([String: Any]) throws -> [String: Any]] = [
-        "/register": register, "/events": event, "/check": checkIn, "/call": call,
+        "/register": register, "/events": event, "/check": checkIn, "/call": call, "/waiting": waiting,
     ]
     guard let request else { return ("400 Bad Request", #"{"ok": false}"#) }
     guard let endpoint = endpoints[request.path] else { return ("404 Not Found", #"{"ok": false}"#) }
@@ -68,6 +69,8 @@ private func answer(_ request: Request?) -> (String, String) {
         return ("200 OK", String(decoding: answer, as: UTF8.self))
     } catch is BadRequest {
         return ("400 Bad Request", #"{"ok": false}"#)
+    } catch is Forbidden {
+        return ("403 Forbidden", #"{"ok": false}"#)
     } catch {
         log("\(request.path) failed: \(error.localizedDescription)")
         return ("500 Internal Server Error", #"{"ok": false}"#)
@@ -98,6 +101,7 @@ private func register(_ body: [String: Any]) throws -> [String: Any] {
 ///
 /// Outside the work hours of every phone nothing rings: the answer says when the first of
 /// them start (`held_until`), and the voice server asks again by then, with the same call ID.
+/// Meanwhile the call waits, and the app shows it (Waiting).
 private func call(_ body: [String: Any]) throws -> [String: Any] {
     guard let project = body["project"] as? String, !project.isEmpty,
         let voice = body["voice"] as? String, voice.hasPrefix("http://") || voice.hasPrefix("https://"),
@@ -107,8 +111,10 @@ private func call(_ body: [String: Any]) throws -> [String: Any] {
     log("call \(callID.prefix(8)): asked by \(voice) for \(project)\(subject.map { ": \($0)" } ?? "")")
     if let held = heldUntil(Date()) {
         log("call \(callID.prefix(8)): held until \(held), outside the work hours of every phone")
+        try Waiting.hold(callID: callID, project: project, subject: subject, voice: voice, heldUntil: held)
         return ["ok": true, "held_until": held]
     }
+    if try Waiting.remove(callID) { log("call \(callID.prefix(8)): no longer waiting, it rings") }
     Task.detached {
         let lines = await ring(project: project, subject: subject, voice: voice, callID: callID)
         if lines.isEmpty { log("call \(callID.prefix(8)): no phone registered") }
@@ -130,6 +136,8 @@ private func checkIn(_ body: [String: Any]) throws -> [String: Any] {
     return ok
 }
 
+/// The phone reports what happened to a call. A waiting call you called from the app ("called
+/// now") no longer waits.
 private func event(_ body: [String: Any]) throws -> [String: Any] {
     try Events.append(body)
     let extra = ["on_another_call", "duration_s", "since_answer_s", "error", "note"]
@@ -137,7 +145,18 @@ private func event(_ body: [String: Any]) throws -> [String: Any] {
     let at = (body["at"] as? String).flatMap(parseISO8601).map { " (on the phone at \(timeOfDay($0)))" } ?? ""
     let call = (body["call_id"] as? String ?? "?").prefix(8)
     log("call \(call): \(body["event"].map { "\($0)" } ?? "?")\(extra)\(at)")
+    if body["event"] as? String == "called now", let callID = body["call_id"] as? String, try Waiting.remove(callID) {
+        log("call \(call): no longer waiting, called from the app")
+    }
     return ok
+}
+
+/// The calls that wait, for the app to show, soonest first: `{"calls": [...]}`, each with its
+/// call ID, project, subject, voice server and when it rings (`held_until`). Only a phone
+/// that registered gets them, by its push token: a call's ID lets whoever has it take the call.
+private func waiting(_ body: [String: Any]) throws -> [String: Any] {
+    guard let token = body["token"] as? String, Devices.load()[token] != nil else { throw Forbidden() }
+    return ["calls": try Waiting.list()]
 }
 
 /// A phone's work hours as the log and `devices` show them; nil if it has none.
@@ -146,7 +165,7 @@ func describe(_ hours: [String: String]) -> String? {
     return "work hours \(from)–\(to) \(hours["time_zone"] ?? "")"
 }
 
-private func parseISO8601(_ text: String) -> Date? {
+func parseISO8601(_ text: String) -> Date? {
     let f = ISO8601DateFormatter()
     if let date = f.date(from: text) { return date }
     f.formatOptions.insert(.withFractionalSeconds)

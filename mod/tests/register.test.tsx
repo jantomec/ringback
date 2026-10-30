@@ -5,14 +5,16 @@ type On = Parameters<Parameters<typeof test>[1]>[1]
 
 // What the voice server answers, by path: `live` says whether you're on a call with the
 // session, and `waiting` is what the voice passed on for it. A call is `placed` with that
-// answer (by default `{ ok: true }`). A permission or question put to you is `created` (by
-// default 200, `p1` or `q1`), and each long-poll for its answer takes the next of `answers`.
+// answer (by default `{ ok: true }`) and `placedStatus` (200). A permission or question put
+// to you is `created` (by default 200, `p1` or `q1`), and each long-poll for its answer takes
+// the next of `answers`.
 // With none left, it waits `pollMs` (25 s) on `clock` and answers pending, `held` while that's
 // set; without a clock it answers 404, so a test that scripts every answer can't hang.
 type Voice = {
   live?: boolean
   waiting?: object[]
   placed?: object
+  placedStatus?: number
   created?: { status: number; body: object }
   answers?: object[]
   clock?: { sleep: (ms: number) => Promise<void> }
@@ -20,17 +22,36 @@ type Voice = {
   held?: boolean
   // The session's folder can't be read: the mod's hook fails.
   isCwdBroken?: boolean
+  // The voice server isn't running: its socket refuses every request while this is set.
+  isDown?: boolean
+  // What the mod's store holds at the start.
+  stored?: Record<string, unknown>
 }
 
 // What the engine beneath the mod is asked, and what the tests answer it. `logs` are the dim
-// lines shown in the transcript, `debug` those in the debug log.
+// lines shown in the transcript, `debug` those in the debug log, `toasts` the toasts, `stored`
+// the mod's store, and `slept` each wait the mod asked of a host `sleep`, which takes that
+// long on `voice.clock`.
 function engine(on: On, voice: Voice = {}) {
   const asked = {
     prompts: [] as string[],
     fetches: [] as { url: string; init: any }[],
     logs: [] as string[],
     debug: [] as string[],
+    toasts: [] as string[],
+    stored: new Map<string, unknown>(Object.entries(voice.stored ?? {})),
+    slept: [] as string[],
   }
+  on('store.get', (_, e) => ({ value: asked.stored.get(e.key) }))
+  on('store.set', (_, e) => (asked.stored.set(e.key, e.value), { value: undefined }))
+  on('store.delete', (_, e) => (asked.stored.delete(e.key), { value: undefined }))
+  on('store.keys', () => ({ value: [...asked.stored.keys()] }))
+  on('ui.toast', (_, e) => (asked.toasts.push(e.text), { value: undefined }))
+  on('process.run', async (_, e) => {
+    asked.slept.push(e.argv.join(' '))
+    await voice.clock?.sleep(Number(e.argv[1]) * 1000)
+    return { value: { exitCode: 0, stdout: '', stderr: '' } } as any
+  })
   on('command.register', (_, e) => ({ value: { command: e.name } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: 'session-1234' }))
@@ -57,12 +78,13 @@ function engine(on: On, voice: Voice = {}) {
   on('turn.complete', () => ({ text: '' }))
   on('http.fetch', async (_, e) => {
     asked.fetches.push({ url: e.url, init: e.init })
+    if (voice.isDown) throw new Error('connect ECONNREFUSED')
     const ok = (answer: object, status = 200) => ({
       value: { status, ok: status < 300, headers: {}, text: JSON.stringify(answer) },
     })
     if (e.url.endsWith('/news')) return ok({ live: voice.live ?? false })
     if (e.url.endsWith('/messages')) return ok({ messages: voice.waiting?.splice(0) ?? [] })
-    if (e.url.endsWith('/calls')) return ok(voice.placed ?? { ok: true })
+    if (e.url.endsWith('/calls')) return ok(voice.placed ?? { ok: true }, voice.placedStatus)
     if (/\/(permissions|questions)$/.test(e.url)) {
       const created = voice.created ?? { status: 200, body: { permission: 'p1', question: 'q1', call: 'placed' } }
       return ok(created.body, created.status)
@@ -363,6 +385,210 @@ test('while on, the line under the prompt says so', async ($, on) => {
   await ui.unmount()
 })
 
+// The line under the prompt, as the engine draws it with the tail the mod adds.
+function promptLine($: any, on: On) {
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    const props = e.props as { hint: string; tail?: string }
+    return <Text>{props.hint + (props.tail ? ` · ${props.tail}` : '')}</Text>
+  })
+  return async () => {
+    const ui = await $.ui.mount({
+      plugin: 'ringback',
+      component: 'PromptHint',
+      surface: 'terminal',
+      props: { isDraft: false, isWorking: false, hint: '? for shortcuts' },
+    })
+    const text = (await ui.find({ type: 'Text' }))?.text
+    await ui.unmount()
+    return text
+  }
+}
+
+// Remembered: through a reload of the mod, and when the session is resumed.
+
+const DAY = 24 * 3600_000
+
+test('switching it on remembers the session by its ID, and switching it off forgets it', async ($, on) => {
+  mock.clock(on, { now: at(30, 9).getTime() })
+  const asked = engine(on)
+  await start($)
+  expect([...asked.stored]).toEqual([['on:session-1234', at(30, 9).getTime()]])
+  await $.command.run({ command: 'ringback', args: '' })
+  expect([...asked.stored]).toEqual([])
+})
+
+// A reload starts the module afresh: only `$.state` says it was on.
+test('after a reload of the mod, ringback is still on', async ($, on) => {
+  mock.clock(on)
+  on('state.get', () => ({ value: { value: true, version: 1 } }))
+  const asked = engine(on)
+  const line = promptLine($, on)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(await line()).toBe('? for shortcuts · ☎ ringback on')
+  await $.turn.complete(turn('Done.'))
+  await settle()
+  expect(asked.prompts.length).toBe(1)
+  expect(asked.prompts[0]).toContain('Subject: ')
+  // Silently: nothing changed for you.
+  expect(asked.logs).toEqual([])
+})
+
+test('switched off before a reload, it stays off, whatever the store says', async ($, on) => {
+  mock.clock(on, { now: at(30, 9).getTime() })
+  on('state.get', () => ({ value: { value: false, version: 2 } }))
+  const asked = engine(on, { stored: { 'on:session-1234': at(30, 8).getTime() } })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.complete(turn('Done.'))
+  await settle()
+  expect(asked.prompts.length).toBe(0)
+})
+
+test('a session resumed within 30 days has ringback on again; older ones are forgotten', async ($, on) => {
+  const now = at(30, 9).getTime()
+  mock.clock(on, { now })
+  const asked = engine(on, {
+    stored: { 'on:session-1234': now - 29 * DAY, 'on:session-old': now - 31 * DAY, 'on:session-other': now - DAY },
+  })
+  const line = promptLine($, on)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(await line()).toBe('? for shortcuts · ☎ ringback on')
+  expect(asked.logs).toEqual(['Ringback is still on: this session calls your phone when it finishes.'])
+  // Its 30 days start again; the old session is forgotten, the other kept.
+  expect(Object.fromEntries(asked.stored)).toEqual({ 'on:session-1234': now, 'on:session-other': now - DAY })
+  await $.turn.complete(turn('Done.'))
+  await settle()
+  expect(asked.prompts.length).toBe(1)
+})
+
+test('a session resumed after 30 days has ringback off', async ($, on) => {
+  const now = at(30, 9).getTime()
+  mock.clock(on, { now })
+  const asked = engine(on, { stored: { 'on:session-1234': now - 31 * DAY } })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(asked.stored.size).toBe(0)
+  await $.turn.complete(turn('Done.'))
+  await settle()
+  expect(asked.prompts.length).toBe(0)
+  expect(asked.logs).toEqual([])
+})
+
+test('a resumed session collects what the voice passed on', async ($, on) => {
+  const clock = mock.clock(on, { now: at(30, 9).getTime() })
+  const waiting = [{ kind: 'message', text: 'The developer says: push it.', transcript: null }]
+  const asked = engine(on, { waiting, stored: { 'on:session-1234': at(29, 9).getTime() } })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await clock.advance(1000)
+  await settle()
+  expect(asked.prompts.length).toBe(1)
+  expect(asked.prompts[0]).toContain('The developer says: push it.')
+})
+
+// While the voice server is down, as while it restarts.
+
+const briefed = async ($: any, briefing = 'Subject: Parser fixed\n\nI fixed the parser.') => {
+  await $.turn.complete(turn('Done.'))
+  await settle()
+  await $.turn.complete(turn(briefing))
+  await settle()
+}
+const placed = (fetches: { url: string; init: any }[]) => fetches.filter(f => f.url === 'http://voice/calls')
+
+test("a briefing the voice server can't take is offered again every 30 s, until it can", async ($, on) => {
+  const clock = mock.clock(on)
+  const voice: Voice = { clock, isDown: true }
+  const asked = engine(on, voice)
+  const line = promptLine($, on)
+  await start($)
+  await briefed($)
+  expect(placed(asked.fetches).length).toBe(1)
+  expect(asked.logs).toEqual([
+    "Can't call yet: the voice server isn't running (ringback-voice serve). Trying again every 30 s for 30 min.",
+  ])
+  expect(asked.toasts).toEqual([])
+  expect(await line()).toBe('? for shortcuts · ☎ waiting for the voice server…')
+  await clock.advance(30_000)
+  await settle()
+  expect(placed(asked.fetches).length).toBe(2)
+  // Said once.
+  expect(asked.logs.length).toBe(1)
+
+  // A newer briefing takes the place of the one waiting.
+  await briefed($, 'Subject: Parser fixed, docs too\n\nI fixed the parser and its docs.')
+  expect(placed(asked.fetches).length).toBe(3)
+  voice.isDown = false
+  await clock.advance(29_000)
+  await settle()
+  expect(placed(asked.fetches).length).toBe(3)
+  await clock.advance(1000)
+  await settle()
+  const calls = placed(asked.fetches)
+  expect(calls.length).toBe(4)
+  expect(JSON.parse(calls[3].init.body).subject).toBe('Parser fixed, docs too')
+  expect(await line()).toBe('? for shortcuts · ☎ ringback on')
+  await clock.advance(5 * 60_000)
+  await settle()
+  expect(placed(asked.fetches).length).toBe(4)
+  expect(asked.logs.length).toBe(1)
+})
+
+// 30 min of collecting once a second takes about 10 s.
+test('a briefing is offered for 30 min, then given up', { timeoutMs: 60_000 }, async ($, on) => {
+  const clock = mock.clock(on)
+  const asked = engine(on, { clock, isDown: true })
+  const line = promptLine($, on)
+  await start($)
+  await briefed($)
+  await clock.advance(30 * 60_000)
+  await settle()
+  // At once, then every 30 s for 30 min.
+  expect(placed(asked.fetches).length).toBe(61)
+  expect(asked.logs.at(-1)).toBe("Couldn't call: the voice server isn't running (ringback-voice serve), for 30 min.")
+  expect(await line()).toBe('? for shortcuts · ☎ ringback on')
+  await clock.advance(60_000)
+  expect(placed(asked.fetches).length).toBe(61)
+})
+
+test("one the voice server can't place is offered again, with why", async ($, on) => {
+  const clock = mock.clock(on)
+  const voice: Voice = { clock, placedStatus: 502, placed: { error: "can't reach the switchboard at 10.0.0.1:8787" } }
+  const asked = engine(on, voice)
+  await start($)
+  await briefed($)
+  expect(asked.logs).toEqual([
+    "Can't call yet: can't reach the switchboard at 10.0.0.1:8787. Trying again every 30 s for 30 min.",
+  ])
+  voice.placedStatus = 200
+  voice.placed = { ok: true }
+  await clock.advance(30_000)
+  await settle()
+  expect(placed(asked.fetches).length).toBe(2)
+  expect(asked.toasts).toEqual([])
+})
+
+test("one the voice server refuses isn't offered again", async ($, on) => {
+  const clock = mock.clock(on)
+  const asked = engine(on, { clock, placedStatus: 400, placed: { error: 'needs session_id, project and briefing' } })
+  await start($)
+  await briefed($)
+  expect(asked.toasts).toEqual(["Can't call: needs session_id, project and briefing"])
+  await clock.advance(60_000)
+  await settle()
+  expect(placed(asked.fetches).length).toBe(1)
+  expect(asked.logs).toEqual([])
+})
+
+test("switched off, a briefing waiting for the voice server isn't offered again", async ($, on) => {
+  const clock = mock.clock(on)
+  const asked = engine(on, { clock, isDown: true })
+  await start($)
+  await briefed($)
+  await $.command.run({ command: 'ringback', args: '' })
+  await clock.advance(60_000)
+  await settle()
+  expect(placed(asked.fetches).length).toBe(1)
+})
+
 // Permissions by voice.
 
 const created = (fetches: { url: string; init: any }[], kind: string) =>
@@ -660,6 +886,94 @@ test('while a permission waits, its turn runs on: outcomes wait, messages queue 
   await $.turn.complete(turn('Added the stanza.'))
   await settle()
   expect(session.appended().length).toBe(1)
+})
+
+// While the voice server can't be reached, as while it restarts. It keeps what was asked
+// across a restart, so the same permission's poll carries on.
+
+test("a long poll that can't reach the voice server is asked again every 5 s, and carries on", above(observing), async ($, on) => {
+  const clock = mock.clock(on)
+  const later: object[] = []
+  const voice: Voice = { clock, answers: later }
+  const asked = engine(on, voice)
+  const core = tools(on)
+  const line = promptLine($, on)
+  await start($)
+  const ran = $.tool.call(bash)
+  await clock.settle()
+  voice.isDown = true
+  // The first poll answers pending at 25 s; the next can't connect, nor those every 5 s after.
+  await clock.advance(25_000)
+  await settle()
+  expect(asked.logs.at(-1)).toBe("Can't reach the voice server: asking again every 5 s.")
+  expect(await line()).toBe('? for shortcuts · ☎ waiting for the voice server…')
+  await clock.advance(20_000)
+  expect(answers(asked.debug)).toEqual([])
+  expect(asked.slept).toEqual(Array(5).fill('/bin/sleep 5'))
+  // It's back, with the same permission, and you said yes.
+  voice.isDown = false
+  later.push({ verdict: 'allow', said: 'Yes.' })
+  await clock.advance(5000)
+  await ran
+  await settle()
+  expect(answers(asked.debug)).toEqual([{ decision: { behavior: 'allow' } }])
+  expect(core.ran).toEqual(['Bash'])
+  const urls = polls(asked.fetches).map(f => f.url)
+  expect(urls.length).toBe(7)
+  expect(new Set(urls)).toEqual(new Set(['http://voice/sessions/session-1234/permissions/p1?wait=25']))
+  expect(created(asked.fetches, 'permissions').length).toBe(1)
+  expect(withdrawn(asked.fetches)).toEqual([])
+  expect(asked.logs.filter(l => l.startsWith("Can't reach")).length).toBe(1)
+  expect(await line()).toBe('? for shortcuts · ☎ ringback on')
+})
+
+test('asked while the voice server is down, a permission is asked again every 5 s', above(observing), async ($, on) => {
+  const clock = mock.clock(on)
+  const later: object[] = []
+  const voice: Voice = { clock, answers: later, isDown: true }
+  const asked = engine(on, voice)
+  tools(on)
+  await start($)
+  const ran = $.tool.call(bash)
+  await clock.advance(10_000)
+  expect(created(asked.fetches, 'permissions').length).toBe(3)
+  voice.isDown = false
+  later.push({ verdict: 'allow', said: 'Yes.' })
+  await clock.advance(5000)
+  await ran
+  expect(created(asked.fetches, 'permissions').length).toBe(4)
+  expect(answers(asked.debug)).toEqual([{ decision: { behavior: 'allow' } }])
+})
+
+// 15 min of collecting once a second, and of asking every 5 s, takes about 5 s.
+test("when the voice server doesn't come back in 15 min, the terminal asks", { timeoutMs: 30_000, ...above(observing) }, async ($, on) => {
+  const clock = mock.clock(on)
+  const voice: Voice = { clock }
+  const asked = engine(on, voice)
+  tools(on)
+  await start($)
+  const ran = $.tool.call(bash)
+  await clock.settle()
+  voice.isDown = true
+  await clock.advance(15 * 60_000)
+  await ran
+  await settle()
+  expect(answers(asked.debug)).toEqual([{}])
+  expect(asked.logs.at(-1)).toBe("Couldn't reach the voice server in 15 min, so it's asked here.")
+})
+
+test('a long poll answered 404 still ends the wait: the permission is gone', above(observing), async ($, on) => {
+  mock.clock(on)
+  // No clock for the voice server: once the scripted answers are used up, it answers 404.
+  const asked = engine(on, { answers: [{ verdict: 'pending', said: null }] })
+  tools(on)
+  await start($)
+  await $.tool.call(bash)
+  await settle()
+  expect(polls(asked.fetches).length).toBe(2)
+  expect(asked.slept).toEqual([])
+  expect(answers(asked.debug)).toEqual([{}])
+  expect(asked.logs.at(-1)).toBe("Lost the phone's answer: no such permission or question, so it's asked here.")
 })
 
 // Questions by voice.

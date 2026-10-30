@@ -24,6 +24,7 @@ status() { curl -s -o /dev/null -w '%{http_code}' --retry 5 --retry-connrefused 
 body() { curl -s --retry 5 --retry-connrefused --retry-delay 1 "$@"; }
 yes_if() { if "$@" > /dev/null; then echo yes; else echo no; fi; }
 has() { printf '%s\n' "$1" | grep -qE "$2"; }  # text, pattern
+has_text() { printf '%s\n' "$1" | grep -qF "$2"; }  # text, text it contains
 
 HOME="$home" "$bin" serve > "$home/log" 2>&1 &
 server=$!
@@ -117,6 +118,51 @@ check "devices shows the hours, in the time zone the check brought" yes "$(yes_i
 check "devices shows the second phone's hours" yes "$(yes_if has "$devices" "…eeee5555  Second phone .*  work hours 13:30–13:45 $zone\$")"
 out=$(HOME="$home" "$bin" ring --project smoke-test)
 check "ring ignores work hours: it pushes to both phones" 2 "$(printf '%s\n' "$out" | grep -c 'no \[apns.sandbox\] key')"
+
+# Waiting calls: held ones are kept in waiting.json and listed for the app, soonest first,
+# until they ring, the app calls one now, or their voice server stops asking about them (after
+# RINGBACK_WAITING_STALE s here instead of 25 min). Both phones are outside their hours now.
+rm -f "$state/waiting.json"
+serve_waiting() {
+    HOME="$home" RINGBACK_WAITING_STALE=4 "$bin" serve >> "$home/log" 2>&1 &
+    server=$!
+}
+listed() { body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting" | grep -oE 'wait[0-9]{4}' | tr '\n' ' ' | sed 's/ $//'; }
+call_about() {  # call ID, subject
+    body -d "{\"project\": \"demo\", \"subject\": \"$2\", \"voice\": \"http://127.0.0.1:1\", \"call_id\": \"$1\"}" "$url/call"
+}
+called_now='{"call_id": "wait0002-000000000000", "event": "called now", "at": "2026-10-30T09:00:00Z"}'
+serve_waiting
+check "waiting calls for a token that isn't registered: 403" 403 "$(status -d '{"token": "ffff9999"}' "$url/waiting")"
+check "waiting calls without a token: 403" 403 "$(status -d '{}' "$url/waiting")"
+check "no calls wait yet" '{"calls":[]}' "$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting")"
+check "a held call waits" "$(held_until 13:30)" "$(call_about wait0001-000000000000 "Docs updated")"
+check "the second phone with 13:15–13:20" 200 "$(hours "$second" 13:15 13:20)"
+check "another, held until sooner" "$(held_until 13:15)" "$(call_about wait0002-000000000000 "Parser fixed")"
+check "both are listed, soonest first" "wait0002 wait0001" "$(listed)"
+waiting=$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting")
+check "with project, subject, voice server and when it rings" yes "$(yes_if has_text "$waiting" \
+    "\"call_id\":\"wait0002-000000000000\",\"held_until\":\"${today}T13:15:00$offset\",\"project\":\"demo\",\"subject\":\"Parser fixed\",\"voice\":\"http:")"
+kill $server
+wait $server 2> /dev/null || true
+serve_waiting
+check "after a restart, both still wait" "wait0002 wait0001" "$(listed)"
+check "asked again, a call still held stays" "$(held_until 13:15)" "$(call_about wait0002-000000000000 "Parser fixed")"
+check "the first phone with any hours" 200 "$(hours "$phone" 09:00 09:00)"
+check "a waiting call that rings" "$rings" "$(call_about wait0001-000000000000 "Docs updated")"
+check "no longer waits" "wait0002" "$(listed)"
+check "the phone reports it called one now" 200 "$(status -d "$called_now" "$url/events")"
+check "which no longer waits" "" "$(listed)"
+check "the first phone with 14:00–16:00 again" 200 "$(hours "$phone" 14:00 16:00)"
+check "a held call waits" "wait0003" "$(call_about wait0003-000000000000 "Tests pass" > /dev/null; listed)"
+sleep 5
+check "not asked about again in time, it's dropped" "" "$(listed)"
+sleep 1
+kill $server
+wait $server 2> /dev/null || true
+check "a waiting call that rings is logged" yes "$(yes_if grep -qF 'call wait0001: no longer waiting, it rings' "$home/log")"
+check "one called from the app is logged" yes "$(yes_if grep -qF 'call wait0002: no longer waiting, called from the app' "$home/log")"
+check "a dropped one is logged" yes "$(yes_if grep -qE 'call wait0003: no longer waiting, its voice server hasn.t asked about it since [0-9:]{8}' "$home/log")"
 
 if [ "${1:-}" = --apns ]; then
     cp ~/.config/ringback/switchboard.toml ~/.config/ringback/AuthKey_*.p8 "$home/.config/ringback/"

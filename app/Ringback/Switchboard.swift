@@ -2,7 +2,7 @@ import Foundation
 import UIKit
 
 /// Talks to the switchboard over Nebula: registers this phone's push tokens, reports what
-/// happened to each call, and answers connection checks.
+/// happened to each call, answers connection checks, and fetches the calls that wait.
 enum Switchboard {
     static let urlKey = "switchboardURL"
     static let defaultPort = 8787
@@ -52,6 +52,24 @@ enum Switchboard {
         try await post("check", body, timeout: 5)
     }
 
+    /// The calls that wait to ring, held outside your work hours, soonest first. The switchboard
+    /// gives them only to a phone that registered, by its VoIP token: a call's ID lets whoever
+    /// has it take the call.
+    static func waiting(token: String) async throws -> [WaitingCall] {
+        let data = try await post("waiting", ["token": token], timeout: 5)
+        guard let calls = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["calls"] as? [[String: Any]]
+        else { throw URLError(.cannotParseResponse) }
+        let iso = ISO8601DateFormatter()
+        return calls.compactMap { call in
+            guard let id = call["call_id"] as? String, let project = call["project"] as? String,
+                let voice = (call["voice"] as? String).flatMap(URL.init(string:)),
+                let heldUntil = (call["held_until"] as? String).flatMap(iso.date(from:))
+            else { return nil }
+            return WaitingCall(
+                id: id, project: project, subject: call["subject"] as? String, voice: voice, heldUntil: heldUntil)
+        }
+    }
+
     /// Reports a call event, stamped with when it happened here, and retries until the
     /// switchboard confirms it. Asks iOS for background time so a report from a locked phone
     /// can finish.
@@ -79,15 +97,17 @@ enum Switchboard {
         #endif
     }
 
-    private static func post(_ path: String, _ body: [String: String], timeout: TimeInterval = 10) async throws {
+    @discardableResult
+    private static func post(_ path: String, _ body: [String: String], timeout: TimeInterval = 10) async throws -> Data {
         guard let base = url else { throw URLError(.badURL) }
         var request = URLRequest(url: base.appending(path: path), timeoutInterval: timeout)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else { throw URLError(.badServerResponse) }
+        return data
     }
 }
 
