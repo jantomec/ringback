@@ -257,14 +257,15 @@ class ClaudeCodeLLMService(LLMService):
         stream = event.get("event", {}) if event.get("type") == "stream_event" else {}
         if stream.get("type") == "content_block_start":
             block = stream.get("content_block", {}).get("type")
-            if block == "tool_use" and self._reply.split():
+            if block == "tool_use" and self._reply[len(self._ack) :].split():
                 # Haiku has said it's passing something on. Told so or not, it tends to
                 # say it again after the tool, so the rest of this reply isn't spoken.
                 self._quiet = True
-            elif block == "tool_use" and self._said.strip():
+            elif block == "tool_use" and self._said.strip() and not self._ack:
                 # Haiku answers you, or passes something on, before saying anything: its
                 # first words would come only after the tool, 2-3.6 s after yours on the
                 # phone. "Okay." fills that, and doesn't count as having said what it does.
+                # Said once: a tool it tries again (a refused id) still waits for its words.
                 self._ack, self._opener = ACK, ""
                 self._reply += ACK
                 return ACK

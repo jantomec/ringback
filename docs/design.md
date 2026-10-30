@@ -883,11 +883,13 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
       - Open: the split-answer case above. Answering took longer when Haiku called the
         tool before speaking, 2.1–3.6 s after your words on the phone; the voice now says
         "Okay." at once then (acting on the call).
-      - Open: once (`tools/ask-check`, 2026-10-30), Haiku answered a question with its
+      - Fixed: once (`tools/ask-check`, 2026-10-30), Haiku answered a question with its
         text as the id, was told nothing waited, and answered again with the right id after
-        the "Okay.". That "Okay." counts as having spoken, so the rest of its reply wasn't
+        the "Okay.". That "Okay." counted as having spoken, so the rest of its reply wasn't
         spoken ("not spoken, after passing a message"), and the answer, which waits for the
-        sentence after the "Okay.", went only with the next note, 40 s later.
+        sentence after the "Okay.", went only with the next note, 40 s later. Now only words
+        after the "Okay." count, and it's said once per reply (`tools/reply-check`, 5/5; 4/5
+        before the fix).
    4. A better model on the line. Built, and tried offline (see "A better model"), not
       yet on the phone.
    5. Call back from the app's call history (calling back, in the voice server's session

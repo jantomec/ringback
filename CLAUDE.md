@@ -56,8 +56,8 @@ one Swift binary that needs nothing but macOS), `voice/` (the calling Mac's audi
 voice), `mod/` (the Claude Code mod in each session, TypeScript), `tools/` (checks for
 Nebula, speech-to-text, speech speed, reply speed, briefings, scripted calls
 (`call-check`), sessions' calls and asks (`session-check`), the phone's side of calls
-(`phone-check`) what sessions ask the voice server (`ask-check`) and Opus taking a call
-over (`handover-check`)). How to set it all up and place a test call: `docs/setup.md`.
+(`phone-check`), what sessions ask the voice server (`ask-check`), Opus taking a call
+over (`handover-check`), and what the voice speaks around its tool calls (`reply-check`)). How to set it all up and place a test call: `docs/setup.md`.
 
 ## Checks
 
