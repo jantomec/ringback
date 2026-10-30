@@ -28,9 +28,9 @@ was rebuilt (2026-10-30): a question outside your work hours waits for the held 
 phone gets one notification and the app lists the call with its question, and a swipe
 action ("Claude App") sends the question to the session's own dialog, which Remote Control
 shows in the Claude app, and forgets the call; it's tried offline only (`tools/ask-check`,
-the switchboard's smoke test, the mod's tests, `tools/swipe-check`). The mod tells that
-Remote Control is on from Claude Code's undocumented file for the session (a mod doesn't
-get the documented variable, `tools/env-check`): the phone test settles it.
+the switchboard's smoke test, the mod's tests, `tools/swipe-check`). `/ringback` turns on
+Remote Control (`/remote-control`), and the rest takes it as on: a mod can't tell
+(`tools/env-check`).
 The voice now asks several things one at a time and passes the answers on together. Stages 4
 (staying up through restarts: the voice server keeps its calls in a state file, the mod
 remembers `/ringback`), 5 (waiting calls in the app, and calling one now) and 6 (weak

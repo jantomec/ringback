@@ -326,15 +326,13 @@ private struct StatusRow: View {
 /// A call that waits for your work hours, at the top of the history in orange, with when it
 /// rings, and whether it has a question. Tapping it calls it now. One with a question has a
 /// swipe action, "Claude App", that sends the question to the session's own dialog, which
-/// Remote Control shows in the Claude app; the call then never rings. It works while Remote
-/// Control is on in that session; otherwise it's grey, and its tap only says why. (`.disabled`
-/// on a swipe action blocks the tap but doesn't grey it out: tools/swipe-check.)
+/// Remote Control shows in the Claude app (ringback turns it on in the session); the call then
+/// never rings.
 private struct WaitingRow: View {
     let call: WaitingCall
     let state: AppState
     let calls: CallService
     @State private var isSending = false
-    @State private var explainsRemoteControl = false
 
     var body: some View {
         Button { calls.callNow(call) } label: {
@@ -355,7 +353,6 @@ private struct WaitingRow: View {
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if call.question {
                 Button {
-                    guard call.remoteControl else { return explainsRemoteControl = true }
                     isSending = true
                     Task {
                         await ClaudeApp.send(call, state: state)
@@ -364,13 +361,8 @@ private struct WaitingRow: View {
                 } label: {
                     Label("Claude App", systemImage: "arrow.up.forward.app")
                 }
-                .tint(call.remoteControl ? .indigo : .gray)
+                .tint(.indigo)
             }
-        }
-        .alert("Remote Control Is Off", isPresented: $explainsRemoteControl) {
-            Button("OK") {}
-        } message: {
-            Text(ClaudeApp.remoteControlOff)
         }
     }
 

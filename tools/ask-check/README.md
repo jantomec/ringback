@@ -68,10 +68,9 @@ Then sending a held call's question to the Claude app, as the app's swipe action
 - a call that doesn't wait here gets 403 (`not waiting`); a held call whose session isn't
   listening (its mod hasn't collected) gets 409 (`not listening`), and one without a
   question 409 (`no question`); the held call from a briefing told the switchboard it has
-  neither a question nor Remote Control;
-- a permission, then a question that says Remote Control is on, join it: the switchboard is
-  asked again at once, with both; a long poll that says Remote Control is off, then on
-  again, reaches the switchboard at once each time;
+  no question;
+- a permission, then a question, join it: the switchboard is asked again at once, with the
+  question;
 - with the session listening, it goes (200): the question's and the permission's long polls,
   waiting meanwhile, get `terminal` at once, and the voice server logs it;
 - the call is forgotten: it isn't asked about at the switchboard again, an offer to call it
@@ -152,3 +151,9 @@ switchboard asked again 0.00 s later with a question; answered when it rang, the
 the permission first, saying there were two things to decide, one at a time. The Claude
 app's request released both waiting long polls as `terminal` 0.01 s after it, and in the
 next 5 s the forgotten call wasn't asked about again.
+
+Result on 2026-10-30, after ringback started turning Remote Control on itself, so nothing
+tells the voice server whether it's on any more: all 60 checks passed (the check of Remote
+Control reaching the switchboard removed), in 3 min 31 s. A first run failed 4 checks of
+calling a waiting call now: removing the voice server's Remote Control code had taken out
+the method that picks such a call up, which the voice server's import check doesn't catch.

@@ -6,8 +6,8 @@
 // prompt, or a question the session asks you, is put to you on a call first (see "Ringback
 // mod" in docs/design.md). It stays on through a reload of the mod, and when you resume the
 // session after Claude Code restarts. While the voice server is down, as when it restarts,
-// it tries again instead of giving up. It tells the voice server whether Remote Control is on
-// in the session, so a question held outside your work hours can go to the Claude app.
+// it tries again instead of giving up. Switched on, it turns on Remote Control too, so a
+// question held outside your work hours can go to the Claude app.
 import type { EngineInterface, HttpResponse, Register } from 'claude-code'
 
 // What the session is asked to write when a turn ends. The voice, a faster model, talks
@@ -75,14 +75,8 @@ const RETRY_MS = 30_000
 const RETRY_FOR_MS = 30 * 60_000
 // While the voice server can't be reached, what the session asks you is asked again this often.
 const REACH_MS = 5000
-// While it's on, whether Remote Control is on is looked at this often, for the line under the
-// prompt.
-const REMOTE_MS = 10_000
 
 let isOn = false
-// Whether Remote Control is on in this session, as last looked at.
-let isRemote = false
-let watching: { cancel(): void } | undefined
 // The session is writing its briefing, in a turn this mod started.
 let isBriefing = false
 let isCalling = false
@@ -114,10 +108,11 @@ export const register: Register = on => {
 
   on('command.run', { command: 'ringback' }, async $ => {
     await switchTo($, !isOn)
+    if (isOn) remoteControl($)
     return { text: isOn ? 'Ringback is on: this session calls your phone when it finishes.' : 'Ringback is off.' }
   })
 
-  // While it's on, the dim line under the prompt says so, where Remote Control shows too.
+  // While it's on, the dim line under the prompt says so.
   // A placeholder until ringback has an icon.
   on('ui.render', { component: 'PromptHint' }, ($, e, next) =>
     isOn ? next({ ...e, props: { ...e.props, tail: tail() } }) : next(e),
@@ -186,48 +181,25 @@ export const register: Register = on => {
   })
 }
 
-// The end of the dim line under the prompt, while ringback is on, with "Remote Control" while
-// it sees Remote Control on in the session.
+// The end of the dim line under the prompt, while ringback is on.
 function tail(): string {
-  const remote = isRemote ? ' · Remote Control' : ''
-  if (unreached.size || retry) return `☎ waiting for the voice server…${remote}`
-  if (holds.size) return `☎ asking you on the phone…${remote}`
-  return `${isCalling ? '☎ calling your phone…' : '☎ ringback on'}${remote}`
+  if (unreached.size || retry) return '☎ waiting for the voice server…'
+  if (holds.size) return '☎ asking you on the phone…'
+  return isCalling ? '☎ calling your phone…' : '☎ ringback on'
 }
 
-// Whether Remote Control is on in this session. No mod API says so, and the variable Claude
-// Code gives the Bash tool's and hooks' commands while it's on (CLAUDE_CODE_BRIDGE_SESSION_ID)
-// doesn't reach a mod (tools/env-check). Claude Code keeps a file for each running session in
-// ~/.claude/sessions, named by its process, and while Remote Control is connected the file has
-// a bridgeSessionId: this reads the one whose sessionId is this session's. That file isn't
-// documented, so a Claude Code update can change it; then this says off. The line under the
-// prompt shows what it found, and the debug log says when it changed.
-async function remoteControl($: EngineInterface): Promise<boolean> {
-  let seen = false
-  try {
-    const dir = `${(await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`}/sessions`
-    const id = await $.session.id()
-    for (const entry of await $.fs.list(dir)) {
-      if (entry.kind !== 'file' || !entry.name.endsWith('.json')) continue
-      let file: { sessionId?: unknown; bridgeSessionId?: unknown }
-      try {
-        file = JSON.parse(String(await $.fs.read(`${dir}/${entry.name}`)))
-      } catch {
-        continue // gone, or being written
-      }
-      if (file?.sessionId !== id) continue
-      seen = typeof file.bridgeSessionId === 'string' && file.bridgeSessionId !== ''
-      break
-    }
-  } catch (e) {
-    $.ui.log(`couldn't tell whether Remote Control is on: ${e}`, { to: 'debug' })
-  }
-  if (seen !== isRemote) {
-    isRemote = seen
-    $.ui.log(isRemote ? 'Remote Control is on' : 'Remote Control is off', { to: 'debug' })
-    $.ui.invalidate('ui.render')
-  }
-  return isRemote
+// Turns on Remote Control, so a question held outside your work hours can go to the Claude app
+// from the phone: `/remote-control`, as if you typed it, run once the session is idle. Already
+// on, Claude Code shows its Remote Control menu instead, with Continue chosen, so Enter or Esc
+// leaves it on (tried 2026-10-30). Without a claude.ai subscription it says it can't. It's run
+// from a timer: Claude Code refuses a command run from `/ringback`'s own hook, which it would
+// wait on.
+function remoteControl($: EngineInterface): void {
+  $.clock.after(0, () =>
+    $.command
+      .run({ command: 'remote-control' })
+      .catch(e => $.ui.log(`couldn't turn on Remote Control: ${e}`, { to: 'debug' })),
+  )
 }
 
 // Switches ringback on or off, and remembers it: for a reload of the mod, and by the session's
@@ -238,11 +210,7 @@ async function switchTo($: EngineInterface, on: boolean, isRemembered = true): P
   isBriefing = false
   collecting?.cancel()
   collecting = isOn ? $.clock.every(1000, () => collect($)) : undefined
-  watching?.cancel()
-  watching = isOn ? $.clock.every(REMOTE_MS, () => void remoteControl($)) : undefined
-  if (isOn) void remoteControl($)
-  else {
-    isRemote = false
+  if (!isOn) {
     for (const stop of holds) stop('Ringback is off')
     retry?.timer.cancel()
     retry = undefined
@@ -276,6 +244,7 @@ async function restore($: EngineInterface): Promise<void> {
     }
     if (typeof (await $.store.get(remembered(await $.session.id()))) !== 'number') return
     await switchTo($, true)
+    remoteControl($)
     $.ui.log('Ringback is still on: this session calls your phone when it finishes.')
   } catch (e) {
     $.ui.log(`couldn't tell whether ringback was on: ${e}`, { to: 'debug' })
@@ -438,8 +407,8 @@ type Answer = {
 // 25 s at most, inside the 30 s that one `$.http.fetch` may take. While the call is held
 // outside your work hours, the 15 min start again with each poll, so they count from when
 // it rings. If you send its question to the Claude app from the phone, the answer is
-// `terminal`: it's left to the terminal at once, where Remote Control shows it. The ask and
-// each poll say whether Remote Control is on. While the voice server can't be reached, as
+// `terminal`: it's left to the terminal at once, where Remote Control shows it. While the
+// voice server can't be reached, as
 // while it restarts, it's asked again every 5 s within the 15 min; it keeps what was asked
 // across a restart, so a poll carries on. A 404 means it's gone.
 async function hold(
@@ -485,15 +454,11 @@ async function hold(
   const reachable = () => {
     if (unreached.delete(stop)) $.ui.invalidate('ui.render')
   }
-  // Whether Remote Control is on, unless stopped meanwhile: abandoned, a call on `$` may never
-  // come back.
-  const remoteNow = () => Promise.race([remoteControl($), stopped.then(() => isRemote)])
   try {
     path = `/sessions/${await $.session.id()}/${kind}`
-    const asked = { ...body, remote_control: await remoteNow() }
     let made: Reply
     do {
-      created = reply(voice($, path, asked))
+      created = reply(voice($, path, body))
       made = await Promise.race([created, stopped])
     } while (made.isUnreached && (await unreachable()))
     reachable()
@@ -507,11 +472,7 @@ async function hold(
       await showHeld($, value.held_until)
     }
     while (true) {
-      const remote = (await remoteNow()) ? 1 : 0
-      const polled = await Promise.race([
-        reply(voice($, `${path}/${value[id]}?wait=25&remote_control=${remote}`)),
-        stopped,
-      ])
+      const polled = await Promise.race([reply(voice($, `${path}/${value[id]}?wait=25`)), stopped])
       if (polled.isUnreached) {
         if (await unreachable()) continue
         return undefined

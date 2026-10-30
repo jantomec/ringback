@@ -230,8 +230,9 @@ answer the call, both wait for you to call it back from the app, or for the sess
 call, for up to 15 min: a question then shows in the terminal only after those 15 min, or
 once you run `/ringback` to switch calling off. Outside your work hours they wait for the
 call, which rings when your hours start, and the 15 min count from then; a question can go
-to the Claude app from the phone instead, while Remote Control is on in the session. The
-dim line under the prompt ends with "· Remote Control" while ringback sees it on.
+to the Claude app from the phone instead. `/ringback` turns on Remote Control for that
+(`/remote-control`); if it's on already, Claude Code shows its Remote Control menu, and Enter
+or Esc leaves it on. Remote Control needs a claude.ai subscription.
 
 `tools/session-check` tries a session's call without the phone.
 

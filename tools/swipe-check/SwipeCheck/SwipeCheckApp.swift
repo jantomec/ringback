@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Rows like the app's waiting calls, in a Form, each a Button with a trailing swipe action
 /// as the app has it: one enabled, one with `.disabled(true)`, and one tinted grey that stays
-/// enabled, which is what the app does while Remote Control is off (its tap explains, in an
+/// enabled, which is what the app did while Remote Control was off (its tap explained, in an
 /// alert there). The text at the top says which action ran last, or which row was tapped.
 @main
 struct SwipeCheckApp: App {

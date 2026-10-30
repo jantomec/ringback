@@ -26,14 +26,14 @@ type Voice = {
   isDown?: boolean
   // What the mod's store holds at the start.
   stored?: Record<string, unknown>
-  // Remote Control is on in the session: Claude Code's file for it has a bridgeSessionId.
-  remote?: boolean
+  // Running `/remote-control` fails, as in a Claude Code without it.
+  isRemoteRefused?: boolean
 }
 
 // What the engine beneath the mod is asked, and what the tests answer it. `logs` are the dim
 // lines shown in the transcript, `debug` those in the debug log, `toasts` the toasts, `stored`
 // the mod's store, `slept` each wait the mod asked of a host `sleep`, which takes that long on
-// `voice.clock`, and `looks` how often it looked for Claude Code's session files.
+// `voice.clock`, and `commands` the slash commands the mod ran.
 function engine(on: On, voice: Voice = {}) {
   const asked = {
     prompts: [] as string[],
@@ -43,7 +43,7 @@ function engine(on: On, voice: Voice = {}) {
     toasts: [] as string[],
     stored: new Map<string, unknown>(Object.entries(voice.stored ?? {})),
     slept: [] as string[],
-    looks: 0,
+    commands: [] as string[],
   }
   on('store.get', (_, e) => ({ value: asked.stored.get(e.key) }))
   on('store.set', (_, e) => (asked.stored.set(e.key, e.value), { value: undefined }))
@@ -73,24 +73,10 @@ function engine(on: On, voice: Voice = {}) {
     if (e.name === 'HOME') return { value: '/home/someone' }
     return { value: undefined }
   })
-  // Claude Code's file for each running session: another session's, with Remote Control on,
-  // a key file, and this one's.
-  on('fs.list', (_, e) => {
-    asked.looks++
-    if (e.path !== '/home/someone/.claude/sessions') throw new Error('ENOENT')
-    const files = ['4001.json', '4001.abcdef.key', '4002.json']
-    return { value: files.map(name => ({ name, kind: 'file' as const, size: 1 })) } as any
-  })
-  on('fs.read', (_, e) => {
-    const sessions: Record<string, object> = {
-      '/home/someone/.claude/sessions/4001.json': { sessionId: 'session-9999', bridgeSessionId: 'cse_other' },
-      '/home/someone/.claude/sessions/4002.json': {
-        sessionId: 'session-1234',
-        ...(voice.remote ? { bridgeSessionId: 'cse_remote' } : {}),
-      },
-    }
-    if (!(e.path in sessions)) throw new Error('ENOENT')
-    return { value: JSON.stringify(sessions[e.path]) }
+  on('command.run', { command: 'remote-control' }, (_, e) => {
+    asked.commands.push(e.command)
+    if (voice.isRemoteRefused) throw new Error('unknown command')
+    return { text: '' }
   })
   on('prompt.submit', (_, e) => (asked.prompts.push(e.text), { text: e.text }))
   on('ui.invalidate', () => ({ value: undefined }))
@@ -455,8 +441,9 @@ test('after a reload of the mod, ringback is still on', async ($, on) => {
   await settle()
   expect(asked.prompts.length).toBe(1)
   expect(asked.prompts[0]).toContain('Subject: ')
-  // Silently: nothing changed for you.
+  // Silently: nothing changed for you, and Remote Control is left as it is.
   expect(asked.logs).toEqual([])
+  expect(asked.commands).toEqual([])
 })
 
 test('switched off before a reload, it stays off, whatever the store says', async ($, on) => {
@@ -471,7 +458,7 @@ test('switched off before a reload, it stays off, whatever the store says', asyn
 
 test('a session resumed within 30 days has ringback on again; older ones are forgotten', async ($, on) => {
   const now = at(30, 9).getTime()
-  mock.clock(on, { now })
+  const clock = mock.clock(on, { now })
   const asked = engine(on, {
     stored: { 'on:session-1234': now - 29 * DAY, 'on:session-old': now - 31 * DAY, 'on:session-other': now - DAY },
   })
@@ -479,6 +466,8 @@ test('a session resumed within 30 days has ringback on again; older ones are for
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   expect(await line()).toBe('? for shortcuts · ☎ ringback on')
   expect(asked.logs).toEqual(['Ringback is still on: this session calls your phone when it finishes.'])
+  await clock.advance(1)
+  expect(asked.commands).toEqual(['remote-control'])
   // Its 30 days start again; the old session is forgotten, the other kept.
   expect(Object.fromEntries(asked.stored)).toEqual({ 'on:session-1234': now, 'on:session-other': now - DAY })
   await $.turn.complete(turn('Done.'))
@@ -639,12 +628,11 @@ test('a permission prompt is put to you on a call, and your yes allows it', abov
     project: 'demo',
     cwd: '/home/someone/Projects/demo',
     subject: 'Permission to run a shell command',
-    remote_control: false,
   })
   // Polled until it's settled; nothing to withdraw.
   expect(polls(asked.fetches).map(f => f.url)).toEqual([
-    'http://voice/sessions/session-1234/permissions/p1?wait=25&remote_control=0',
-    'http://voice/sessions/session-1234/permissions/p1?wait=25&remote_control=0',
+    'http://voice/sessions/session-1234/permissions/p1?wait=25',
+    'http://voice/sessions/session-1234/permissions/p1?wait=25',
   ])
   expect(withdrawn(asked.fetches)).toEqual([])
   // The settings hooks were asked first, and decided nothing.
@@ -946,7 +934,7 @@ test("a long poll that can't reach the voice server is asked again every 5 s, an
   expect(core.ran).toEqual(['Bash'])
   const urls = polls(asked.fetches).map(f => f.url)
   expect(urls.length).toBe(7)
-  expect(new Set(urls)).toEqual(new Set(['http://voice/sessions/session-1234/permissions/p1?wait=25&remote_control=0']))
+  expect(new Set(urls)).toEqual(new Set(['http://voice/sessions/session-1234/permissions/p1?wait=25']))
   expect(created(asked.fetches, 'permissions').length).toBe(1)
   expect(withdrawn(asked.fetches)).toEqual([])
   expect(asked.logs.filter(l => l.startsWith("Can't reach")).length).toBe(1)
@@ -1022,9 +1010,8 @@ test('a question is answered on the call, as from the dialog', async ($, on) => 
     project: 'demo',
     cwd: '/home/someone/Projects/demo',
     subject: 'Question: Rhyme',
-    remote_control: false,
   })
-  expect(polls(asked.fetches).map(f => f.url)).toEqual(['http://voice/sessions/session-1234/questions/q1?wait=25&remote_control=0'])
+  expect(polls(asked.fetches).map(f => f.url)).toEqual(['http://voice/sessions/session-1234/questions/q1?wait=25'])
   // The dialog's own result: the questions, and each one's answer by its text.
   expect(result.result).toEqual({ questions: [question], answers: { [question.question]: 'ABAB' } })
   expect(result.context).toEqual([expect.stringContaining('"Alternating, like the first."')])
@@ -1103,7 +1090,7 @@ test('outside your work hours, a question waits for the call, and is answered wh
 test('a held question you send to the Claude app shows the dialog at once', async ($, on) => {
   const clock = mock.clock(on, { now: at(30, 2).getTime() })
   const later: object[] = []
-  const asked = engine(on, { clock, held: true, answers: later, created: heldQuestion, remote: true })
+  const asked = engine(on, { clock, held: true, answers: later, created: heldQuestion })
   const core = tools(on)
   await start($)
   const ran = $.tool.call(asking)
@@ -1135,62 +1122,34 @@ test('a permission on that call is left to its prompt, which shows anyway', abov
   expect(asked.logs.at(-1)).toBe("You sent it to the Claude app from the phone, so it's asked here.")
 })
 
-// Remote Control: no mod API says whether it's on, so the mod looks at the session's
-// environment, its own or a command's.
+// Remote Control: switched on, ringback turns it on, so the app can send a held question to
+// the Claude app.
 
-test('the ask and each poll say whether Remote Control is on', async ($, on) => {
-  const clock = mock.clock(on, { now: at(30, 2).getTime() })
-  const voice: Voice = { clock, held: true, created: heldQuestion, remote: true }
-  const asked = engine(on, voice)
-  const core = tools(on)
-  await start($)
-  const ran = $.tool.call(asking)
-  await clock.settle()
-  expect(JSON.parse(created(asked.fetches, 'questions')[0].init.body).remote_control).toBe(true)
-  await clock.advance(50_000)
-  // Remote Control ends, then comes back.
-  voice.remote = false
-  await clock.advance(50_000)
-  voice.remote = true
-  await clock.advance(50_000)
-  const said = polls(asked.fetches).map(f => new URL(f.url).searchParams.get('remote_control'))
-  expect(said.filter((v, i) => v !== said[i - 1])).toEqual(['1', '0', '1'])
-  expect(asked.debug.filter(l => l.startsWith('Remote Control'))).toEqual([
-    'Remote Control is on',
-    'Remote Control is off',
-    'Remote Control is on',
-  ])
-  // Switched off, the dialog shows.
-  await $.command.run({ command: 'ringback', args: '' })
-  await ran
-  expect(core.asked).toEqual(['AskUserQuestion'])
-})
-
-test('while on, the line under the prompt says when it sees Remote Control', async ($, on) => {
+test('switched on, ringback turns on Remote Control too', async ($, on) => {
   const clock = mock.clock(on)
-  const voice: Voice = {}
-  const asked = engine(on, voice)
+  const asked = engine(on)
   const line = promptLine($, on)
   await start($)
-  await clock.settle()
-  expect(await line()).toBe('? for shortcuts · ☎ ringback on')
-  // Looked at every 10 s.
-  voice.remote = true
-  await clock.advance(10_000)
-  expect(await line()).toBe('? for shortcuts · ☎ ringback on · Remote Control')
-  voice.remote = false
-  await clock.advance(10_000)
-  expect(await line()).toBe('? for shortcuts · ☎ ringback on')
-  voice.remote = true
-  await clock.advance(10_000)
-  expect(await line()).toBe('? for shortcuts · ☎ ringback on · Remote Control')
-  // Off, it's no longer looked at.
+  await clock.advance(1)
+  expect(asked.commands).toEqual(['remote-control'])
+  // Off, nothing more; on again, once more.
   await $.command.run({ command: 'ringback', args: '' })
-  const looked = asked.looks
-  voice.remote = true
-  await clock.advance(60_000)
-  expect(asked.looks).toBe(looked)
-  expect(await line()).toBe('? for shortcuts')
+  await $.command.run({ command: 'ringback', args: '' })
+  await clock.advance(1)
+  expect(asked.commands).toEqual(['remote-control', 'remote-control'])
+  expect(await line()).toBe('? for shortcuts · ☎ ringback on')
+})
+
+test('without Remote Control, ringback is on all the same', async ($, on) => {
+  const clock = mock.clock(on)
+  const asked = engine(on, { isRemoteRefused: true })
+  await start($)
+  await clock.advance(1)
+  expect(asked.commands).toEqual(['remote-control'])
+  expect(asked.debug.filter(l => l.startsWith("couldn't turn on Remote Control: ")).length).toBe(1)
+  await $.turn.complete(turn('Done.'))
+  await settle()
+  expect(asked.prompts.length).toBe(1)
 })
 
 test('off, a question shows the dialog untouched', async ($, on) => {

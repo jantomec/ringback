@@ -31,5 +31,6 @@ on both:
 So `.disabled` blocks the tap but doesn't grey the action out: in the screenshots it looks
 exactly like the enabled one, in its full tint, and XCUITest reads it as enabled too. A
 button that looks ready and does nothing is worse than either, so the app doesn't use
-`.disabled` there: while Remote Control is off, the action is tinted grey, and its tap only
-explains, in an alert. Retry if a new iOS greys disabled swipe actions.
+`.disabled` there: while Remote Control was off, the action was tinted grey, and its tap only
+explained, in an alert. Retry if a new iOS greys disabled swipe actions. Since then ringback
+turns Remote Control on itself, so the app no longer tells: the action is always available.
