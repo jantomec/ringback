@@ -21,6 +21,7 @@ check() {  # name, expected, actual
     if [ "$2" = "$3" ]; then echo "ok    $1"; else echo "FAIL  $1: expected $2, got $3"; fails=$((fails + 1)); fi
 }
 status() { curl -s -o /dev/null -w '%{http_code}' --retry 5 --retry-connrefused --retry-delay 1 "$@"; }
+body() { curl -s --retry 5 --retry-connrefused --retry-delay 1 "$@"; }
 yes_if() { if "$@" > /dev/null; then echo yes; else echo no; fi; }
 has() { printf '%s\n' "$1" | grep -qE "$2"; }  # text, pattern
 
@@ -38,6 +39,61 @@ check "connection check before the token arrived" 200 "$(status -d '{}' "$url/ch
 check "call" 200 "$(status -d '{"project": "demo", "subject": "Tests pass", "voice": "http://127.0.0.1:1", "call_id": "0123456789abcdef0123"}' "$url/call")"
 check "call without a call ID" 400 "$(status -d '{"project": "demo", "voice": "http://127.0.0.1:1"}' "$url/call")"
 check "call with a voice that isn't a URL" 400 "$(status -d '{"project": "demo", "voice": "nope", "call_id": "0123456789abcdef0123"}' "$url/call")"
+
+# Work hours, in a time zone where it's between 12:00 and 13:00 now, so the hours below hold
+# or ring a call whenever this runs. Etc/GMT-N is N hours ahead of UTC.
+zone_ahead() {  # hours ahead of UTC: the zone's name
+    if [ "$1" -gt 0 ]; then echo "Etc/GMT-$1"; elif [ "$1" -lt 0 ]; then echo "Etc/GMT+$((-$1))"; else echo Etc/GMT; fi
+}
+utc_hour=$(date -u +%H)
+ahead=$((12 - ${utc_hour#0}))
+zone=$(zone_ahead $ahead)
+zone2=$(zone_ahead $((ahead - 1)))  # an hour behind, where 14:00 hasn't come yet either
+today=$(TZ=$zone date +%Y-%m-%d)
+offset=$(TZ=$zone date +%z | sed -E 's/^\+0000$/Z/; s/([0-9]{2})([0-9]{2})$/\1:\2/')
+phone='"token": "aaaa1111bbbb2222", "environment": "sandbox", "device": "Test phone"'
+second='"token": "dddd4444eeee5555", "environment": "sandbox", "device": "Second phone"'
+hours() {  # phone, from, to[, time zone]: registers it with these work hours
+    status -d "{$1, \"hours_from\": \"$2\", \"hours_to\": \"$3\", \"time_zone\": \"${4:-$zone}\"}" "$url/register"
+}
+check_in() {  # from, to, time zone: a connection check that brings work hours
+    status -d "{\"token\": \"aaaa1111bbbb2222\", \"hours_from\": \"$1\", \"hours_to\": \"$2\", \"time_zone\": \"$3\"}" "$url/check"
+}
+# Bodies with quotes are built outside "$(...)": macOS's sh keeps the backslashes in there.
+# The refused ones would hold the call if they were taken.
+with_zone="{$phone, \"hours_from\": \"08:00\", \"hours_to\": \"20:00\", \"time_zone\": \"$zone\"}"
+no_zone="{$phone, \"hours_from\": \"14:00\", \"hours_to\": \"16:00\"}"
+only_from="{$phone, \"hours_from\": \"14:00\", \"time_zone\": \"$zone\"}"
+call_as() { body -d "{\"project\": \"demo\", \"voice\": \"http://127.0.0.1:1\", \"call_id\": \"$1\"}" "$url/call"; }
+held_until() { echo "{\"held_until\":\"${today}T$1:00$offset\",\"ok\":true}"; }
+rings='{"ok":true}'
+echo "      work hours in $zone, where it's $(TZ=$zone date +%H:%M)"
+check "register with work hours 14:00–16:00" 200 "$(hours "$phone" 14:00 16:00)"
+check "outside them, a call is held until they start" "$(held_until 14:00)" "$(call_as held0001-000000000000)"
+check "register with 22:00–06:00, past midnight" 200 "$(hours "$phone" 22:00 06:00)"
+check "outside 22:00–06:00, held until 22:00" "$(held_until 22:00)" "$(call_as held0002-000000000000)"
+check "register with 10:00–02:00, past midnight" 200 "$(hours "$phone" 10:00 02:00)"
+check "inside 10:00–02:00, it rings" "$rings" "$(call_as ring0001-000000000000)"
+check "register with 08:00–20:00" 200 "$(hours "$phone" 08:00 20:00)"
+check "inside 08:00–20:00, it rings" "$rings" "$(call_as ring0002-000000000000)"
+check "register with 09:00–09:00, any time" 200 "$(hours "$phone" 09:00 09:00)"
+check "with From and To equal, it rings" "$rings" "$(call_as ring0003-000000000000)"
+check "register with 08:00–20:00, from a variable" 200 "$(status -d "$with_zone" "$url/register")"
+check "work hours in a time zone the switchboard doesn't know: 400" 400 "$(hours "$phone" 14:00 16:00 Mars/Olympus)"
+check "a time that isn't HH:MM: 400" 400 "$(hours "$phone" 14:00 6:00)"
+check "a time past 23:59: 400" 400 "$(hours "$phone" 14:00 24:00)"
+check "work hours without a time zone: 400" 400 "$(status -d "$no_zone" "$url/register")"
+check "only From: 400" 400 "$(status -d "$only_from" "$url/register")"
+check "with those refused, the last hours still hold: it rings" "$rings" "$(call_as ring0004-000000000000)"
+check "register with 14:00–16:00 again" 200 "$(hours "$phone" 14:00 16:00)"
+check "a second phone with 13:30–13:45" 200 "$(hours "$second" 13:30 13:45)"
+check "outside both, held until the earlier start" "$(held_until 13:30)" "$(call_as held0003-000000000000)"
+check "the second phone again, without hours" 200 "$(status -d "{$second}" "$url/register")"
+check "its hours are gone, and a phone without them is always inside: it rings" "$rings" "$(call_as ring0005-000000000000)"
+check "the second phone with 13:30–13:45 again" 200 "$(hours "$second" 13:30 13:45)"
+check "a connection check brings a new time zone" 200 "$(check_in 14:00 16:00 "$zone2")"
+check "a check with hours that can't be read still gets a 200" 200 "$(check_in 14:00 16:00 Mars/Olympus)"
+check "a check without hours keeps them: still held" "$(held_until 13:30)" "$(status -d '{"token": "aaaa1111bbbb2222"}' "$url/check" > /dev/null; call_as held0004-000000000000)"
 sleep 1  # the call's push goes out after the answer
 kill $server
 wait $server 2> /dev/null || true
@@ -51,6 +107,16 @@ check "event stored with a time" yes "$(yes_if grep -qE '"event":"ended".*"time"
 check "event logged" yes "$(yes_if grep -qE 'call 12345678: ended, duration_s 21.1 \(on the phone at [0-9:]{8}\)' "$home/log")"
 check "call logged" yes "$(yes_if grep -qF 'call 01234567: asked by http://127.0.0.1:1 for demo: Tests pass' "$home/log")"
 check "call rings with its ID" yes "$(yes_if grep -qF 'call 01234567 → Test phone: no [apns.sandbox] key in the config' "$home/log")"
+check "registration logged with work hours" yes "$(yes_if grep -qF "registered Test phone (sandbox), token …bbbb2222, work hours 14:00–16:00 $zone" "$home/log")"
+check "a held call logged" yes "$(yes_if grep -qF "call held0001: held until ${today}T14:00:00$offset, outside the work hours of every phone" "$home/log")"
+check "held calls ring nobody" no "$(yes_if grep -qE 'call held000[0-9] →' "$home/log")"
+check "calls inside the hours ring" 5 "$(grep -cE 'call ring000[1-5] → Test phone: no \[apns.sandbox\] key' "$home/log")"
+check "unreadable hours from a check are logged and left out" yes "$(yes_if grep -qF 'check from …bbbb2222: work hours that can'"'"'t be read, left out' "$home/log")"
+devices=$(HOME="$home" "$bin" devices)
+check "devices shows the hours, in the time zone the check brought" yes "$(yes_if has "$devices" "…bbbb2222  Test phone .*  work hours 14:00–16:00 $zone2\$")"
+check "devices shows the second phone's hours" yes "$(yes_if has "$devices" "…eeee5555  Second phone .*  work hours 13:30–13:45 $zone\$")"
+out=$(HOME="$home" "$bin" ring --project smoke-test)
+check "ring ignores work hours: it pushes to both phones" 2 "$(printf '%s\n' "$out" | grep -c 'no \[apns.sandbox\] key')"
 
 if [ "${1:-}" = --apns ]; then
     cp ~/.config/ringback/switchboard.toml ~/.config/ringback/AuthKey_*.p8 "$home/.config/ringback/"

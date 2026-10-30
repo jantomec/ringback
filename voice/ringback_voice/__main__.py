@@ -313,6 +313,10 @@ def main() -> None:
         ringing = body.get("ringing") is True and not back
         call = await calls.back(call_id) if back else calls.offer(call_id)
         link = haiku = None
+        if call and call.held_until:
+            # Held outside your work hours, it hasn't rung, so the phone can't know its ID.
+            log(f"call {call_id[:8]}: refused, held until {call.held_until}")
+            return web.json_response({"error": "unknown call"}, status=403)
         if call:
             text, link = call.briefing, call.link
         elif args.report and not back:
@@ -323,7 +327,8 @@ def main() -> None:
                 log(f"call {call_id[:8]}: no report ({e}), using the stand-in")
                 text = None
         elif back:
-            # Never placed here, forgotten over a day ago, or before a restart.
+            # Never placed here, held and not rung yet, forgotten over a day ago, or before a
+            # restart.
             log(f"call {call_id[:8]}: call back refused, not a call this server remembers")
             return web.json_response({"error": "unknown call"}, status=403)
         else:

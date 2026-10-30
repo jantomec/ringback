@@ -2,7 +2,8 @@ import Foundation
 
 /// Phones that registered for calls, keyed by VoIP push token: `devices.json` in the state
 /// folder. A phone that also gave a notification token gets connection checks, and
-/// "checked_in" is when it last reached the switchboard on one.
+/// "checked_in" is when it last reached the switchboard on one. A phone with work hours has
+/// them here too (WorkHours.keys).
 enum Devices {
     static let path = stateDir + "/devices.json"
 
@@ -11,21 +12,31 @@ enum Devices {
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: [String: String]] ?? [:]
     }
 
-    static func register(token: String, environment: String, device: String, notificationToken: String?) throws {
+    /// `hours` are the phone's work hours (WorkHours.fields); empty clears them.
+    static func register(
+        token: String, environment: String, device: String, notificationToken: String?, hours: [String: String]
+    ) throws {
         var devices = load()
         var entry = devices[token] ?? [:]
         entry["environment"] = environment
         entry["device"] = device
         entry["registered"] = Date().ISO8601Format()
         entry["notification_token"] = notificationToken ?? entry["notification_token"]
+        for key in WorkHours.keys { entry[key] = hours[key] }
         devices[token] = entry
         try save(devices)
     }
 
-    static func checkedIn(token: String) throws {
+    /// A connection check can bring the phone's work hours too, so a new time zone reaches
+    /// the switchboard when you travel; nil leaves them as they were.
+    static func checkedIn(token: String, hours: [String: String]?) throws {
         var devices = load()
-        guard devices[token] != nil else { return }
-        devices[token]?["checked_in"] = Date().ISO8601Format()
+        guard var entry = devices[token] else { return }
+        entry["checked_in"] = Date().ISO8601Format()
+        if let hours {
+            for key in WorkHours.keys { entry[key] = hours[key] }
+        }
+        devices[token] = entry
         try save(devices)
     }
 

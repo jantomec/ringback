@@ -58,7 +58,9 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      The session has its whole context then and its prompt cache is warm, so this extra
      turn is quick and cheap. The mod gives the briefing to the voice server on the same
      Mac, which places the call. If you're on a call with that session already, the
-     voice gets the session's answer as news instead.
+     voice gets the session's answer as news instead. Outside your work hours, a dim line
+     says when the call rings ("Outside your work hours: the call rings at 08:00."), with
+     the date if it isn't today.
    - Once a second, it collects what the voice passed on for the session and submits each
      message to the session as a prompt, with the call transcript's path. A question the
      voice forwards goes the same way, and the session's answer goes back to the call.
@@ -77,7 +79,8 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      decides it; on a no, the session reads your words, and a yes is shown to you as a
      dim line. If you hang up without answering, switch ringback off, or after 15 min, the
      request is withdrawn and the prompt stays. If you don't answer the call, the request
-     waits on for a call back or the session's next call, within those 15 min.
+     waits on for a call back or the session's next call, within those 15 min. While the
+     call is held outside your work hours, the 15 min count from when it rings.
    - **The session's questions.** When it asks you something with options
      (AskUserQuestion), the mod holds the question (`tool.call`), puts it to you on a call,
      and gives your answer back as the dialog's own, so the dialog doesn't show. Without
@@ -100,6 +103,22 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      voice server can't tell a decline from a missed call or audio that didn't connect;
      the switchboard's log can. It holds a sleep assertion while a call is placed or in
      progress.
+   - **Held calls.** Outside your work hours the switchboard holds a call and says when it
+     can ring (`held_until`). The voice server keeps the call without starting Haiku, and
+     asks the switchboard again with the same call ID then, or after 10 min if that's
+     sooner, so hours you widen apply within 10 min. It waits on the wall clock, looked at
+     every 30 s, because asyncio's clock stops while the Mac sleeps; if the switchboard
+     can't be reached, it asks again each minute. Once the call rings, it's like any other:
+     Haiku starts, and the 90 s to answer count from then. Meanwhile:
+     - the sleep assertion holds, held calls included, so the call can ring in the morning.
+       If the Mac sleeps anyway, as a laptop may with its lid closed, the call should ring
+       within 30 s of it waking, once your hours have started (not tried);
+     - a new briefing from the same session replaces the held call's subject and briefing,
+       instead of placing a second call. What the old briefing asked goes to the voice as
+       notes, since the new one doesn't mention it;
+     - what the session asks goes to the held call (`"call": "held"`, with `held_until`),
+       and the mod's long polls answer `"held": true`;
+     - an offer for it is refused, as for an unknown call: the phone can't know its ID yet.
    - It keeps what the voice passes on for each session until that session's mod
      collects it, and takes the session's answers back as news for the call. When a mod
      last collected tells whether its session is listening: within 30 s, as the mod
@@ -124,13 +143,16 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      - The voice gets the missed call's briefing with a lead that says you called, how
        long ago the missed call was, and to open with what it was about, with no
        introduction (`called_back` in `voice/ringback_voice/instructions.py`). If the
-       session placed a call after it, that call's briefing follows, "since then", and
-       the voice opens with what changed.
+       session wrote a newer briefing after it, for a later call or a held one, that
+       briefing follows, "since then", and the voice opens with what changed.
      - If the session isn't listening, ringback off or the session ended, the call back
        still works, but the voice can't pass it anything or answer what it asked, and is
        told why.
      - Called back within its 90 s, a call still placed is replaced by the call back, so
        its session isn't told it wasn't answered.
+     - Work hours don't apply: you called. A held call of the same session is left alone,
+       to ring when your hours start, with what the session asked it; a held call can't be
+       called back, since it never rang.
    - **Call transcripts.** It writes each call's transcript into the calling
      session's project, under `.ringback/calls/`: the briefing, your words as recognised,
      what the voice said and where you cut it off, and what went to the session. The
@@ -145,6 +167,13 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
    - starts a call with a VoIP push through APNs that names the Mac taking the call;
    - takes calls from the voice servers at `/call` over Nebula, with their project,
      subject and call ID;
+   - **work hours:** outside the work hours of every phone (set in the app), `/call` pushes
+     nothing. It answers when the first phone's hours start (`held_until`, ISO 8601 with
+     that phone's offset from UTC) and logs it, and the voice server asks again by then. A
+     phone without hours is always inside them. The app sends its hours and time zone with
+     `/register`, and with each connection check, so a new time zone arrives within half an
+     hour when you travel. `ringback-switchboard ring` ignores them, and `devices` shows
+     them;
    - on "not now" (declined or unanswered), retries on the schedule in requirement 3,
      with the whole queue paused in between. After a final decline it holds all calls
      until the app calls that session back (Stage 4);
@@ -398,6 +427,13 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
    - **Settings:**
      - **Switchboard:** the switchboard's Nebula address. The app registers its push
        token there.
+     - **Work Hours:** a switch, off by default, and while it's on, From and To times below
+       it (08:00 and 20:00 to start), as with Downtime in iOS Settings. Claude calls only
+       between them; a call outside them waits until they start, so a session that finishes
+       at 2 am calls at 8 am. From later than To wraps past midnight (22:00–06:00), and equal
+       times mean any time. They're kept as times of day, read in the phone's time zone,
+       and sent to the switchboard as soon as you change them, so they apply from the next
+       call. Days of the week aren't covered.
      - **Interruption Sensitivity:** a slider from "Less" to "More". More stops the voice
        at shorter, less certain speech, which suits quiet places. Less needs clearer,
        longer speech, which suits noisy ones. On the Mac it sets the confidence and length
@@ -847,21 +883,72 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
       - Open: the split-answer case above. Answering took longer when Haiku called the
         tool before speaking, 2.1–3.6 s after your words on the phone; the voice now says
         "Okay." at once then (acting on the call).
+      - Open: once (`tools/ask-check`, 2026-10-30), Haiku answered a question with its
+        text as the id, was told nothing waited, and answered again with the right id after
+        the "Okay.". That "Okay." counts as having spoken, so the rest of its reply wasn't
+        spoken ("not spoken, after passing a message"), and the answer, which waits for the
+        sentence after the "Okay.", went only with the next note, 40 s later.
    4. A better model on the line. Built, and tried offline (see "A better model"), not
       yet on the phone.
    5. Call back from the app's call history (calling back, in the voice server's session
       side and the iPhone app). Built, and tried offline, not yet on the phone:
-      - The voice server (`tools/phone-check --back`, three runs, about 2.5–3 min each,
-        unanswered calls forgotten after 8 s): from the offer to the voice's first audio,
-        a median 2.75 s (2.13–3.34 s, 15 call backs).
-      - What a missed call asked (`tools/ask-check`): its permissions stayed pending after
-        the call was forgotten, and the next call you answered asked them.
-      - The mod (32 tests): a question stays held through 10 min of `pending`, and an answer
-        that comes then is the dialog's.
+      - The voice server (`tools/phone-check --back`, five runs, 22 checks each, about
+        2.5 min each, unanswered calls forgotten after 8 s): every check passed but one
+        that wasn't the call back's (below). An unknown call was refused; the voice opened
+        every call back with what the missed call was about, and with what changed when the
+        session had a newer briefing; a session that wasn't listening got nothing passed on,
+        and the voice said it couldn't; a permission from an unanswered call was answered on
+        its call back; and called back within its time, a call's session was told only that
+        you called back. From the offer to the voice's first audio took a median 2.72 s
+        (2.13–3.48 s, 25 call backs), as on a call rung by hand: Haiku starts only then,
+        and its first words came 1.5–2.5 s after.
+      - Openings, as said: "Hi, I called about the config parser fix. It crashed on empty
+        lines between sections, and the fix is two lines plus a new test… Shall I push it to
+        a branch and open a pull request?"; moved on, "The parser fix is done. I pushed it to
+        the fix-parser branch and opened pull request 42…". Before the lead told it not to
+        say it was calling, one opened "Hi, I'm calling about the version 2.4 release
+        notes", as if it had placed the call; in the four runs after, none did.
+      - In one run, a session folder of a voice process was left at the end, and gone
+        minutes later. The check's own voice server was already stopped by then, so it was
+        likely another voice server's on this Mac; the check now counts only its own
+        server's sessions.
+      - What a missed call asked (`tools/ask-check`, two runs): its permissions stayed
+        pending after the call was forgotten, a long poll waited on through it, and the next
+        call you answered asked the one left. All 43 checks passed after merging with work
+        hours; the run before had the "Okay." problem under step 3.
+      - The mod (34 tests with work hours): a question stays held through 10 min of
+        `pending`, and an answer that comes then is the dialog's.
       - The app builds, but nothing of it is tried: tapping a row, the outgoing CallKit call,
         its in-call screen, the alert, and what the switchboard logs. Nor is the time from
         tapping to the voice's first words on the phone, which adds reaching the Mac and
         connecting over Nebula to the 2.5–3 s above.
+   6. Work hours: Claude calls only between the times you set in the app, and a call
+      outside them waits until they start (the app's Settings, the switchboard, held calls
+      on the voice server). Built, and tried offline, not yet on the phone:
+      - The switchboard (`switchboard/smoke-test.sh`, 34 new checks, 54 in all, about
+        2.4 s): a call outside the hours answers `held_until` and rings nobody, inside them
+        or with no hours it rings; a range past midnight; equal times mean any time; with
+        two phones it rings while either is inside, and holds until the earlier start when
+        both are outside; an unknown time zone, a time that isn't HH:MM and hours without a
+        zone are a 400, and leave the hours as they were; a connection check brings a new
+        time zone, and one it can't read is left out with a 200; `ring` pushes anyway.
+      - The voice server (`tools/ask-check`, one run, 19 new checks): a held call starts no
+        Haiku and keeps the Mac awake, its offer is refused, a new briefing and a question
+        go to it, and it's asked again at the switchboard's time, after the longest wait,
+        and after a 503, each within 0.01 s of when it was due (the waits shortened to 4 s).
+        Once it rang, Haiku started at once, and on the call the voice asked you the
+        permission the old briefing had asked. An unanswered one
+        was forgotten 10 s after it rang, not after it was placed.
+      - The mod (two new tests, 33 in all): the dim line, today and another day; a
+        permission held 20 min isn't given up, and its 15 min count from when the call
+        rings.
+      - Not tried: the setting on the phone, the app re-registering as you change it, a
+        call held overnight on a Mac that sleeps or a laptop with its lid closed, and a
+        time zone change while travelling.
+      - Left: when the hours start, every session's held call rings at once, until Stage
+        4's queue lets them wait their turn. Days of the week aren't covered: the same
+        hours hold every day. If a phone is inside its hours, every phone rings, including
+        those outside theirs.
 4. **Several sessions + retries.** A second session waits for the first call to end.
    "Not now" retries on schedule while the queue waits. A final decline holds all calls
    until a call back releases them.

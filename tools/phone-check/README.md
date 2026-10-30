@@ -115,8 +115,20 @@ hand. It checks:
   still placed. The call back lasts past the missed call's `S` seconds, and the session is
   told only that you called back, not that the call wasn't answered;
 - no opening introduces the voice or says it's calling (you called);
-- no Haiku is left, and no session folder in `~/.claude/projects`.
+- no Haiku is left, and none of its voice server's session folders in
+  `~/.claude/projects`. That server gets its own `TMPDIR`, so the folders of other voice
+  servers on this Mac, yours or another check's, don't count.
 
 It prints the voice's log, the checks, what the voice said first on each call back, and
 the time from each offer to the voice's first audio. It uses your Claude subscription, 10
 Haiku sessions.
+
+Result on 2026-10-30, Claude Code 2.1.314, five runs of about 2.5 min each (two after
+merging with work hours): all checks passed, but for one session folder left in one run,
+which was gone minutes later, after that run's voice server had stopped; so it was likely
+another voice server's, and the check now counts only its own. Every opening was about the
+missed call, and on "moved on" started with the pull request. From the offer to the first
+audio: a median 2.72 s (2.13–3.48 s, 25 call backs), about as on a call rung by hand,
+since Haiku starts only at the offer; its first words came 1.5–2.5 s after. In the first
+run, before the lead said not to, one opening began "Hi, I'm calling about…"; the check for
+that came after it, and passed in the four runs since.

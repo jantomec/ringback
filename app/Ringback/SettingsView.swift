@@ -10,6 +10,9 @@ struct SettingsView: View {
     @AppStorage(AudioLink.sensitivityKey) private var sensitivity = AudioLink.defaultSensitivity
     @AppStorage(AudioLink.backgroundFilterOnKey) private var ignoreBackgroundNoise = true
     @AppStorage(AudioLink.backgroundFilterKey) private var backgroundFilter = AudioLink.defaultBackgroundFilter
+    @AppStorage(WorkHours.onKey) private var workHours = false
+    @AppStorage(WorkHours.fromKey) private var hoursFrom = WorkHours.defaultFrom
+    @AppStorage(WorkHours.toKey) private var hoursTo = WorkHours.defaultTo
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(ConnectionCheck.lastWarnedKey) private var lastConnectionWarning = 0.0
     @State private var microphoneOff = false
@@ -41,6 +44,16 @@ struct SettingsView: View {
                     }
                 } footer: {
                     if switchboardURL.isEmpty { AddressFields.footer }
+                }
+                // Like Downtime in iOS Settings: a switch, and the times below it while it's on.
+                Section {
+                    Toggle("Work Hours", isOn: $workHours.animation())
+                    if workHours {
+                        DatePicker("From", selection: timeOfDay($hoursFrom), displayedComponents: .hourAndMinute)
+                        DatePicker("To", selection: timeOfDay($hoursTo), displayedComponents: .hourAndMinute)
+                    }
+                } footer: {
+                    Text("Claude calls only between these times. A call outside them waits until they start.")
                 }
                 Section {
                     VStack(alignment: .leading) {
@@ -97,6 +110,10 @@ struct SettingsView: View {
             checkMicrophone()  // also after coming back from Settings
             Task { await push.connect() }
         }
+        // The switchboard gets new hours at once, so they apply to the next call.
+        .onChange(of: [workHours ? "on" : "off", hoursFrom, hoursTo]) {
+            Task { await push.connect() }
+        }
         // Ask now: a locked phone in a call can't show the permission prompt. Notifications
         // are for the warning when calls can't reach the phone (ConnectionCheck).
         .task {
@@ -112,6 +129,18 @@ struct SettingsView: View {
 
     private func showCallBackProblem() {
         showsCallBackProblem = state.callBackProblem != nil
+    }
+
+    /// A time kept as "HH:MM", as a date picker shows it: today at that hour and minute.
+    private func timeOfDay(_ text: Binding<String>) -> Binding<Date> {
+        Binding {
+            let parts = text.wrappedValue.split(separator: ":").compactMap { Int($0) }
+            let hour = parts.first ?? 0, minute = parts.count > 1 ? parts[1] : 0
+            return Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: .now) ?? .now
+        } set: { date in
+            let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+            text.wrappedValue = String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
+        }
     }
 }
 

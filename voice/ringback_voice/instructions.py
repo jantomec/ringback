@@ -107,9 +107,9 @@ briefing below, and they didn't answer then. Now they've called you and you've p
 So don't introduce yourself, greet them at length, or say you're calling: open straight with
 what the missed call was about."""
 MOVED_ON = """\
-The session has called again since, {ago} ago, and its newer briefing follows the missed
-call's. Open with what changed since the missed call, then what needs the developer now.
-Where the two differ, the newer one is right."""
+The session has written a newer briefing since, {ago} ago, which follows the missed call's.
+Open with what changed since the missed call, then what needs the developer now. Where the
+two differ, the newer one is right."""
 SETTLED = """\
 The session no longer waits for an answer to {names}, which the missed call's briefing asks:
 don't ask it."""

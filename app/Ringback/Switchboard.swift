@@ -36,17 +36,20 @@ enum Switchboard {
     private static let retryDelays: [Double] = [0, 2, 4, 8, 15, 30]
 
     /// The notification token is for connection checks (ConnectionCheck), once iOS has
-    /// given it.
-    static func register(token: String, notificationToken: String?) async throws {
-        var body = ["token": token, "environment": environment, "device": await UIDevice.current.name]
+    /// given it. `hours` are the work hours as WorkHours.fields gives them.
+    static func register(token: String, notificationToken: String?, hours: [String: String]) async throws {
+        var body = hours.merging(["token": token, "environment": environment, "device": await UIDevice.current.name]) { $1 }
         body["notification_token"] = notificationToken
         try await post("register", body)
     }
 
     /// Reaches the switchboard on a connection check. The VoIP token, if it has arrived yet,
-    /// tells it which phone checked in.
+    /// tells it which phone checked in. The work hours come along, so a new time zone reaches
+    /// it within the half hour between checks when you travel.
     static func check(token: String?) async throws {
-        try await post("check", token.map { ["token": $0] } ?? [:], timeout: 5)
+        var body = WorkHours.fields
+        body["token"] = token
+        try await post("check", body, timeout: 5)
     }
 
     /// Reports a call event, stamped with when it happened here, and retries until the
@@ -85,5 +88,29 @@ enum Switchboard {
         let (_, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else { throw URLError(.badServerResponse) }
+    }
+}
+
+/// The hours Claude may call you, set in Settings. Outside them the switchboard doesn't ring
+/// the phone: a call waits until they start. From later than To wraps past midnight, and
+/// equal ones mean any time. Kept as "HH:MM", so they stay the same hours when you travel;
+/// the switchboard reads them in the phone's time zone.
+enum WorkHours {
+    static let onKey = "workHours"
+    static let fromKey = "workHoursFrom"
+    static let toKey = "workHoursTo"
+    static let defaultFrom = "08:00"
+    static let defaultTo = "20:00"
+
+    /// What the switchboard gets with /register and /check: empty hours while they're off,
+    /// which means any time.
+    static var fields: [String: String] {
+        let defaults = UserDefaults.standard
+        let on = defaults.bool(forKey: onKey)
+        return [
+            "hours_from": on ? defaults.string(forKey: fromKey) ?? defaultFrom : "",
+            "hours_to": on ? defaults.string(forKey: toKey) ?? defaultTo : "",
+            "time_zone": TimeZone.current.identifier,
+        ]
     }
 }

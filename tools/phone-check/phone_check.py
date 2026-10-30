@@ -513,9 +513,12 @@ They're in the notes folder, not committed yet. Should I commit them?"""
 async def call_backs(args) -> int:
     """Calls back calls you didn't answer, as the app does from its call history."""
     tmp = Path(tempfile.mkdtemp(prefix="ringback-phone-check-"))
-    sock, voice_log, project, own = tmp / "voice.sock", tmp / "voice.log", tmp / "demo", tmp / "tmp"
+    sock, voice_log, project = tmp / "voice.sock", tmp / "voice.log", tmp / "demo"
     project.mkdir()
-    own.mkdir()
+    # The voice server's own temporary folder, so its sessions' folders tell from those of
+    # other voice servers on this Mac. Short: Haiku's tools socket goes in a folder inside it,
+    # and a socket's path can have at most 104 characters.
+    own = Path(tempfile.mkdtemp(prefix="rb"))
     # With a report, an offer for a call the server didn't place is a call rung by hand; a
     # call back for one must still be refused.
     (tmp / "report.txt").write_text(BRIEFING)
@@ -534,8 +537,6 @@ async def call_backs(args) -> int:
         [sys.executable, "-m", "ringback_voice", "serve", "--listen", VOICE, "--switchboard", SWITCHBOARD,
          "--socket", str(sock), "--report", str(tmp / "report.txt")],
         stdout=voice_log.open("w"), stderr=subprocess.STDOUT,
-        # Its own temporary folder, so its sessions' folders tell from those of other voice
-        # servers on this Mac.
         env=os.environ | {"RINGBACK_UNANSWERED": str(args.unanswered), "TMPDIR": str(own)},
     )  # fmt: skip
     socket_side = aiohttp.ClientSession(connector=aiohttp.UnixConnector(path=str(sock)))
@@ -572,6 +573,7 @@ async def call_backs(args) -> int:
     timings: list[float] = []  # from each call back's offer to the voice's first audio
     openings: list[str] = []  # what the voice said first on each call back
     replies: list[str] = []
+    during = 0  # the most of its sessions' folders seen during a call back, so the last check finds them
 
     def check(name: str, ok: bool) -> None:
         nonlocal fails
@@ -581,11 +583,13 @@ async def call_backs(args) -> int:
     async def call_back(call_id: str, name: str) -> tuple[Phone, Path | None, str]:
         """Calls call_id back, and listens to the voice's opening: the phone, the call back's
         transcript, and the opening as the voice said it."""
+        nonlocal during
         before = set(project.glob(".ringback/calls/*.md"))
         phone = Phone()
         t = time.monotonic()
         status = await phone.offer(call_id, ringing=False, back=True)
         heard = await phone.heard_after(t)
+        during = max(during, len(kept(own)))
         await phone.quiet_for(2.5, limit=60)
         transcript = next(iter(set(project.glob(".ringback/calls/*.md")) - before), None)
         found = transcript and await wait_for(transcript, r"\*\*Voice:\*\* (.+)", 30)
@@ -637,7 +641,7 @@ async def call_backs(args) -> int:
         check("the session's later call isn't answered either", await forgotten(later))
         phone, _, opening = await call_back(missed, "moved on")
         first = " ".join(opening.split()[:30])
-        since = rf"call {re.escape(missed[:8])}: called back .*called again since"
+        since = rf"call {re.escape(missed[:8])}: called back .*with a newer briefing since"
         check("moved on: a call called back before can be called back again, with the later briefing, "
               "and its opening starts with what changed",
               re.search(since, voice_log.read_text()) is not None
@@ -711,8 +715,9 @@ async def call_backs(args) -> int:
         # A session's folder is deleted just after its process has ended.
         await asyncio.sleep(1)
         left = sorted(p.name for p in kept(own))
-        check(f"no Haiku left, and none of its sessions' folders in ~/.claude/projects: {left}",
-              not haikus() and not left)  # fmt: skip
+        check(f"no Haiku left, and none of its sessions' folders in ~/.claude/projects: {left} "
+              f"(up to {during} during a call back)",
+              not haikus() and not left and during > 0)  # fmt: skip
     finally:
         if collecting:
             collecting.cancel()
@@ -732,6 +737,7 @@ async def call_backs(args) -> int:
     if args.keep:
         shutil.copytree(tmp, args.keep, dirs_exist_ok=True, ignore=shutil.ignore_patterns("*.sock"))
     shutil.rmtree(tmp, ignore_errors=True)
+    shutil.rmtree(own, ignore_errors=True)
     return 1 if fails else 0
 
 
