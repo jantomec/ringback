@@ -19,7 +19,12 @@ in a note that starts no turn. Step 3 is built, tried offline (`tools/session-ch
 prompt shows in the terminal and goes to the call at once, whichever answers first
 decides; the session's questions (AskUserQuestion) go to the call instead of the terminal.
 Step 4 (a better model on the line: Opus resumes the call's session) is built and tried
-offline (`tools/call-check`, `tools/handover-check`), not yet on the phone. How it works:
+offline (`tools/call-check`, `tools/handover-check`), not yet on the phone. Also built
+and tried offline only (`tools/ask-check`, `tools/phone-check --back`): work hours, set in
+the app, outside which the switchboard holds a call and the calling Mac asks again when they
+start; and step 5, calling back a call you didn't answer from the app's call history, where
+what the missed call asked waits for the call back while the session's mod holds it (15 min).
+How it works:
 the ringback mod (`mod/`) adds `/ringback`; while it's on, each finished turn has the
 session write a call briefing, and the voice server places the call through the
 switchboard's `/call`. On the call, the voice passes what you say to the session with its
