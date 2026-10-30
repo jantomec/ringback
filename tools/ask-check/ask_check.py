@@ -25,15 +25,17 @@ sends them, and a stand-in switchboard takes the calls they place, so nothing ri
 Held calls: the stand-in switchboard holds a call (`held_until`) as it does outside your work
 hours, and the voice server is told to ask again within S seconds (`--reask`) instead of 10
 min. Checks:
-- a permission with no call places one that's held ("held", with `held_until`), starts no
-  Haiku, and keeps the Mac awake; a long poll says `held`; an offer for it is refused;
+- a permission with no call places one that's held ("held", with `held_until`, and no
+  question for the switchboard), starts no Haiku, and keeps the Mac awake; a long poll says
+  `held`; an offer for it is refused;
 - a session's new briefing goes to the held call, without placing another, and a question
-  goes to it too;
+  goes to it too: it waits for the call, and the switchboard is asked again at once, with a
+  question;
 - it's asked again after S seconds, with the same call ID and the new subject; then at the
   time the switchboard gave; then, after a 503, S seconds later; then it rings and Haiku
   starts;
-- answered, its transcript has the new briefing, and the permission the old one asked was
-  put to the voice as a note;
+- answered, its transcript has the new briefing, and the permission the old one asked and the
+  question were put to the voice as notes; hung up, neither has an answer;
 - another held call rings when its time comes and isn't answered: it's forgotten S
   (`--unanswered`) seconds after it rang, not after it was placed, and the Mac sleeps again.
 
@@ -41,6 +43,13 @@ Calling a waiting call from the app (`"now": true` in the offer): one that doesn
 is refused; a held one is answered at once, isn't asked about at the switchboard any more,
 and its voice picks up; its session is told you called it; one that rang meanwhile is
 answered as any offer is.
+
+Sending a held call's question to the Claude app (`POST /claude-app`, as the app's swipe
+action does): refused for a call that doesn't wait here (403), while its session isn't
+listening or it has no question (409); Remote Control reported with a question, and with a
+long poll, reaches the switchboard at once; then it goes: the question's and a permission's
+long polls get `terminal` at once, the call is forgotten (never asked about again, an offer
+and a second try refused), its session is told, and the Mac can sleep again.
 """
 
 import argparse
@@ -102,6 +111,8 @@ between sections are fine now. The force-push is still waiting for your answer."
 # Waiting calls called from the app: one held, and one that rang meanwhile.
 NOW, RANG = "ask-check-now", "ask-check-rang"
 NOW_SUBJECT = "Parser fix rebased"
+# A held call whose question you send to the Claude app.
+APP, APP_SUBJECT = "ask-check-claude-app", "Docs need a decision"
 
 
 async def main() -> int:
@@ -352,14 +363,15 @@ async def main() -> int:
         await until(lambda: children(haiku) == children("caffeinate") == 0, 10)
         haikus, awake = children(haiku), children("caffeinate")
         n = len(rung)
-        holds[:] = [3600, 2.5, "down", None]
+        holds[:] = [3600, 3600, 2.5, "down", None]
         status, body = await api("POST", of("permission", session=HELD), PERMISSION)
         held_pid = body.get("permission", "")
         first = taken[n] if len(rung) > n else 0.0
         held_id = rung[n]["call_id"] if len(rung) > n else ""
-        check(f"a permission with no call places a held one: {status} {body}",
+        check(f"a permission with no call places a held one, with no question: {status} {body}",
               status == 200 and body.get("call") == "held" and len(rung) == n + 1
-              and body.get("held_until") == held_until.get(first))  # fmt: skip
+              and body.get("held_until") == held_until.get(first)
+              and rung[n].get("question") is False and rung[n].get("remote_control") is False)  # fmt: skip
         await asyncio.sleep(1)
         check(f"a held call starts no Haiku ({children(haiku)}, {haikus} before) and keeps the Mac awake "
               f"({children('caffeinate')} caffeinate, {awake} before)",
@@ -377,31 +389,36 @@ async def main() -> int:
         status, body = await api("POST", "/calls", rebriefed)
         check(f"a new briefing goes to the held call, without placing another: {status} {body}",
               status == 200 and body == {"ok": True, "held_until": held_until.get(first)} and len(rung) == n + 1)  # fmt: skip
+        # A question waits for the held call, and the switchboard is asked again at once, so
+        # it can tell the phone.
+        asked_at = time.time()
         status, body = await api("POST", of("question", session=HELD), QUESTION)
         held_qid = body.get("question", "")
-        check(f"a question goes to the held call too: {status} {body}",
-              status == 200 and body.get("call") == "held" and len(rung) == n + 1)  # fmt: skip
-        # Outside your work hours the mod gives a question to the terminal at once.
-        status, _ = await api("DELETE", of("question", held_qid, session=HELD))
-        logged = await wait_for(voice_log, rf"call {re.escape(held_id[:8])}: question {held_qid} is asked in the terminal", 2)
-        gone, _, _ = await waited("question", held_qid, 0, HELD)
-        check(f"withdrawn, as the mod does outside your work hours, it's asked in the terminal: {status}, then {gone}",
-              status == 200 and gone == 404 and logged is not None)  # fmt: skip
+        await until(lambda: len(rung) >= n + 2, 2)
+        again = rung[n + 1] if len(rung) >= n + 2 else {}
+        took = taken[n + 1] - asked_at if len(rung) >= n + 2 else 0.0
+        check(f"a question goes to the held call too, which asks the switchboard again {took:.2f} s later, "
+              f"with a question: {status} {body}",
+              status == 200 and body.get("call") == "held" and again.get("call_id") == held_id
+              and again.get("question") is True and 0 <= took <= 1)  # fmt: skip
+        status, body, _ = await waited("question", held_qid, 0, HELD)
+        check(f"it waits for the call: {status} {body}",
+              status == 200 and body.get("status") == "pending" and body.get("held") is True)  # fmt: skip
 
         # Asked again after --reask s; then at the time the switchboard gave; after a 503,
         # --reask s later (a minute, unless --reask is shorter); then it rings.
-        await until(lambda: len(rung) >= n + 4, args.reask * 2 + 10)
-        if len(rung) >= n + 4:
-            t1, t2, t3, t4 = taken[n : n + 4]
+        await until(lambda: len(rung) >= n + 5, args.reask * 2 + 10)
+        if len(rung) >= n + 5:
+            t1, t2, t3, t4 = taken[n + 1 : n + 5]
             due = datetime.fromisoformat(held_until[t2]).timestamp()
-            check(f"asked again {t2 - t1:.2f} s later, with the same ID and the new subject: {rung[n + 1].get('subject')!r}",
-                  all(r["call_id"] == held_id for r in rung[n : n + 4]) and args.reask <= t2 - t1 <= args.reask + 1
-                  and rung[n + 1].get("subject") == HELD_SUBJECT)  # fmt: skip
+            check(f"asked again {t2 - t1:.2f} s later, with the same ID and the new subject: {rung[n + 2].get('subject')!r}",
+                  all(r["call_id"] == held_id for r in rung[n : n + 5]) and args.reask <= t2 - t1 <= args.reask + 1
+                  and rung[n + 2].get("subject") == HELD_SUBJECT and rung[n + 2].get("question") is True)  # fmt: skip
             check(f"then at the time the switchboard gave ({held_until[t2]}): {t3 - due:+.2f} s", -0.05 <= t3 - due <= 0.5)
             check(f"then {t4 - t3:.2f} s after a 503", args.reask <= t4 - t3 <= args.reask + 1)
         else:
             t4 = time.time()
-            check(f"asked again three times: {len(rung) - n - 1}", False)
+            check(f"asked again four times: {len(rung) - n - 1}", False)
         started = await until(lambda: children(haiku) > haikus, 5)
         check(f"it rings, and Haiku starts {time.time() - t4:.2f} s after", started is not None)
         status, body, _ = await waited("permission", held_pid, 0, HELD)
@@ -415,6 +432,7 @@ async def main() -> int:
         await phone.quiet_for(3, limit=45)  # the voice asks both after its opening
         await phone.hang_up()
         _, body, _ = await waited("permission", held_pid, 20, HELD)
+        _, question_body, _ = await waited("question", held_qid, 5, HELD)
         transcripts = sorted(held_project.glob(".ringback/calls/*.md"))
         held_text = transcripts[-1].read_text() if transcripts else ""
         check(f"answered, the voice opens: {offered}", offered == 200 and opened)
@@ -422,11 +440,10 @@ async def main() -> int:
               HELD_BRIEFING.split("\n")[0] in held_text and "has stopped because it needs" not in held_text)  # fmt: skip
         check("the permission the old briefing asked went to the voice as a note",
               f"**The session asks:** Permission {held_pid}:" in held_text)  # fmt: skip
-        check("so did the question, as one that waits in the terminal",
+        check("so did the question, to be asked on the call",
               f"**The session asks:** Question {held_qid}," in held_text)  # fmt: skip
-        voice_said = " ".join(l for l in held_text.splitlines() if l.startswith("**Voice:**")).lower()
-        check("the voice said it waits in the terminal", "terminal" in voice_said or "claude app" in voice_said)
-        check(f"hung up, the permission has no verdict: {body}", body.get("verdict") == "none")
+        check(f"hung up, neither has an answer: {body}, {question_body}",
+              body.get("verdict") == "none" and question_body.get("status") == "none")  # fmt: skip
         if held_text:
             print(f"--- the held call's transcript\n{held_text}")
 
@@ -524,6 +541,86 @@ async def main() -> int:
               and (outcome or "").startswith(f'The call about "{NOW_SUBJECT}" was answered'))  # fmt: skip
         # Its Haiku closes, and deletes its session's folder, before the voice server stops.
         await until(lambda: children(haiku) == 0, 10)
+
+        # Sending a held call's question to the Claude app, as the app's swipe action does: over
+        # Nebula, with the call's ID. Remote Control as the session's mod says it is.
+        async def claude_app(call_id: str) -> tuple[int, dict]:
+            async with aiohttp.ClientSession() as http:
+                async with http.post(f"http://{VOICE}/claude-app", json={"call_id": call_id}) as r:
+                    return r.status, await r.json(content_type=None)
+
+        status, body = await claude_app("never-placed-call-id")
+        check(f"to the Claude app, a call that doesn't wait here: {status} {body}",
+              status == 403 and body.get("error") == "not waiting")  # fmt: skip
+        n = len(rung)
+        holds[:] = [3600] * 20
+        briefed = {"session_id": APP, "project": "demo", "cwd": str(held_project), "subject": APP_SUBJECT,
+                   "briefing": BRIEFING}  # fmt: skip
+        status, body = await api("POST", "/calls", briefed)
+        first = rung[n] if len(rung) > n else {}
+        app_id = first.get("call_id", "")
+        check(f"a held call from a briefing has no question, and no Remote Control: {status} {body}",
+              "held_until" in body and first.get("question") is False and first.get("remote_control") is False)  # fmt: skip
+        status, body = await claude_app(app_id)
+        check(f"while its session isn't listening: {status} {body}", status == 409 and body.get("error") == "not listening")
+        await api("GET", f"/sessions/{APP}/messages")  # its mod collects, so it listens
+        status, body = await claude_app(app_id)
+        check(f"while it has no question: {status} {body}", status == 409 and body.get("error") == "no question")
+        status, body = await api("POST", of("permission", session=APP), PERMISSION | {"remote_control": False})
+        app_pid = body.get("permission", "")
+        asked_at = time.time()
+        status, body = await api("POST", of("question", session=APP), QUESTION | {"remote_control": True})
+        app_qid = body.get("question", "")
+        await until(lambda: len(rung) >= n + 2, 2)
+        await asyncio.sleep(0.3)
+        last = rung[-1] if len(rung) > n + 1 else {}
+        took = taken[n + 1] - asked_at if len(rung) > n + 1 else 0.0
+        check(f"a question with Remote Control on joins it, and the switchboard hears both {took:.2f} s later "
+              f"({len(rung) - n - 1} asked): {status} {body}",
+              status == 200 and body.get("call") == "held" and last.get("call_id") == app_id
+              and last.get("question") is True and last.get("remote_control") is True and 0 <= took <= 1)  # fmt: skip
+        reported = []
+        for on in ("0", "1"):
+            k = len(rung)
+            await api("GET", of("question", app_qid, APP) + f"?wait=0&remote_control={on}")
+            await until(lambda: len(rung) > k, 2)
+            reported.append(rung[-1].get("remote_control") if len(rung) > k else None)
+        check(f"Remote Control said off, then on again, with a long poll, reaches the switchboard at once: {reported}",
+              reported == [False, True])  # fmt: skip
+
+        await api("GET", f"/sessions/{APP}/messages")  # it still listens
+        polling = asyncio.ensure_future(
+            asyncio.gather(waited("question", app_qid, 20, APP), waited("permission", app_pid, 20, APP))
+        )
+        await asyncio.sleep(0.5)
+        t = time.monotonic()
+        status, body = await claude_app(app_id)
+        (_, question_body, _), (_, permission_body, _) = await polling
+        released = time.monotonic() - t
+        logged = await wait_for(voice_log, rf"call {re.escape(app_id[:8])}: .*question {app_qid}.* sent to the Claude app", 2)
+        check(f"to the Claude app: {status} {body}; {released:.2f} s later the question's long poll got {question_body}, "
+              f"and the permission's {permission_body}",
+              status == 200 and question_body.get("status") == "terminal" and permission_body.get("verdict") == "terminal"
+              and released < 1 and logged is not None)  # fmt: skip
+        k = len(rung)
+        await asyncio.sleep(args.reask + 1)
+        phone = Phone()
+        refused = await phone.offer(app_id, ringing=False, now=True)
+        await phone.hang_up()
+        again, _ = await claude_app(app_id)
+        check(f"the call is forgotten: not asked about again ({len(rung) - k} times), called now {refused}, "
+              f"to the Claude app again {again}",
+              len(rung) == k and refused == 403 and again == 403)  # fmt: skip
+        _, body = await api("GET", f"/sessions/{APP}/messages")
+        outcome = next((m["text"] for m in body.get("messages", []) if m.get("kind") == "outcome"), None)
+        check(f"its session is told: {outcome!r}",
+              (outcome or "").startswith(f'The call about "{APP_SUBJECT}" won\'t ring') and "Claude app" in outcome)  # fmt: skip
+        status, _ = await api("DELETE", of("question", app_qid, APP))
+        status_after, _ = await api("GET", of("question", app_qid, APP))
+        check(f"the mod withdraws it once released (as it does after any answer it can't use): {status}, then "
+              f"{status_after}", status == 200 and status_after == 404)  # fmt: skip
+        gone = await until(lambda: children("caffeinate") == 0, 5)
+        check(f"with no call left, the Mac can sleep again ({gone} s)", gone is not None and children(haiku) == 0)
     finally:
         await socket_side.close()
         voice.terminate()

@@ -6,7 +6,8 @@
 // prompt, or a question the session asks you, is put to you on a call first (see "Ringback
 // mod" in docs/design.md). It stays on through a reload of the mod, and when you resume the
 // session after Claude Code restarts. While the voice server is down, as when it restarts,
-// it tries again instead of giving up.
+// it tries again instead of giving up. It tells the voice server whether Remote Control is on
+// in the session, so a question held outside your work hours can go to the Claude app.
 import type { EngineInterface, HttpResponse, Register } from 'claude-code'
 
 // What the session is asked to write when a turn ends. The voice, a faster model, talks
@@ -74,8 +75,14 @@ const RETRY_MS = 30_000
 const RETRY_FOR_MS = 30 * 60_000
 // While the voice server can't be reached, what the session asks you is asked again this often.
 const REACH_MS = 5000
+// While it's on, whether Remote Control is on is looked at this often, for the line under the
+// prompt.
+const REMOTE_MS = 10_000
 
 let isOn = false
+// Whether Remote Control is on in this session, as last looked at.
+let isRemote = false
+let watching: { cancel(): void } | undefined
 // The session is writing its briefing, in a turn this mod started.
 let isBriefing = false
 let isCalling = false
@@ -143,7 +150,8 @@ export const register: Register = on => {
   // the dialog never shows. Without them, it shows in the terminal as usual: when you hang up
   // without answering, switch ringback off, or after 15 min. A call you don't answer leaves the
   // question waiting for a call back, so the dialog shows only after those 15 min. Outside your
-  // work hours it shows at once, so Remote Control can answer it.
+  // work hours it waits for the call, which rings when they start; or, if you send it to the
+  // Claude app from the phone, the dialog shows, and Remote Control shows it there.
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
     if (!isOn) return next(e)
     const answer = await hold($, 'questions', await questions($, e.questions), next.signal)
@@ -178,11 +186,40 @@ export const register: Register = on => {
   })
 }
 
-// The end of the dim line under the prompt, while ringback is on.
+// The end of the dim line under the prompt, while ringback is on, with "Remote Control" while
+// it sees Remote Control on in the session.
 function tail(): string {
-  if (unreached.size || retry) return '☎ waiting for the voice server…'
-  if (holds.size) return '☎ asking you on the phone…'
-  return isCalling ? '☎ calling your phone…' : '☎ ringback on'
+  const remote = isRemote ? ' · Remote Control' : ''
+  if (unreached.size || retry) return `☎ waiting for the voice server…${remote}`
+  if (holds.size) return `☎ asking you on the phone…${remote}`
+  return `${isCalling ? '☎ calling your phone…' : '☎ ringback on'}${remote}`
+}
+
+// Whether Remote Control is on in this session. No mod API says so. Claude Code sets
+// CLAUDE_CODE_BRIDGE_SESSION_ID in the Bash tool's and hooks' commands while the session has an
+// active Remote Control connection, and removes it when that ends (from 2.1.199). Whether a
+// mod's `$.env` has it isn't documented, so when it doesn't, a command run here is asked too;
+// either answering counts. Likely neither does: neither saw the other variables documented
+// that way, such as CLAUDE_EFFORT (tools/env-check); not tried with Remote Control on. The
+// line under the prompt shows what it found, and the debug log says when it changed and which
+// answered.
+async function remoteControl($: EngineInterface): Promise<boolean> {
+  let seen: string | undefined
+  try {
+    if (await $.env.get('CLAUDE_CODE_BRIDGE_SESSION_ID')) seen = '$.env'
+    else {
+      const { exitCode, stdout } = await $.process.run(['/usr/bin/printenv', 'CLAUDE_CODE_BRIDGE_SESSION_ID'])
+      if (exitCode === 0 && stdout.trim()) seen = 'printenv'
+    }
+  } catch (e) {
+    $.ui.log(`couldn't tell whether Remote Control is on: ${e}`, { to: 'debug' })
+  }
+  if ((seen !== undefined) !== isRemote) {
+    isRemote = seen !== undefined
+    $.ui.log(isRemote ? `Remote Control is on (seen by ${seen})` : 'Remote Control is off', { to: 'debug' })
+    $.ui.invalidate('ui.render')
+  }
+  return isRemote
 }
 
 // Switches ringback on or off, and remembers it: for a reload of the mod, and by the session's
@@ -193,7 +230,11 @@ async function switchTo($: EngineInterface, on: boolean, isRemembered = true): P
   isBriefing = false
   collecting?.cancel()
   collecting = isOn ? $.clock.every(1000, () => collect($)) : undefined
-  if (!isOn) {
+  watching?.cancel()
+  watching = isOn ? $.clock.every(REMOTE_MS, () => void remoteControl($)) : undefined
+  if (isOn) void remoteControl($)
+  else {
+    isRemote = false
     for (const stop of holds) stop('Ringback is off')
     retry?.timer.cancel()
     retry = undefined
@@ -369,8 +410,9 @@ async function showHeld($: EngineInterface, heldUntil: unknown): Promise<void> {
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-// The voice server's answer: what a permission or question resolved to, and whether its call
-// is held outside your work hours.
+// The voice server's answer: what a permission or question resolved to (`terminal` when you
+// sent the held call's question to the Claude app), and whether its call is held outside your
+// work hours.
 type Answer = {
   verdict?: string
   status?: string
@@ -387,9 +429,11 @@ type Answer = {
 // count against the hook's 10 s; a `$.clock.sleep` would, so there's none. Each poll waits
 // 25 s at most, inside the 30 s that one `$.http.fetch` may take. While the call is held
 // outside your work hours, the 15 min start again with each poll, so they count from when
-// it rings; a question then goes to the terminal at once. While the voice server can't be
-// reached, as while it restarts, it's asked again every 5 s within the 15 min; it keeps what
-// was asked across a restart, so a poll carries on. A 404 means it's gone.
+// it rings. If you send its question to the Claude app from the phone, the answer is
+// `terminal`: it's left to the terminal at once, where Remote Control shows it. The ask and
+// each poll say whether Remote Control is on. While the voice server can't be reached, as
+// while it restarts, it's asked again every 5 s within the 15 min; it keeps what was asked
+// across a restart, so a poll carries on. A 404 means it's gone.
 async function hold(
   $: EngineInterface,
   kind: 'permissions' | 'questions',
@@ -433,11 +477,15 @@ async function hold(
   const reachable = () => {
     if (unreached.delete(stop)) $.ui.invalidate('ui.render')
   }
+  // Whether Remote Control is on, unless stopped meanwhile: abandoned, a call on `$` may never
+  // come back.
+  const remoteNow = () => Promise.race([remoteControl($), stopped.then(() => isRemote)])
   try {
     path = `/sessions/${await $.session.id()}/${kind}`
+    const asked = { ...body, remote_control: await remoteNow() }
     let made: Reply
     do {
-      created = reply(voice($, path, body))
+      created = reply(voice($, path, asked))
       made = await Promise.race([created, stopped])
     } while (made.isUnreached && (await unreachable()))
     reachable()
@@ -447,17 +495,15 @@ async function hold(
       return undefined
     }
     if (value.call === 'held') {
-      // Outside your work hours, a question goes to the terminal at once, where Remote
-      // Control can answer it; the held call's voice is told it waits there.
-      if (kind === 'questions') {
-        why = 'Outside your work hours'
-        return undefined
-      }
       restart()
       await showHeld($, value.held_until)
     }
     while (true) {
-      const polled = await Promise.race([reply(voice($, `${path}/${value[id]}?wait=25`)), stopped])
+      const remote = (await remoteNow()) ? 1 : 0
+      const polled = await Promise.race([
+        reply(voice($, `${path}/${value[id]}?wait=25&remote_control=${remote}`)),
+        stopped,
+      ])
       if (polled.isUnreached) {
         if (await unreachable()) continue
         return undefined
@@ -470,7 +516,8 @@ async function hold(
         return answer
       }
       if (polled.error) why = `Lost the phone's answer: ${polled.error}`
-      // `none`, a failed request, or stopped.
+      if (got?.verdict === 'terminal' || got?.status === 'terminal') why = 'You sent it to the Claude app from the phone'
+      // `none`, `terminal`, a failed request, or stopped.
       if (got?.verdict !== 'pending' && got?.status !== 'pending') return undefined
     }
   } finally {

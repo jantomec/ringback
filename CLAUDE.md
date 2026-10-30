@@ -23,9 +23,14 @@ a call you didn't answer, from the app's call history; what the missed call aske
 the call back while the session's mod holds it, 15 min) and step 6 (work hours, set in the
 app, outside which the switchboard holds a call and the calling Mac asks again when they
 start) are built, tried offline (`tools/call-check`, `tools/handover-check`,
-`tools/ask-check`, `tools/phone-check --back`) and worked on the phone (2026-10-30). Step 7,
-questions outside your work hours going to the terminal at once, is tried offline only. The
-voice now asks several things one at a time and passes the answers on together. Stages 4
+`tools/ask-check`, `tools/phone-check --back`) and worked on the phone (2026-10-30). Step 7
+was rebuilt (2026-10-30): a question outside your work hours waits for the held call, the
+phone gets one notification and the app lists the call with its question, and a swipe
+action ("Claude App") sends the question to the session's own dialog, which Remote Control
+shows in the Claude app, and forgets the call; it's tried offline only (`tools/ask-check`,
+the switchboard's smoke test, the mod's tests, `tools/swipe-check`). Whether the mod can
+see that Remote Control is on is doubtful (`tools/env-check`): the phone test settles it.
+The voice now asks several things one at a time and passes the answers on together. Stages 4
 (staying up through restarts: the voice server keeps its calls in a state file, the mod
 remembers `/ringback`), 5 (waiting calls in the app, and calling one now) and 6 (weak
 signal: the Mac sends mono at 24 kbps with forward error correction, asks the phone for the
@@ -70,9 +75,10 @@ Nebula, speech-to-text, speech speed, reply speed, briefings, scripted calls
 (`phone-check`), what sessions ask the voice server (`ask-check`), Opus taking a call
 over (`handover-check`), what the voice speaks around its tool calls (`reply-check`), the
 voice server's calls through a restart (`restart-check`), the call's Opus with lost
-packets (`opus-check`; `phone-check --signal` runs it through a call), and how long a call's
-connection lasts on a slow network (`ice-check`)). How to set it all up
-and place a test call: `docs/setup.md`.
+packets (`opus-check`; `phone-check --signal` runs it through a call), how long a call's
+connection lasts on a slow network (`ice-check`), what `.disabled` does to a SwiftUI swipe
+action (`swipe-check`), and what a mod sees of its session's environment (`env-check`)).
+How to set it all up and place a test call: `docs/setup.md`.
 
 ## Checks
 

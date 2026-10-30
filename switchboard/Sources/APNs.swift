@@ -14,6 +14,9 @@ struct APNs {
         case voip
         /// Wakes the app for a moment without showing anything. Goes to the notification token.
         case background
+        /// An ordinary notification, as any app's: shown, and sounding, as your Focus allows.
+        /// Goes to the notification token.
+        case alert
     }
 
     let bundleID: String
@@ -43,8 +46,10 @@ struct APNs {
     }
 
     /// Sends one push; returns APNs' status and its reason if it refused. It expires at once,
-    /// so a phone that's offline doesn't get it later.
-    func push(to deviceToken: String, environment: String, kind: Kind = .voip, payload: [String: Any]) async throws -> (Int, String) {
+    /// so a phone that's offline doesn't get it later, unless it's kept until `expiresAt`.
+    func push(
+        to deviceToken: String, environment: String, kind: Kind = .voip, expiresAt: Date? = nil, payload: [String: Any]
+    ) async throws -> (Int, String) {
         guard let host = Self.hosts[environment], let url = URL(string: "\(host)/3/device/\(deviceToken)") else {
             throw URLError(.badURL)
         }
@@ -52,9 +57,16 @@ struct APNs {
         request.httpMethod = "POST"
         request.setValue("bearer \(bearer)", forHTTPHeaderField: "authorization")
         request.setValue(kind == .voip ? "\(bundleID).voip" : bundleID, forHTTPHeaderField: "apns-topic")
-        request.setValue(kind == .voip ? "voip" : "background", forHTTPHeaderField: "apns-push-type")
-        request.setValue(kind == .voip ? "10" : "5", forHTTPHeaderField: "apns-priority")  // background must be 5
-        request.setValue("0", forHTTPHeaderField: "apns-expiration")
+        let type =
+            switch kind {
+            case .voip: "voip"
+            case .background: "background"
+            case .alert: "alert"
+            }
+        request.setValue(type, forHTTPHeaderField: "apns-push-type")
+        request.setValue(kind == .background ? "5" : "10", forHTTPHeaderField: "apns-priority")  // background must be 5
+        let expiration = expiresAt.map { String(Int($0.timeIntervalSince1970)) } ?? "0"
+        request.setValue(expiration, forHTTPHeaderField: "apns-expiration")
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
         let (data, response) = try await URLSession.shared.data(for: request)
         let reason = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["reason"] as? String
@@ -107,6 +119,39 @@ func ring(project: String, subject: String?, voice: String?, callID: String? = n
             }
         } catch {
             lines.append("call \(callID.prefix(8)) → \(name): \((error as? APNsSetupError)?.description ?? error.localizedDescription)")
+        }
+    }
+    return lines
+}
+
+/// Tells every phone that a call held outside your work hours has a question, with one
+/// ordinary notification to its notification token: "<project> has a question", and the call's
+/// subject. Its interruption level is the default (active), so your Focus decides whether it
+/// shows and sounds, as for any app's. Tapping it opens the app, which lists the call. APNs
+/// keeps it until the call would ring anyway (`until`), for a phone that's off meanwhile.
+/// Returns one line per phone.
+func notifyQuestion(callID: String, project: String, subject: String?, until: Date?) async -> [String] {
+    let config = loadConfig()
+    var lines: [String] = []
+    var clients: [String: APNs] = [:]
+    let alert = ["title": "\(project) has a question", "body": subject ?? "It waits for your work hours."]
+    let payload: [String: Any] = ["aps": ["alert": alert, "sound": "default", "interruption-level": "active"]]
+    for device in Devices.load().values.sorted(by: { ($0["device"] ?? "") < ($1["device"] ?? "") }) {
+        let line = "call \(callID.prefix(8)): question → \(device["device"] ?? "a phone")"
+        guard let token = device["notification_token"] else {
+            lines.append("\(line): no notification token")
+            continue
+        }
+        let environment = device["environment"] ?? "sandbox"
+        do {
+            if clients[environment] == nil {
+                clients[environment] = try APNs(environment: environment, config: config)
+            }
+            let (status, reason) = try await clients[environment]!.push(
+                to: token, environment: environment, kind: .alert, expiresAt: until, payload: payload)
+            lines.append("\(line): APNs \(status) \(reason)".trimmingCharacters(in: .whitespaces))
+        } catch {
+            lines.append("\(line): \((error as? APNsSetupError)?.description ?? error.localizedDescription)")
         }
     }
     return lines

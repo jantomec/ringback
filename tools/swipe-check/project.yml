@@ -1,0 +1,39 @@
+# Generates the swipe check's project (run.sh does it, outside the repo).
+name: SwipeCheck
+options:
+  deploymentTarget:
+    iOS: "26.0"
+targets:
+  SwipeCheck:
+    type: application
+    platform: iOS
+    sources: [SwipeCheck]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.ringback.swipecheck
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_IDENTITY: "-"
+  SwipeCheckUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [SwipeCheckUITests]
+    dependencies:
+      - target: SwipeCheck
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.ringback.swipecheck.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_IDENTITY: "-"
+        TEST_TARGET_NAME: SwipeCheck
+schemes:
+  SwipeCheck:
+    build:
+      targets:
+        SwipeCheck: all
+        SwipeCheckUITests: [test]
+    test:
+      targets: [SwipeCheckUITests]

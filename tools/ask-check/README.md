@@ -34,18 +34,19 @@ answer is checked there.
 Then calls held outside your work hours: the stand-in switchboard answers `held_until`, as
 the switchboard does outside every phone's hours. It checks:
 - a permission with no call places a held one (`"call": "held"`, with the `held_until` the
-  switchboard gave), which starts no Haiku and keeps the Mac awake (a `caffeinate` child
-  of the voice server); a long poll answers `"held": true`; an offer for it gets 403;
+  switchboard gave, and `"question": false` to the switchboard), which starts no Haiku and
+  keeps the Mac awake (a `caffeinate` child of the voice server); a long poll answers
+  `"held": true`; an offer for it gets 403;
 - a session's new briefing (`/calls`) goes to the held call, without asking the
-  switchboard for another, and a question goes to it too. Withdrawn, as the mod does
-  outside your work hours, the question is asked in the terminal: its long poll gets 404,
-  and the voice server logs it;
+  switchboard for another, and a question goes to it too: the switchboard is asked again at
+  once (within 1 s), with `"question": true`, so it can tell the phone, and the question
+  waits for the call (`pending`, `held`);
 - held for an hour, it's asked again after `--reask` seconds, with the same call ID and
   the new subject; held for 2.5 s, at the time the switchboard gave; after a 503,
   `--reask` seconds later (a minute, in real use); then it rings and Haiku starts;
 - answered, its transcript has the new briefing, and the permission the old briefing
-  asked, and the question, went to the voice as notes, the question as one that waits in
-  the terminal, and the voice said so (it mentions the terminal or the Claude app);
+  asked, and the question, went to the voice as notes; hung up, neither has an answer
+  (`none`);
 - another session's call, held 3 s, rings and isn't answered: it's forgotten
   `--unanswered` seconds after it rang, not after it was placed, and then no Haiku and no
   sleep assertion are left.
@@ -61,6 +62,24 @@ marked `"now": true`):
   waited and it lasted …";
 - a call that rang meanwhile, and wasn't answered yet, is answered as any offer is, and its
   session is told it was answered.
+
+Then sending a held call's question to the Claude app, as the app's swipe action does
+(`POST /claude-app` on the voice server's Nebula side, with the call's ID):
+- a call that doesn't wait here gets 403 (`not waiting`); a held call whose session isn't
+  listening (its mod hasn't collected) gets 409 (`not listening`), and one without a
+  question 409 (`no question`); the held call from a briefing told the switchboard it has
+  neither a question nor Remote Control;
+- a permission, then a question that says Remote Control is on, join it: the switchboard is
+  asked again at once, with both; a long poll that says Remote Control is off, then on
+  again, reaches the switchboard at once each time;
+- with the session listening, it goes (200): the question's and the permission's long polls,
+  waiting meanwhile, get `terminal` at once, and the voice server logs it;
+- the call is forgotten: it isn't asked about at the switchboard again, an offer to call it
+  now and a second try both get 403;
+- its session is told "The call about "…" won't ring: the developer chose on the phone to
+  answer its question in the Claude app instead, with Remote Control.";
+- the mod's withdrawal afterwards is taken (200, then 404), and with no call left, the Mac
+  can sleep again.
 
 Run from the repo root. It uses your Claude subscription, six Haiku sessions:
 
@@ -124,3 +143,12 @@ news is that the config parser crash is fixed…". The session was told "The dev
 about "Parser fix rebased" from the app while it waited and it lasted 24 s." The call that
 rang meanwhile was answered, its voice heard after 1.23 and 2.06 s. Both runs had the voice
 server keeping its state in a file (Stage 4).
+
+Result on 2026-10-30, after questions outside your work hours started waiting for the call
+again, with the Claude app (Stage 3 step 7 rebuilt), two runs: all 61 checks passed each
+time (50 kept, the checks of questions going to the terminal replaced, and 11 new), in 3 min
+58 s and 3 min 15 s with the models loading. The question that joined the held call had the
+switchboard asked again 0.00 s later with a question; answered when it rang, the voice asked
+the permission first, saying there were two things to decide, one at a time. The Claude
+app's request released both waiting long polls as `terminal` 0.01 s after it, and in the
+next 5 s the forgotten call wasn't asked about again.

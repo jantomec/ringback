@@ -52,9 +52,10 @@ enum Switchboard {
         try await post("check", body, timeout: 5)
     }
 
-    /// The calls that wait to ring, held outside your work hours, soonest first. The switchboard
-    /// gives them only to a phone that registered, by its VoIP token: a call's ID lets whoever
-    /// has it take the call.
+    /// The calls that wait to ring, held outside your work hours, soonest first, with whether
+    /// each has a question and Remote Control is on in its session (a switchboard from before
+    /// says neither). The switchboard gives them only to a phone that registered, by its VoIP
+    /// token: a call's ID lets whoever has it take the call.
     static func waiting(token: String) async throws -> [WaitingCall] {
         let data = try await post("waiting", ["token": token], timeout: 5)
         guard let calls = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["calls"] as? [[String: Any]]
@@ -66,7 +67,8 @@ enum Switchboard {
                 let heldUntil = (call["held_until"] as? String).flatMap(iso.date(from:))
             else { return nil }
             return WaitingCall(
-                id: id, project: project, subject: call["subject"] as? String, voice: voice, heldUntil: heldUntil)
+                id: id, project: project, subject: call["subject"] as? String, voice: voice, heldUntil: heldUntil,
+                question: call["question"] as? Bool ?? false, remoteControl: call["remote_control"] as? Bool ?? false)
         }
     }
 

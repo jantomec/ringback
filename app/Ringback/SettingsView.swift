@@ -89,7 +89,7 @@ struct SettingsView: View {
                     if state.calls.isEmpty && state.waiting.isEmpty {
                         Text("No calls yet").foregroundStyle(.secondary)
                     }
-                    ForEach(state.waiting) { WaitingRow(call: $0, calls: calls) }
+                    ForEach(state.waiting) { WaitingRow(call: $0, state: state, calls: calls) }
                     ForEach(state.calls) { CallRow(call: $0, calls: calls) }
                 }
             }
@@ -324,10 +324,17 @@ private struct StatusRow: View {
 }
 
 /// A call that waits for your work hours, at the top of the history in orange, with when it
-/// rings. Tapping it calls it now.
+/// rings, and whether it has a question. Tapping it calls it now. One with a question has a
+/// swipe action, "Claude App", that sends the question to the session's own dialog, which
+/// Remote Control shows in the Claude app; the call then never rings. It works while Remote
+/// Control is on in that session; otherwise it's grey, and its tap only says why. (`.disabled`
+/// on a swipe action blocks the tap but doesn't grey it out: tools/swipe-check.)
 private struct WaitingRow: View {
     let call: WaitingCall
+    let state: AppState
     let calls: CallService
+    @State private var isSending = false
+    @State private var explainsRemoteControl = false
 
     var body: some View {
         Button { calls.callNow(call) } label: {
@@ -338,13 +345,38 @@ private struct WaitingRow: View {
                     if let subject = call.subject {
                         Text(subject).font(.subheadline)
                     }
-                    Text("Waiting · rings at \(rings)").font(.caption).foregroundStyle(.orange)
+                    Text(caption).font(.caption).foregroundStyle(.orange)
                 }
                 Spacer()
             }
             .foregroundStyle(.primary)
         }
         .accessibilityHint("Calls it now")
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if call.question {
+                Button {
+                    guard call.remoteControl else { return explainsRemoteControl = true }
+                    isSending = true
+                    Task {
+                        await ClaudeApp.send(call, state: state)
+                        isSending = false
+                    }
+                } label: {
+                    Label("Claude App", systemImage: "arrow.up.forward.app")
+                }
+                .tint(call.remoteControl ? .indigo : .gray)
+            }
+        }
+        .alert("Remote Control Is Off", isPresented: $explainsRemoteControl) {
+            Button("OK") {}
+        } message: {
+            Text(ClaudeApp.remoteControlOff)
+        }
+    }
+
+    private var caption: String {
+        if isSending { return "Sending its question to the Claude app…" }
+        return "\(call.question ? "Waiting with a question" : "Waiting") · rings at \(rings)"
     }
 
     /// "08:00", or "08:00 on Sat 31 Oct" when it isn't today.

@@ -60,7 +60,10 @@ turn on Voice Isolation in Control Center (Mic Mode), so background noise doesn'
 **Calls** lists every call. Tap a red one (declined, missed or failed) to call that session
 back at once. Calls from an app older than calling back can't be. Calls that wait for your
 work hours show at the top in orange, with when they ring; tap one to call it now, without
-waiting.
+waiting. One whose session asks you a question says so, and the phone gets one notification
+for it. Swipe it left for **Claude App** to send the question to the session's own dialog
+instead, which Remote Control shows in the Claude app; the call then never rings. It's grey,
+and only says why, while the session has Remote Control off.
 
 ## 3. The switchboard (one always-on Mac)
 
@@ -84,7 +87,9 @@ it:
 It listens only on its Nebula address. Phones register at `/register` and report call
 events at `/events`, and voice servers ask it to ring at `/call`. Those are kept in
 `~/.local/state/ringback/` (`devices.json` and `events.jsonl`), with the calls that wait for
-your work hours (`waiting.json`), which the app fetches at `/waiting`.
+your work hours (`waiting.json`), which the app fetches at `/waiting`. The first time a call
+that waits has a question, it sends the phone an ordinary notification, with the same APNs
+key.
 
 Every 30 min it wakes each phone with a background push, and the app checks in at
 `/check` over Nebula; if it can't, the phone warns you. `ringback-switchboard check` does
@@ -95,6 +100,10 @@ Work hours (a setting in the app) need the voice servers updated too: one from b
 takes a call the switchboard holds for one that rang, so the call is lost and its session
 hears it wasn't answered. Calling a waiting call from the app needs all three updated: a
 voice server from before it refuses the call, and the app says it isn't waiting any more.
+Questions outside your work hours (their notification and **Claude App**) need all four
+updated, the mod with the voice server: a mod from before gives the question to the
+terminal at once, a switchboard from before sends no notification and lists no question,
+and an app from before shows no swipe action.
 
 ## 4. The voice server (every Mac that runs sessions)
 
@@ -219,7 +228,10 @@ with options go to the call instead of the terminal, and show there only if the 
 brings no answer. In auto mode, what auto mode approves by itself never rings. If you don't
 answer the call, both wait for you to call it back from the app, or for the session's next
 call, for up to 15 min: a question then shows in the terminal only after those 15 min, or
-once you run `/ringback` to switch calling off.
+once you run `/ringback` to switch calling off. Outside your work hours they wait for the
+call, which rings when your hours start, and the 15 min count from then; a question can go
+to the Claude app from the phone instead, while Remote Control is on in the session. The
+dim line under the prompt ends with "· Remote Control" while ringback sees it on.
 
 `tools/session-check` tries a session's call without the phone.
 

@@ -9,8 +9,10 @@ app, once you've answered. The voice opens when you've answered and audio is con
 new offer for the same call replaces the earlier one, as when an offer made while ringing
 didn't connect. An offer marked "back" calls back a call you didn't answer, from the phone's
 call history: it's answered at once, and the voice picks up. So is an offer marked "now",
-for a call held outside your work hours that you called from the app's waiting calls. What it
-keeps for sessions and their calls is written beside the socket, and read again at start
+for a call held outside your work hours that you called from the app's waiting calls. From
+there you can also send a held call's question to the Claude app (/claude-app): the session
+asks it in its own dialog, which Remote Control shows there, and the call is forgotten. What
+it keeps for sessions and their calls is written beside the socket, and read again at start
 (sessions.py).
 
 The call is a conversation: Parakeet v2 hears you, Haiku answers in a Claude Code session
@@ -476,6 +478,20 @@ def main() -> None:
         mark_answered(call_id)
         return web.json_response({"ok": True})
 
+    async def claude_app(request: web.Request) -> web.Response:
+        """You sent a waiting call's question to the Claude app, from the app's waiting calls:
+        the session asks it in its own dialog, which Remote Control shows there, and the call
+        is forgotten. Like an offer, it needs the call's ID. 403 for a call that doesn't wait
+        here; 409 if its session isn't listening, or it has no question."""
+        try:
+            call_id = str((await request.json()).get("call_id", ""))
+        except (ValueError, AttributeError):
+            return web.json_response({"error": "needs call_id"}, status=400)
+        if why := await calls.to_claude_app(call_id):
+            log(f"call {call_id[:8]}: its question can't go to the Claude app, {why}")
+            return web.json_response({"error": why}, status=403 if why == "not waiting" else 409)
+        return web.json_response({"ok": True})
+
     async def serve_forever():
         async def ping(request: web.Request) -> web.Response:
             # The phone checks it can reach this Mac while it rings (AudioLink.reach).
@@ -484,7 +500,10 @@ def main() -> None:
         args.socket.parent.mkdir(parents=True, exist_ok=True)
         await calls.restore()
         app = web.Application()
-        app.add_routes([web.post("/offer", offer), web.post("/answered", answer), web.get("/ping", ping)])
+        app.add_routes([
+            web.post("/offer", offer), web.post("/answered", answer), web.post("/claude-app", claude_app),
+            web.get("/ping", ping),
+        ])  # fmt: skip
         runner = web.AppRunner(app)
         await runner.setup()
         host, port = args.listen.rsplit(":", 1)

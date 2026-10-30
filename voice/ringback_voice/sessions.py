@@ -19,7 +19,12 @@ its outcome waits here for the mod too, as a note the session reads rather than 
 Outside your work hours (set in the app) the switchboard holds a call instead of ringing,
 and says when the hours start. The call is kept here meanwhile, without Haiku, and the
 switchboard is asked again then, or within REASK s, so hours you widen apply soon. A new
-briefing from its session replaces the held call's, and what the session asks goes to it.
+briefing from its session replaces the held call's, and what the session asks goes to it, a
+question too: it waits for the call, and the switchboard is asked again at once, so the phone
+gets a notification. The switchboard also hears whether Remote Control is on in the session,
+as its mod last said. From the app's waiting calls, you can send a held call's question to
+the session's own dialog instead, which Remote Control shows in the Claude app: the call is
+then forgotten.
 
 When the session needs your permission, or asks you questions, its mod holds the tool call
 and asks here (an Ask). The call you're on with that session gets it as a note; otherwise a
@@ -162,8 +167,7 @@ class Link:
         """The call has a new briefing, which doesn't mention what the old one asked: the
         asks still waiting for it go to the voice as notes instead."""
         briefed, self._briefed = self._briefed, []
-        # Notes about what no longer waits, such as a question since asked in the terminal,
-        # are old news by now.
+        # Notes about what no longer waits are old news by now.
         self._notes = [(a, t) for a, t in self._notes if a is None or self.asks.get(a.id) is a]
         for ask in briefed:
             if self.asks.get(ask.id) is ask:
@@ -199,17 +203,10 @@ class Link:
         if self.transcript:
             self.transcript.add("No longer asked", f"{ask.name}: {why}")
 
-    def to_terminal(self, ask: "Ask") -> bool:
-        """Takes back a question from this held call, which the session asks in the terminal
-        instead, outside your work hours. Its note becomes one saying it waits there; True if
-        the call's briefing asks it, for the caller to replace."""
-        if self.asks.pop(ask.id, None) is None:
-            return False
-        if ask in self._briefed:
-            self._briefed.remove(ask)
-            return True
-        self._notes = [(a, t) for a, t in self._notes if a is not ask] + [(ask, ask.in_terminal())]
-        return False
+    @property
+    def has_question(self) -> bool:
+        """Whether the session asks questions on this call and waits for the answer."""
+        return any(ask.kind == "question" for ask in self.asks.values())
 
 
 @dataclass
@@ -221,7 +218,9 @@ class Ask:
     kind: str  # "permission" or "question"
     session: str
     request: dict  # as the mod sent it, checked
-    outcome: str | None = None  # allow, deny or answered; none if you hung up without one
+    # allow, deny or answered; none if you hung up without one; terminal if you sent the held
+    # call's question to the Claude app, so the session asks in its own dialog or prompt
+    outcome: str | None = None
     said: str | None = None  # your words, as the voice heard them
     answers: dict[str, str] | None = None  # each question's answer
     settled: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
@@ -273,26 +272,6 @@ class Ask:
         return (
             f"The session asks, and waits for the answer.\n{self.details()}{self.context()}\n"
             f"Put it to the developer, then answer with {how}."
-        )
-
-    def in_terminal(self, briefing: bool = False) -> str:
-        """For a question asked outside your work hours, which waits in the terminal instead:
-        the note for the held call's voice, or its briefing if the call was placed to ask it."""
-        where = (
-            "Outside the developer's work hours it was asked in the terminal instead, where it "
-            "waits for their answer: they can give it there, or from the Claude app with Remote "
-            "Control. You can't answer it on this call, so don't call answer_question for it."
-        )
-        if briefing:
-            return (
-                f"The session has stopped because it has questions for the developer, and this call is "
-                f"about that. {where} Open the call by saying it waits there, then talk it through if "
-                f"they want.\n\n{self.details()}\n{self.context()}"
-            )
-        return (
-            f"The session has a question for the developer. {where} Tell them in your next turn, in a "
-            "sentence, even while you ask them other things: it's news, not one of the things to ask "
-            f"one at a time. Talk it through if they want.\n{self.details()}{self.context()}"
         )
 
     def briefing(self) -> str:
@@ -361,6 +340,9 @@ class Call:
     # offset), until it rings.
     held_until: str | None = None
     holding: asyncio.Task | None = field(default=None, repr=False)  # asks the switchboard again
+    # Set while held, to ask the switchboard again at once: a question joined the call, or
+    # Remote Control changed in its session.
+    reask: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     # When it was placed, or its briefing replaced while it was held, by the clock (time.time()),
     # for how long ago.
     at: float = field(default_factory=time.time)
@@ -392,15 +374,21 @@ class Calls:
         self._pool: dict[str, dict[str, Ask]] = {}
         self._past: dict[str, tuple[Call, float]] = {}  # forgotten calls, and when, for a day
         self._seen: dict[str, float] = {}  # when each session's mod last collected (time.monotonic())
+        # The sessions whose mod last said Remote Control is on in them.
+        self._remote: set[str] = set()
         self._keeping: set[asyncio.Task] = set()  # each waits for an answer, then forgets it
         self._asking = asyncio.Lock()
         self._awake: asyncio.subprocess.Process | None = None
         self._closing: set[asyncio.Task] = set()  # Haikus of forgotten calls, while they close
 
-    async def place(self, session: str, project: str, cwd: str, subject: str, briefing: str) -> Call:
+    async def place(
+        self, session: str, project: str, cwd: str, subject: str, briefing: str, ask: "Ask | None" = None
+    ) -> Call:
         """Asks the switchboard to ring the phone; raises RuntimeError if it can't. Outside
         your work hours the switchboard holds the call (its held_until), and a new briefing
-        for a session whose call is held goes to that call instead of placing another."""
+        for a session whose call is held goes to that call instead of placing another. A call
+        placed to ask something has it in its briefing (`ask`), so the switchboard knows from
+        the start whether it has a question."""
         if not self._switchboard:
             raise RuntimeError("the voice server was started without --switchboard")
         if held := next((c for c in self._calls.values() if c.session == session and c.held_until), None):
@@ -411,8 +399,10 @@ class Calls:
             self._save()
             return held
         call = Call(secrets.token_urlsafe(24), session, project, cwd, subject, briefing, time.monotonic())
-        held_until = await self._ask_switchboard(call)
         call.link = self._link(call)
+        if ask:
+            call.link.ask(ask, briefed=True)
+        held_until = await self._ask_switchboard(call)
         self._calls[call.id] = call
         if held_until:
             call.held_until = held_until
@@ -433,8 +423,14 @@ class Calls:
     async def _ask_switchboard(self, call: Call) -> str | None:
         """Asks the switchboard to ring the phone for a call: None if it rings, or when it
         can ring if it holds the call outside your work hours. Raises RuntimeError if it can't
-        be reached or refuses."""
-        body = {"project": call.project, "subject": call.subject, "voice": f"http://{self._voice}", "call_id": call.id}
+        be reached or refuses. It hears whether the call has a question, so it can tell the
+        phone of a held one, and whether Remote Control is on in its session, as last said, so
+        the app knows whether the question can go to the Claude app; a switchboard from before
+        ignores both."""
+        body = {
+            "project": call.project, "subject": call.subject, "voice": f"http://{self._voice}", "call_id": call.id,
+            "question": bool(call.link and call.link.has_question), "remote_control": call.session in self._remote,
+        }  # fmt: skip
         try:
             async with ClientSession(timeout=ClientTimeout(total=10)) as http:
                 async with http.post(f"http://{self._switchboard}/call", json=body) as response:
@@ -466,12 +462,17 @@ class Calls:
 
     async def _hold(self, call: Call) -> None:
         """Asks the switchboard again about a held call when it said the call can ring, or
-        after REASK s if that's sooner, until it rings; RETRY s after a try that fails. The
-        wait is on the wall clock, which goes on while the Mac sleeps."""
+        after REASK s if that's sooner, until it rings; RETRY s after a try that fails; and at
+        once when it has news for the switchboard (`reask`). The wait is on the wall clock,
+        which goes on while the Mac sleeps."""
         due = wake(call.held_until)
         while True:
-            while (left := due - time.time()) > 0:
-                await asyncio.sleep(min(left, TICK))
+            while (left := due - time.time()) > 0 and not call.reask.is_set():
+                try:
+                    await asyncio.wait_for(call.reask.wait(), min(left, TICK))
+                except TimeoutError:
+                    pass
+            call.reask.clear()
             try:
                 held_until = await self._ask_switchboard(call)
             except RuntimeError as e:
@@ -521,7 +522,7 @@ class Calls:
             missed = past[0]
         else:
             return None
-        listening = time.monotonic() - self._seen.get(missed.session, float("-inf")) < LISTENING
+        listening = self.listening(missed.session)
         # The session's latest call, if it placed one after this.
         later = max(
             [c for c in self._calls.values() if c.session == missed.session and not c.back]
@@ -565,6 +566,62 @@ class Calls:
         self._log(f"call {call.id[:8]}: called now from the app, held until {held.held_until}: {call.subject!r}")
         await self._pick_up(call)
         return call
+
+    async def to_claude_app(self, call_id: str) -> str | None:
+        """Sends a held call's question to the session's own dialog, which Remote Control
+        shows in the Claude app, as you asked from the app's waiting calls. What the call asks
+        is settled as `terminal`: the mod lets the dialog show, and a permission's prompt, which
+        shows anyway, stays. The call is forgotten: it never rings, isn't asked about at the
+        switchboard any more, and can't be called back. Its session is told. Returns why it
+        can't, if it can't: the call doesn't wait here ("not waiting", as when it rang
+        meanwhile), its session isn't listening ("not listening"), or it has no question ("no
+        question")."""
+        call = self._calls.get(call_id)
+        if not call or not call.held_until:
+            return "not waiting"
+        if not self.listening(call.session):
+            return "not listening"
+        if not call.link.has_question:
+            return "no question"
+        self._calls.pop(call.id)
+        if call.holding:
+            call.holding.cancel()
+        asked = list(call.link.asks.values())
+        call.link.asks.clear()
+        for ask in asked:
+            ask.settle("terminal")
+        names = ", ".join(ask.name for ask in asked)
+        self._log(f"call {call.id[:8]}: {names} sent to the Claude app from the phone, and the call forgotten")
+        about = f'The call about "{call.subject}"' if call.subject else "The held call"
+        self.send(
+            call.session,
+            f"{about} won't ring: the developer chose on the phone to answer its question in the Claude app "
+            "instead, with Remote Control.",
+            kind="outcome",
+        )
+        await self._stay_awake()
+        return None
+
+    def listening(self, session: str) -> bool:
+        """Whether a session's mod collected what waits for it within LISTENING s: ringback is
+        on in it, and it hasn't ended."""
+        return time.monotonic() - self._seen.get(session, float("-inf")) < LISTENING
+
+    def remote_control(self, session: str, on: bool) -> None:
+        """What a session's mod says about Remote Control in it, with what it asks. When that
+        changes, a held call of the session asks the switchboard again at once, so the app soon
+        knows whether its question can go to the Claude app."""
+        if (session in self._remote) == on:
+            return
+        if on:
+            self._remote.add(session)
+        else:
+            self._remote.discard(session)
+        self._log(f"session {session[:8]}: Remote Control {'on' if on else 'off'}")
+        for call in self._calls.values():
+            if call.session == session and call.held_until:
+                call.reask.set()
+        self._save()
 
     async def _pick_up(self, call: Call) -> None:
         """A call you made, answered at once: Haiku writes the opening of a call you made, and
@@ -633,7 +690,8 @@ class Calls:
         """Puts what a session asks to the call you're on with it ("live"), or to its call
         that's ringing, for once you answer ("placed"), or held outside your work hours
         ("held"); otherwise places a call to ask it ("placed" or "held"). Returns it, how, and
-        when a held call can ring. Raises RuntimeError if no call can be placed."""
+        when a held call can ring. Raises RuntimeError if no call can be placed. A question
+        that joins a held call has it ask the switchboard again at once, which tells the phone."""
         # One at a time: parallel tool calls can ask at once, and should share one call.
         async with self._asking:
             ask = Ask(new_id(self._asks), kind, session, request)
@@ -641,10 +699,11 @@ class Calls:
             ours = [c for c in self._calls.values() if c.session == session and c.link.listening]
             if call := ([c for c in ours if c.answered_at is not None] or ours or [None])[-1]:
                 call.link.ask(ask)
+                if call.held_until and kind == "question":
+                    call.reask.set()
             else:
                 r = request
-                call = await self.place(session, r["project"], r["cwd"], r["subject"], ask.briefing())
-                call.link.ask(ask, briefed=True)
+                call = await self.place(session, r["project"], r["cwd"], r["subject"], ask.briefing(), ask)
             how = "live" if call.answered_at is not None else "held" if call.held_until else "placed"
             self._asks[ask.id] = ask
         self._log(f"call {call.id[:8]}: {ask.name} for session {session[:8]}, {how}: {ask.details()[:100]!r}")
@@ -682,13 +741,9 @@ class Calls:
         self._asks.pop(ask.id, None)
         self._pool.get(ask.session, {}).pop(ask.id, None)
         for call in self._calls.values():
-            if ask.kind == "question" and call.held_until and ask.id in call.link.asks:
-                # Outside your work hours, the mod gives a question to the terminal at once.
-                if call.link.to_terminal(ask):
-                    call.briefing = ask.in_terminal(briefing=True)
-                self._log(f"call {call.id[:8]}: {ask.name} is asked in the terminal, outside your work hours")
-            else:
-                call.link.drop(ask, "it withdrew the question" if ask.kind == "question" else "it withdrew the request")
+            if call.held_until and ask.kind == "question" and ask.id in call.link.asks:
+                call.reask.set()  # so the app soon stops showing the question
+            call.link.drop(ask, "it withdrew the question" if ask.kind == "question" else "it withdrew the request")
         ask.settle("withdrawn")  # wakes those waiting for it, who find it gone
         self._save()
 
@@ -798,6 +853,7 @@ class Calls:
             "pool": {session: [ref(a) for a in pool.values()] for session, pool in self._pool.items() if pool},
             "kept": [ref(a) for a in self._asks.values()],
             "waiting": {session: messages for session, messages in self._waiting.items() if messages},
+            "remote_control": sorted(self._remote),
             "asks": [
                 {"id": a.id, "kind": a.kind, "session": a.session, "request": a.request, "outcome": a.outcome,
                  "said": a.said, "answers": a.answers}
@@ -826,6 +882,7 @@ class Calls:
             pool = {session: {asks[i].id: asks[i] for i in refs} for session, refs in data["pool"].items()}
             kept = {asks[i].id: asks[i] for i in data["kept"]}
             waiting = {session: list(messages) for session, messages in data["waiting"].items()}
+            remote = {str(session) for session in data.get("remote_control", [])}  # not in older files
         except FileNotFoundError:
             return
         except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError) as e:
@@ -833,7 +890,7 @@ class Calls:
             self._log(f"can't read {self._state} ({type(e).__name__}: {e}); set aside as {aside.name}, starting afresh")
             self._state.replace(aside)
             return
-        self._past, self._pool, self._asks, self._waiting = past, pool, kept, waiting
+        self._past, self._pool, self._asks, self._waiting, self._remote = past, pool, kept, waiting, remote
         for call in calls:
             if call.held_until:
                 self._calls[call.id] = call
@@ -979,12 +1036,15 @@ def session_side(calls: Calls) -> web.Application:
       `POST /sessions/{id}/questions` asks you questions, each with their options. Either is
       put to the call you're on with the session (`"call": "live"`) or to one placed to ask
       it (`"placed"`), or held outside your work hours (`"held"`, with `held_until`), and
-      answered with its id; 502 if no call can be placed;
+      answered with its id; 502 if no call can be placed. `remote_control` (true or false)
+      says whether Remote Control is on in the session;
     - `GET .../{ask}?wait=S` waits up to S seconds (at most 25) for the answer: a permission's
-      `verdict` (allow, deny, none or pending), or the questions' `status` (answered, none or
-      pending) and `answers`, with your `said`, and `"held": true` while its call is held.
-      None: you hung up without answering it. A call you didn't answer leaves it pending,
-      for the next call with the session you answer;
+      `verdict` (allow, deny, none, terminal or pending), or the questions' `status`
+      (answered, none, terminal or pending) and `answers`, with your `said`, and
+      `"held": true` while its call is held. None: you hung up without answering it.
+      Terminal: you sent the held call's question to the Claude app, so the session asks in
+      its own dialog. A call you didn't answer leaves it pending, for the next call with the
+      session you answer. `&remote_control=1` (or 0) says again whether Remote Control is on;
     - `POST .../{ask}` records an answer, as the voice does (for tools);
     - `DELETE .../{ask}` withdraws it: the session no longer waits for an answer.
     """
@@ -1036,6 +1096,9 @@ def session_side(calls: Calls) -> web.Application:
             except ValueError:
                 needs = "tool" if kind == "permission" else "questions, each with a question and options with labels"
                 return web.json_response({"error": f"needs {needs}"}, status=400)
+            if isinstance(body.get("remote_control"), bool):
+                # Before the switchboard hears of the call, so it hears this too.
+                calls.remote_control(request.match_info["id"], body["remote_control"])
             try:
                 asked, how, held_until = await calls.ask(request.match_info["id"], kind, checked)
             except RuntimeError as e:
@@ -1055,6 +1118,8 @@ def session_side(calls: Calls) -> web.Application:
 
         async def wait(request: web.Request) -> web.Response:
             a = asked(request)
+            if (on := request.query.get("remote_control")) in ("0", "1"):
+                calls.remote_control(request.match_info["id"], on == "1")
             try:
                 seconds = float(request.query.get("wait", 0))
             except ValueError:

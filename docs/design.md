@@ -53,7 +53,9 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
    switch it on:
    - `/ringback` switches calling on or off for its session, at once and without a
      Claude turn. While it's on, the dim line under the prompt ends with "☎ ringback on",
-     where Remote Control shows too (a placeholder until ringback has an icon).
+     where Remote Control shows too (a placeholder until ringback has an icon), and then
+     "· Remote Control" while ringback sees Remote Control on in the session (Stage 3,
+     step 7).
      **Remembered** (Stage 4; built, not yet tried on the phone): it stays on through a
      reload of the mod, and when you resume the session after Claude Code restarts
      (`claude --resume`), until you switch it off. Through a reload it's kept in `$.state`;
@@ -109,15 +111,32 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      and gives your answer back as the dialog's own, so the dialog doesn't show. Without
      an answer, it does, as for permissions. So after a call you didn't answer, the dialog
      shows only after 15 min, or once you switch ringback off.
-     - **Outside your work hours** (Stage 3, step 7), a question goes to the terminal at
-       once, instead of waiting for the morning call: Remote Control keeps it open until
-       you answer it from the Claude app, and can push you a notification ("Push when
-       actions required" in `/config`). The call stays held. When it rings in the morning,
-       the voice says the question waits in the terminal and can talk it through, but
-       can't answer it: the dialog takes no answer from a hook. If you've answered it by
-       then, the session's next briefing has replaced the call's. Permissions are
-       unchanged: their terminal prompt shows anyway, so the morning call can still
-       answer them.
+     - **Outside your work hours** (Stage 3, step 7; built, not yet tried on the phone), a
+       question waits for the held call as anything the session asks does: the session
+       waits, the mod's 15 min count from when the call rings, and when your hours start the
+       call rings and the voice asks it. Meanwhile the phone gets one notification that the
+       call has a question (the switchboard's waiting calls), and the app lists it. From
+       there you can send the question to the Claude app instead (the iPhone app's waiting
+       calls): the voice server answers the mod's poll `terminal`, the mod lets the dialog
+       show, and Remote Control shows it in the Claude app, with its own "action required"
+       notification ("Push when actions required" in `/config`). The held call is then
+       forgotten and never rings. Permissions are unchanged: their terminal prompt shows
+       anyway, and with Remote Control in the Claude app too; sent with a question to the
+       Claude app, they're left to that prompt.
+     - **Remote Control.** The app offers that only while Remote Control is on in the
+       session, and no mod API says whether it is. Claude Code's docs say that from 2.1.199
+       `CLAUDE_CODE_BRIDGE_SESSION_ID` is set in the Bash tool's and hooks' commands while
+       the session has an active Remote Control connection, and removed when it ends. The
+       mod reads it with `$.env.get`, and if that has nothing, runs `printenv` for it
+       (`$.process.run`); either answering counts. It looks with each ask and each long poll,
+       and every 10 s while ringback is on, for the line under the prompt; the debug log says
+       when it changed and which of the two saw it. Likely neither sees it: in a session
+       started from an ordinary terminal, neither saw the other variables the docs describe
+       the same way, such as `CLAUDE_EFFORT`, which the Bash tool had (`tools/env-check`,
+       2026-10-30, Claude Code 2.1.314). Not tried with Remote Control on. And a session
+       started inside another session's Bash tool inherits that session's
+       `CLAUDE_CODE_BRIDGE_SESSION_ID`, which Claude Code leaves alone, so ringback would
+       see Remote Control on there.
 2. **Voice server's session side** (`voice/ringback_voice/sessions.py`). The voice server
    also listens on a Unix socket that only you can open
    (`~/.local/state/ringback/voice.sock`), for the mods of the sessions on its Mac:
@@ -149,7 +168,22 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        instead of placing a second call. What the old briefing asked goes to the voice as
        notes, since the new one doesn't mention it;
      - what the session asks goes to the held call (`"call": "held"`, with `held_until`),
-       and the mod's long polls answer `"held": true`;
+       and the mod's long polls answer `"held": true`. A question that joins it has the
+       switchboard asked again at once, so the phone is told of it (Stage 3 step 7), and
+       so does a change in Remote Control, so the app soon knows;
+     - each time the switchboard is asked about a call, it hears whether the call has a
+       question and whether Remote Control is on in its session, as its mod last said: with
+       each ask, and each long poll (`remote_control`). That can be up to 25 s old, or as
+       old as the mod's last ask; good enough for a rough version;
+     - from the app's waiting calls, you can send a held call's question to the Claude app
+       (`POST /claude-app` with the call's ID, over Nebula as an offer is; Stage 3 step 7).
+       Everything the call asks is settled as `terminal`, so the mod lets the session's
+       dialog show, and a permission's prompt stays; the call is forgotten: its asking the
+       switchboard stops, it never rings, it isn't remembered for calling back, and its
+       session is told "The call about "…" won't ring: the developer chose on the phone to
+       answer its question in the Claude app instead, with Remote Control." A call that
+       doesn't wait here gets 403; one whose session isn't listening, or that has no
+       question, 409. It doesn't check Remote Control: the app does;
      - an offer for it is refused, as for an unknown call: the phone knows its ID only
        from the switchboard's waiting calls (Stage 5; built, not yet tried on the phone).
        An offer for it with `"now": true` calls it at once, without ringing, as a call back
@@ -199,7 +233,9 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      without one; the mod can withdraw it. If you don't answer the call, it stays
      pending, kept for the session: the next call with it you answer, a call back or the
      session's next call, gets it as a note, while the mod waits up to its 15 min. Each
-     has a 4-letter id, kept 10 min after it's answered (`tools/ask-check`).
+     has a 4-letter id, kept 10 min after it's answered (`tools/ask-check`). Sent to the
+     Claude app from a held call, the answer is `terminal`: the session asks in its own
+     dialog or prompt.
    - **Calling back** (`"back": true` in the phone's offer). The voice server remembers
      each call it placed (session, project, folder, subject, briefing, and when it was
      placed) for a day after it's forgotten, also across a restart (Staying up). An
@@ -240,9 +276,21 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      by its push token in the request: a call's ID lets whoever has it take the call. Each
      voice server's asking again every 10 min refreshes its calls; one not refreshed for
      25 min is dropped, so a call from a Mac that's gone doesn't wait forever. A call that
-     rings, or is called from the app (the phone's event "called now"), leaves the list. A
-     new briefing for a held call reaches the list with the voice server's next asking, so
-     its subject can be up to 10 min old;
+     rings, is called from the app (the phone's event "called now"), or whose question the
+     app sent to the Claude app ("claude app"), leaves the list. A new briefing for a held
+     call reaches the list with the voice server's next asking, so its subject can be up to
+     10 min old. Each listed call also says whether it has a question (`question`) and
+     whether Remote Control is on in its session (`remote_control`), as its voice server
+     last said; a voice server from before says neither, which lists as false;
+   - **a held call's question** (Stage 3 step 7; built, not yet tried on the phone): the
+     first time a held call has a question, the switchboard sends each phone that gave a
+     notification token one ordinary notification (an APNs alert push: `apns-push-type:
+     alert`, the app's bundle ID as topic, priority 10): "\<project\> has a question", with
+     the call's subject, the default sound, and the default (active) interruption level, so
+     your Focus decides whether it shows and sounds, as for any app's. APNs keeps it until
+     the call would ring. `waiting.json` keeps when it was sent (`notified`), so asking
+     again and restarts don't repeat it. Held calls without a question stay silent. Tapping
+     it opens the app. Without an APNs key it logs that instead;
    - starts a call with a VoIP push through APNs that names the Mac taking the call;
    - takes calls from the voice servers at `/call` over Nebula, with their project,
      subject and call ID;
@@ -615,6 +663,21 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      reached, and the list is fetched again. Not done: a call that didn't connect stays
      red, and tapping it calls it back (`back`), which the voice server refuses while it
      still holds the call.
+     - **With a question** (Stage 3 step 7; built, not yet tried on the phone), a waiting
+       call says "Waiting with a question · rings at 08:00", and has a trailing swipe action,
+       "Claude App" (SF Symbol `arrow.up.forward.app`, no full swipe), as Mail's and
+       Messages' rows have theirs. While its session last said Remote Control is on, it's
+       indigo, and a tap sends the question to the Claude app: the app reaches the voice
+       server (`/ping`, as a call does, for up to 20 s), then posts `/claude-app` with the
+       call's ID. Taken, the call leaves the list and the app reports "claude app" to the
+       switchboard; refused, an alert says why ("This call isn't waiting any more.", "The
+       session isn't listening any more…", or that the Mac can't be reached), and the list
+       is fetched again. While Remote Control is off, the action is grey and its tap only
+       explains, in an alert. Not `.disabled`: on a swipe action it blocks the tap but
+       doesn't grey the action out, which looks ready and does nothing (`tools/swipe-check`,
+       iOS 26.5 and 27.1 simulators). Waiting calls without a question have no swipe action.
+       While the app is open, iOS shows no banner for the switchboard's notification (the
+       app has no notification delegate); the list is fetched when you open the app.
    - **Held calls** (Stage 7). While all calls are held after a final decline, the app
      says so and shows which call to call back. Calling it back releases them.
    - **Settings:**
@@ -803,6 +866,13 @@ Each entry says why it lost and what would make it worth retrying.
   now wait for the next call with the session you answer, within the mod's 15 min.
   Permission prompts show in the terminal meanwhile anyway. Retry if questions waiting
   15 min hold sessions up while you're at the terminal with ringback still on.
+- **Questions outside your work hours going to the terminal at once** (Stage 3 step 7 as
+  first built, 2026-10-30). The mod gave a question to the terminal as soon as its call was
+  held, so Remote Control could show it in the Claude app overnight, and the morning call's
+  voice could only say it waited there: the dialog takes no answer from a hook. You chose
+  instead to have it wait for the call, be told by a notification, and decide from the app
+  whether it goes to the Claude app. Retry if held questions keep sessions waiting overnight
+  that you'd rather have answered at once.
 - **A call back within the missed call's 90 s as that call itself**, with the Haiku that
   wrote its opening while it rang. That opening was written for a call the session placed,
   not one you made, and its session would be told the call was answered rather than
@@ -883,6 +953,13 @@ Each entry says why it lost and what would make it worth retrying.
 - Where Claude Code's built-in guard mod loads (managed settings, or a Team or Enterprise
   login), an installed mod's classic-event hooks don't run, so permissions wouldn't reach
   the phone; the terminal prompt still works.
+- Whether Remote Control is on reaches the app only as the mod sees it, from the session's
+  environment, which a mod likely doesn't see (Stage 3 step 7, `tools/env-check`): the
+  "Claude App" action may stay grey, and a session started inside another session's Bash
+  tool may look as if it had Remote Control. The state is as last said, up to 25 s old at
+  the voice server, and as old as the app's last fetch of the list.
+- The held call's question notification is an APNs alert push the switchboard hasn't sent
+  before; only the phone shows whether APNs takes its headers and how iOS shows it.
 - Calls are protected only by Nebula and the call's secret: any device with a
   certificate from your Nebula CA can reach the switchboard and ring you, and any program
   running as you on the calling Mac can reach the voice server's session side. The
@@ -1199,27 +1276,64 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         7's queue lets them wait their turn. Days of the week aren't covered: the same
         hours hold every day. If a phone is inside its hours, every phone rings, including
         those outside theirs.
-   7. Questions outside your work hours go to the terminal at once, where Remote Control
-      can answer them (decided 2026-10-30; see "The session's questions"). The mod gives
-      the question to the terminal when its call is held; the voice server tells the held
-      call's voice the question waits there, rather than that it's no longer needed: in
-      the call's briefing if the call was placed to ask it, otherwise in its note. A newer
-      briefing drops that note, since by then you've answered it. Built, and tried
-      offline, not yet on the phone:
-      - The mod (a new test, 35 in all): a question whose call is held is withdrawn at once
-        and the dialog shows, with "Outside your work hours, so it's asked here."; the
-        test fails on the mod before the change.
-      - The voice server (`tools/ask-check`, one run, 45 checks): withdrawn, the question's
-        long poll gets 404 and the voice server logs it; answered in the morning, the voice
-        asked the permission, then said "Separately, a question about where to push the
-        parser fix is waiting in the terminal." The briefing's case, where the call was
-        placed to ask the question, was checked once in the voice server's own process,
-        not on a call.
+   7. Questions outside your work hours wait for the call, and the phone is told (decided
+      2026-10-30; it replaces questions going to the terminal at once, built earlier that
+      day: see rejected alternatives). The mod holds a question on a held call as it holds
+      a permission, so the session waits, and when your hours start the call rings and the
+      voice asks it. The first time a held call has a question, the switchboard sends the
+      phone one notification, and the app lists the call as waiting with a question. Its
+      swipe action, "Claude App", sends the question to the session's own dialog instead,
+      which Remote Control shows in the Claude app, and the held call is forgotten; the app
+      offers it only while the session last said Remote Control is on. See "The session's
+      questions", the voice server's held calls, the switchboard's "a held call's question"
+      and the app's waiting calls. Built, and tried offline, not yet on the phone:
+      - The mod (54 tests: 4 new, and the old step 7 test rewritten; all 5 fail on the mod
+        before the change): a question on a held call waits past the 15 min, and the call's
+        answer when it rings is the dialog's; a `terminal` answer shows the dialog at once,
+        with "You sent it to the Claude app from the phone, so it's asked here.", and leaves
+        a permission to its prompt; the ask and each long poll say whether Remote Control
+        is on, seen by `$.env` or only by `printenv`, and switching on and off; the line
+        under the prompt shows "· Remote Control" within 10 s, and isn't looked at while
+        ringback is off. Against stand-ins: what Claude Code really gives the mod is
+        `tools/env-check`'s.
+      - The voice server (`tools/ask-check`, two runs, 61 checks each, 11 of them new, all
+        passed, 3 min 58 s and 3 min 15 s with the models loading): a question that joins a
+        held call has the switchboard asked again 0.00 s later, with `"question": true`, and
+        waits for the call; answered when it rang, the voice took the permission first ("You
+        have two things to decide, and I'll take them one at a time."), and hung up, both
+        were `none`. To the Claude app: refused for a call that doesn't wait (403), a
+        session not listening and a call without a question (409); Remote Control from a
+        question and from long polls reached the switchboard at once; then the question's
+        and the permission's waiting long polls got `terminal` 0.01 s after the request,
+        the call was never asked about again, an offer for it and a second try got 403,
+        its session was told, and the Mac could sleep again.
+      - The switchboard (`switchboard/smoke-test.sh`, 17 new checks, 92 in all): a held call
+        with a question tells the phone with a notification token once (logged, without an
+        APNs key), and not one without a token; asked again, and after a restart, it isn't
+        told again; `waiting.json` keeps `notified`; a held call without a question isn't
+        told until a question joins it; the list says whether each has a question and
+        Remote Control on, as last said; the "claude app" event takes a call off the list.
+      - The app builds with no Swift warnings. `.disabled` on a swipe action blocks the tap
+        but doesn't grey it out (`tools/swipe-check`), so the app greys it and explains. The
+        list, the swipe action, its alerts and the notification are untried: they need the
+        phone. The alert push's headers are as Apple documents them; APNs hasn't been seen
+        to take one.
+      - Remote Control: in sessions started from an ordinary terminal, a mod saw none of the
+        variables Claude Code gives the Bash tool and hooks (`tools/env-check`), so the mod
+        likely never sees `CLAUDE_CODE_BRIDGE_SESSION_ID`, and the action would stay grey.
+        The phone test settles it: with `/rc` on, the line under the prompt should end
+        "· Remote Control" within 10 s. If it doesn't, not decided: take a prompt that comes
+        from the Claude app (`origin.kind` `bridge` at `prompt.submit`, which a mod does
+        see) as Remote Control on, or offer the action whatever the state.
+      - Left for the phone: the notification (shown, its sound, Focus), the listing and the
+        swipe action, Remote Control detection, the question reaching the Claude app and
+        being answered there, the call never ringing after, and a held question answered on
+        the morning call.
    8. On the phone, in one sitting (done 2026-10-30, three calls and a call back, results
       under each step): a better model on the line (step 4), calling back a declined call
-      (step 5) and work hours (step 6) worked. Not tried on the phone: a question outside
-      the hours reaching the terminal (step 7; the last call's three questions came from
-      its briefing, not from AskUserQuestion). Found:
+      (step 5) and work hours (step 6) worked. Not tried on the phone: questions outside
+      the hours (step 7, as first built, and rebuilt since; the last call's three questions
+      came from its briefing, not from AskUserQuestion). Found:
       - The voice put all three of a briefing's open choices in one turn; you want them one
         at a time, each answered before the next. Its instructions now say so, for a
         briefing's choices and for the session's questions. In three scripted calls
@@ -1278,11 +1392,12 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
    switchboard keeps the waiting calls (see "waiting calls" under the switchboard), the app
    shows them in orange at the top of the call history, and tapping one calls it now,
    without ringing (`"now": true` in the offer).
-   It's the base of Stage 7's queue. Checks: the switchboard's smoke test (a held call is
-   listed, survives a restart, leaves when it rings or is called, and is dropped when its
-   voice server stops asking), the voice server answering a `now` offer
-   (`tools/phone-check`), and on the phone: a call held outside your hours shows, and
-   tapping it talks. Built, and tried offline, not yet on the phone:
+   It's the base of Stage 7's queue. A waiting call with a question is told to the phone,
+   and its question can be sent to the Claude app (Stage 3 step 7). Checks: the
+   switchboard's smoke test (a held call is listed, survives a restart, leaves when it rings
+   or is called, and is dropped when its voice server stops asking), the voice server
+   answering a `now` offer (`tools/phone-check`), and on the phone: a call held outside your
+   hours shows, and tapping it talks. Built, and tried offline, not yet on the phone:
    - The switchboard (`switchboard/smoke-test.sh`, 21 new checks, 75 in all, about 8.6 s,
      5 s of it waiting for a call to go stale): an unregistered token or none gets 403; two
      held calls are listed soonest first, with project, subject, voice server and when they

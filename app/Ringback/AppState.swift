@@ -48,7 +48,8 @@ struct CallRecord: Codable, Identifiable {
 }
 
 /// A call that waits to ring: held outside your work hours. The switchboard keeps them, and
-/// the app fetches them; tapping one calls it now.
+/// the app fetches them; tapping one calls it now. One with a question can send it to the
+/// Claude app instead.
 struct WaitingCall: Identifiable, Equatable {
     let id: String  // the call's ID, which its offer carries
     let project: String
@@ -57,6 +58,11 @@ struct WaitingCall: Identifiable, Equatable {
     let voice: URL
     /// When it rings, once your work hours start.
     let heldUntil: Date
+    /// The session asks you a question on it, and waits for the answer.
+    var question = false
+    /// Remote Control is on in its session, as the session last said, so the Claude app can
+    /// show the question.
+    var remoteControl = false
 
     var callerName: String { "Claude from \(project)" }
 }
@@ -106,7 +112,8 @@ final class AppState {
     var connection: Connection = .notSetUp
     var activeCall: ActiveCall?
     /// Why a call you made ended by itself, a call back or a waiting call you called, shown
-    /// once the in-call screen is gone.
+    /// once the in-call screen is gone; or why a waiting call's question didn't go to the
+    /// Claude app.
     var callBackProblem: String?
     /// The calls that wait to ring, soonest first, as the switchboard last gave them.
     var waiting: [WaitingCall] = []

@@ -26,12 +26,15 @@ type Voice = {
   isDown?: boolean
   // What the mod's store holds at the start.
   stored?: Record<string, unknown>
+  // Remote Control is on in the session, and where the mod can see it: in its own `$.env`, or
+  // only in a command's environment (`printenv`). Off while unset.
+  remote?: 'env' | 'printenv'
 }
 
 // What the engine beneath the mod is asked, and what the tests answer it. `logs` are the dim
 // lines shown in the transcript, `debug` those in the debug log, `toasts` the toasts, `stored`
-// the mod's store, and `slept` each wait the mod asked of a host `sleep`, which takes that
-// long on `voice.clock`.
+// the mod's store, `slept` each wait the mod asked of a host `sleep`, which takes that long on
+// `voice.clock`, and `printenvs` how often it ran `printenv`.
 function engine(on: On, voice: Voice = {}) {
   const asked = {
     prompts: [] as string[],
@@ -41,6 +44,7 @@ function engine(on: On, voice: Voice = {}) {
     toasts: [] as string[],
     stored: new Map<string, unknown>(Object.entries(voice.stored ?? {})),
     slept: [] as string[],
+    printenvs: 0,
   }
   on('store.get', (_, e) => ({ value: asked.stored.get(e.key) }))
   on('store.set', (_, e) => (asked.stored.set(e.key, e.value), { value: undefined }))
@@ -48,6 +52,11 @@ function engine(on: On, voice: Voice = {}) {
   on('store.keys', () => ({ value: [...asked.stored.keys()] }))
   on('ui.toast', (_, e) => (asked.toasts.push(e.text), { value: undefined }))
   on('process.run', async (_, e) => {
+    if (e.argv[0] === '/usr/bin/printenv') {
+      asked.printenvs++
+      const isSet = voice.remote !== undefined && e.argv[1] === 'CLAUDE_CODE_BRIDGE_SESSION_ID'
+      return { value: { exitCode: isSet ? 0 : 1, stdout: isSet ? 'cse_remote\n' : '', stderr: '' } } as any
+    }
     asked.slept.push(e.argv.join(' '))
     await voice.clock?.sleep(Number(e.argv[1]) * 1000)
     return { value: { exitCode: 0, stdout: '', stderr: '' } } as any
@@ -66,7 +75,11 @@ function engine(on: On, voice: Voice = {}) {
       { role: 'assistant', text: '', toolUses: [] },
     ],
   }))
-  on('env.get', () => ({ value: '/home/someone' }))
+  on('env.get', (_, e) => {
+    if (e.name === 'HOME') return { value: '/home/someone' }
+    const isSet = voice.remote === 'env' && e.name === 'CLAUDE_CODE_BRIDGE_SESSION_ID'
+    return { value: isSet ? 'cse_remote' : undefined }
+  })
   on('prompt.submit', (_, e) => (asked.prompts.push(e.text), { text: e.text }))
   on('ui.invalidate', () => ({ value: undefined }))
   on('ui.log', (_, e) => {
@@ -614,11 +627,12 @@ test('a permission prompt is put to you on a call, and your yes allows it', abov
     project: 'demo',
     cwd: '/home/someone/Projects/demo',
     subject: 'Permission to run a shell command',
+    remote_control: false,
   })
   // Polled until it's settled; nothing to withdraw.
   expect(polls(asked.fetches).map(f => f.url)).toEqual([
-    'http://voice/sessions/session-1234/permissions/p1?wait=25',
-    'http://voice/sessions/session-1234/permissions/p1?wait=25',
+    'http://voice/sessions/session-1234/permissions/p1?wait=25&remote_control=0',
+    'http://voice/sessions/session-1234/permissions/p1?wait=25&remote_control=0',
   ])
   expect(withdrawn(asked.fetches)).toEqual([])
   // The settings hooks were asked first, and decided nothing.
@@ -920,7 +934,7 @@ test("a long poll that can't reach the voice server is asked again every 5 s, an
   expect(core.ran).toEqual(['Bash'])
   const urls = polls(asked.fetches).map(f => f.url)
   expect(urls.length).toBe(7)
-  expect(new Set(urls)).toEqual(new Set(['http://voice/sessions/session-1234/permissions/p1?wait=25']))
+  expect(new Set(urls)).toEqual(new Set(['http://voice/sessions/session-1234/permissions/p1?wait=25&remote_control=0']))
   expect(created(asked.fetches, 'permissions').length).toBe(1)
   expect(withdrawn(asked.fetches)).toEqual([])
   expect(asked.logs.filter(l => l.startsWith("Can't reach")).length).toBe(1)
@@ -996,8 +1010,9 @@ test('a question is answered on the call, as from the dialog', async ($, on) => 
     project: 'demo',
     cwd: '/home/someone/Projects/demo',
     subject: 'Question: Rhyme',
+    remote_control: false,
   })
-  expect(polls(asked.fetches).map(f => f.url)).toEqual(['http://voice/sessions/session-1234/questions/q1?wait=25'])
+  expect(polls(asked.fetches).map(f => f.url)).toEqual(['http://voice/sessions/session-1234/questions/q1?wait=25&remote_control=0'])
   // The dialog's own result: the questions, and each one's answer by its text.
   expect(result.result).toEqual({ questions: [question], answers: { [question.question]: 'ABAB' } })
   expect(result.context).toEqual([expect.stringContaining('"Alternating, like the first."')])
@@ -1045,22 +1060,125 @@ test('a question with no answer from the call shows the dialog', async ($, on) =
   expect(created(asked.fetches, 'permissions').length).toBe(0)
 })
 
-test('outside your work hours, a question shows the dialog at once', async ($, on) => {
-  const clock = mock.clock(on)
-  const asked = engine(on, {
-    clock,
-    held: true,
-    created: { status: 200, body: { question: 'q1', call: 'held', held_until: '2026-10-31T08:00:00+01:00' } },
-  })
+// A question whose call is held outside your work hours, until 08:00 on the morning of `at(30, 2)`.
+const heldQuestion = { status: 200, body: { question: 'q1', call: 'held', held_until: written(at(30, 8)) } }
+
+// 20 min of collecting once a second takes about 6 s.
+test('outside your work hours, a question waits for the call, and is answered when it rings', { timeoutMs: 60_000 }, async ($, on) => {
+  const clock = mock.clock(on, { now: at(30, 2).getTime() })
+  const later: object[] = []
+  const voice: Voice = { clock, held: true, answers: later, created: heldQuestion }
+  const asked = engine(on, voice)
   const core = tools(on)
   await start($)
-  await $.tool.call(asking)
+  const ran = $.tool.call(asking)
+  await clock.settle()
+  expect(asked.logs).toEqual(['Asking you on the phone: Question: Rhyme', 'Outside your work hours: the call rings at 08:00.'])
+  // Held for 20 min, past the 15: it still waits, and the dialog hasn't shown.
+  await clock.advance(20 * 60_000)
+  expect(core.asked).toEqual([])
+  expect(withdrawn(asked.fetches)).toEqual([])
+  // It rings, and you answer it on the call.
+  voice.held = false
+  later.push({ status: 'answered', answers: { [question.question]: 'AABB' }, said: 'Couplets.' })
+  await clock.advance(25_000)
+  const result = await ran
+  expect(result.result).toEqual({ questions: [question], answers: { [question.question]: 'AABB' } })
+  expect(core.asked).toEqual([])
+  expect(withdrawn(asked.fetches)).toEqual([])
+})
+
+test('a held question you send to the Claude app shows the dialog at once', async ($, on) => {
+  const clock = mock.clock(on, { now: at(30, 2).getTime() })
+  const later: object[] = []
+  const asked = engine(on, { clock, held: true, answers: later, created: heldQuestion, remote: 'env' })
+  const core = tools(on)
+  await start($)
+  const ran = $.tool.call(asking)
+  await clock.advance(60_000)
+  expect(core.asked).toEqual([])
+  // From the app's waiting calls: the voice server answers the poll `terminal`.
+  later.push({ status: 'terminal', answers: null, said: null })
+  await clock.advance(25_000)
+  await ran
   await settle()
-  // No wait for the morning call: withdrawn at once, and the dialog shows.
-  expect(polls(asked.fetches).length).toBe(0)
-  expect(withdrawn(asked.fetches)).toEqual(['http://voice/sessions/session-1234/questions/q1'])
   expect(core.asked).toEqual(['AskUserQuestion'])
-  expect(asked.logs.at(-1)).toBe("Outside your work hours, so it's asked here.")
+  expect(withdrawn(asked.fetches)).toEqual(['http://voice/sessions/session-1234/questions/q1'])
+  expect(asked.logs.at(-1)).toBe("You sent it to the Claude app from the phone, so it's asked here.")
+})
+
+test('a permission on that call is left to its prompt, which shows anyway', above(observing), async ($, on) => {
+  mock.clock(on)
+  const asked = engine(on, {
+    created: { status: 200, body: { permission: 'p1', call: 'held', held_until: written(at(30, 8)) } },
+    answers: [{ verdict: 'terminal', said: null }],
+  })
+  tools(on)
+  await start($)
+  await $.tool.call(bash)
+  await settle()
+  // No decision: the prompt stays, and Remote Control shows it too.
+  expect(answers(asked.debug)).toEqual([{}])
+  expect(withdrawn(asked.fetches)).toEqual(['http://voice/sessions/session-1234/permissions/p1'])
+  expect(asked.logs.at(-1)).toBe("You sent it to the Claude app from the phone, so it's asked here.")
+})
+
+// Remote Control: no mod API says whether it's on, so the mod looks at the session's
+// environment, its own or a command's.
+
+test('the ask and each poll say whether Remote Control is on', async ($, on) => {
+  const clock = mock.clock(on, { now: at(30, 2).getTime() })
+  const voice: Voice = { clock, held: true, created: heldQuestion, remote: 'env' }
+  const asked = engine(on, voice)
+  const core = tools(on)
+  await start($)
+  const ran = $.tool.call(asking)
+  await clock.settle()
+  expect(JSON.parse(created(asked.fetches, 'questions')[0].init.body).remote_control).toBe(true)
+  await clock.advance(50_000)
+  // Remote Control ends, then comes back, seen only by a command this time.
+  voice.remote = undefined
+  await clock.advance(50_000)
+  voice.remote = 'printenv'
+  await clock.advance(50_000)
+  const said = polls(asked.fetches).map(f => new URL(f.url).searchParams.get('remote_control'))
+  expect(said.filter((v, i) => v !== said[i - 1])).toEqual(['1', '0', '1'])
+  expect(asked.debug.filter(l => l.startsWith('Remote Control'))).toEqual([
+    'Remote Control is on (seen by $.env)',
+    'Remote Control is off',
+    'Remote Control is on (seen by printenv)',
+  ])
+  // Switched off, the dialog shows.
+  await $.command.run({ command: 'ringback', args: '' })
+  await ran
+  expect(core.asked).toEqual(['AskUserQuestion'])
+})
+
+test('while on, the line under the prompt says when it sees Remote Control', async ($, on) => {
+  const clock = mock.clock(on)
+  const voice: Voice = {}
+  const asked = engine(on, voice)
+  const line = promptLine($, on)
+  await start($)
+  await clock.settle()
+  expect(await line()).toBe('? for shortcuts · ☎ ringback on')
+  // Looked at every 10 s.
+  voice.remote = 'printenv'
+  await clock.advance(10_000)
+  expect(await line()).toBe('? for shortcuts · ☎ ringback on · Remote Control')
+  voice.remote = undefined
+  await clock.advance(10_000)
+  expect(await line()).toBe('? for shortcuts · ☎ ringback on')
+  voice.remote = 'env'
+  await clock.advance(10_000)
+  expect(await line()).toBe('? for shortcuts · ☎ ringback on · Remote Control')
+  // Off, it's no longer looked at.
+  await $.command.run({ command: 'ringback', args: '' })
+  const looked = asked.printenvs
+  voice.remote = 'printenv'
+  await clock.advance(60_000)
+  expect(asked.printenvs).toBe(looked)
+  expect(await line()).toBe('? for shortcuts')
 })
 
 test('off, a question shows the dialog untouched', async ($, on) => {

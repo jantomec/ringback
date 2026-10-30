@@ -101,7 +101,10 @@ private func register(_ body: [String: Any]) throws -> [String: Any] {
 ///
 /// Outside the work hours of every phone nothing rings: the answer says when the first of
 /// them start (`held_until`), and the voice server asks again by then, with the same call ID.
-/// Meanwhile the call waits, and the app shows it (Waiting).
+/// Meanwhile the call waits, and the app shows it (Waiting). The voice server says whether the
+/// call has a question (`question`), and whether Remote Control is on in its session
+/// (`remote_control`), as the session last said. The first time a held call has a question,
+/// the phone gets a notification, once for that call.
 private func call(_ body: [String: Any]) throws -> [String: Any] {
     guard let project = body["project"] as? String, !project.isEmpty,
         let voice = body["voice"] as? String, voice.hasPrefix("http://") || voice.hasPrefix("https://"),
@@ -110,8 +113,20 @@ private func call(_ body: [String: Any]) throws -> [String: Any] {
     let subject = (body["subject"] as? String).flatMap { $0.isEmpty ? nil : $0 }
     log("call \(callID.prefix(8)): asked by \(voice) for \(project)\(subject.map { ": \($0)" } ?? "")")
     if let held = heldUntil(Date()) {
-        log("call \(callID.prefix(8)): held until \(held), outside the work hours of every phone")
-        try Waiting.hold(callID: callID, project: project, subject: subject, voice: voice, heldUntil: held)
+        let question = body["question"] as? Bool ?? false
+        let remoteControl = body["remote_control"] as? Bool ?? false
+        let with = (question ? ", with a question" : "") + (remoteControl ? ", Remote Control on" : "")
+        log("call \(callID.prefix(8)): held until \(held), outside the work hours of every phone\(with)")
+        let notify = try Waiting.hold(
+            callID: callID, project: project, subject: subject, voice: voice, heldUntil: held, question: question,
+            remoteControl: remoteControl)
+        if notify {
+            Task.detached {
+                for line in await notifyQuestion(callID: callID, project: project, subject: subject, until: parseISO8601(held)) {
+                    log(line)
+                }
+            }
+        }
         return ["ok": true, "held_until": held]
     }
     if try Waiting.remove(callID) { log("call \(callID.prefix(8)): no longer waiting, it rings") }
@@ -137,7 +152,7 @@ private func checkIn(_ body: [String: Any]) throws -> [String: Any] {
 }
 
 /// The phone reports what happened to a call. A waiting call you called from the app ("called
-/// now") no longer waits.
+/// now"), or whose question you sent to the Claude app ("claude app"), no longer waits.
 private func event(_ body: [String: Any]) throws -> [String: Any] {
     try Events.append(body)
     let extra = ["on_another_call", "duration_s", "since_answer_s", "error", "note"]
@@ -145,15 +160,20 @@ private func event(_ body: [String: Any]) throws -> [String: Any] {
     let at = (body["at"] as? String).flatMap(parseISO8601).map { " (on the phone at \(timeOfDay($0)))" } ?? ""
     let call = (body["call_id"] as? String ?? "?").prefix(8)
     log("call \(call): \(body["event"].map { "\($0)" } ?? "?")\(extra)\(at)")
-    if body["event"] as? String == "called now", let callID = body["call_id"] as? String, try Waiting.remove(callID) {
-        log("call \(call): no longer waiting, called from the app")
+    let leaves = ["called now": "called from the app", "claude app": "its question went to the Claude app"]
+    if let event = body["event"] as? String, let why = leaves[event], let callID = body["call_id"] as? String,
+        try Waiting.remove(callID)
+    {
+        log("call \(call): no longer waiting, \(why)")
     }
     return ok
 }
 
 /// The calls that wait, for the app to show, soonest first: `{"calls": [...]}`, each with its
-/// call ID, project, subject, voice server and when it rings (`held_until`). Only a phone
-/// that registered gets them, by its push token: a call's ID lets whoever has it take the call.
+/// call ID, project, subject, voice server, when it rings (`held_until`), whether it has a
+/// question (`question`) and whether Remote Control is on in its session (`remote_control`).
+/// Only a phone that registered gets them, by its push token: a call's ID lets whoever has it
+/// take the call.
 private func waiting(_ body: [String: Any]) throws -> [String: Any] {
     guard let token = body["token"] as? String, Devices.load()[token] != nil else { throw Forbidden() }
     return ["calls": try Waiting.list()]

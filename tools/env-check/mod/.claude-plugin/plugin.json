@@ -1,0 +1,5 @@
+{
+  "name": "env-check",
+  "version": "0.1.0",
+  "description": "tools/env-check: writes what a mod sees of the session's environment to $ENV_CHECK_OUT"
+}
