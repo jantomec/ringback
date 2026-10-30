@@ -31,9 +31,11 @@ boots the simulator, sets its appearance for each run, and leaves it light. It p
 per screen, saying whether what the test looked for was shown. It reuses the WebRTC package
 from `app/build` if the app was built there.
 
-Result on 2026-10-30, Xcode 27.1, iPhone 17 Pro on iOS 26.5, 2 runs (a light and a dark each,
-about 3 min): every screen was shown. In the simulator, the banner's Open Settings opened the
-Settings app on its first page, not on Ringback's, so the test goes on through Apps →
-Ringback; on the phone it should open Ringback's page (not checked). A simulator that has just
+Result on 2026-10-30, Xcode 27.1, iPhone 17 Pro on iOS 26.5, three runs (a light and a dark
+each, 2.5–3 min): every screen was shown in the last two; in the first, Ringback's page in
+Settings wasn't reached (below) and the simulator's own notification covered Recents' title.
+In the simulator, the banner's Open Settings opened the Settings app on its first page, not on
+Ringback's, so the test goes on through Apps → Ringback; on the phone it should open
+Ringback's page (not checked). A simulator that has just
 booted shows a notification of its own over the top for a few seconds, so the test waits 8 s
 before the first screenshot.

@@ -1544,8 +1544,13 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         runs; with a firmer lead, the third said "Nothing new has come in since that call…".
         In that run Haiku took 20–22 s for the first three openings, while another check ran
         its own Haiku sessions, so the phone hung up before hearing them (3 of 24 failed); the
-        offers were answered in 0.14 s at most. From the offer to the voice: a median 3.4–3.9 s,
-        as a call back's.
+        offers were answered in 0.14 s at most. A fourth run, alone, after merging with main:
+        all 24 passed, the heard briefing's call opening "Nothing new has come in since that
+        call…". From the offer to the voice: a median 2.7–3.9 s, as a call back's.
+      - Calling back missed calls as before (`tools/phone-check --back`, one run after the
+        merge, 22 checks): 21 passed; one opening said "I'm calling about…", the slip seen
+        before with that unchanged lead. `tools/ask-check` (one run after the merge): all 60
+        passed, in 3 min 45 s.
       - The voice server through a restart (`tools/restart-check`, one run, 19 checks, 2 min
         26 s): all passed, with the state file now keeping each remembered call's `talked`
         and `contact`; the call answered before the restart and called back after got the
@@ -1554,8 +1559,8 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         test fails on the mod before the change.
       - The app builds with no Swift warnings, debug and release; the release binary has no
         trace of the sample calls. `tools/app-screens` showed every screen in light and dark
-        (iPhone 17 Pro, iOS 26.5): Recents, its swipe action, the details, Contacts, the
-        banners and Ringback's page in the Settings app.
+        (iPhone 17 Pro, iOS 26.5; three runs, the last after the merge): Recents, its swipe
+        action, the details, Contacts, the banners and Ringback's page in the Settings app.
       - Left for the phone: tapping an answered call and a contact, and their voices; a call
         back the Mac no longer remembers going on as a call from Contacts; the alerts; "Open
         Settings" landing on Ringback's page (in the simulator it opened Settings' first

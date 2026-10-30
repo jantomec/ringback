@@ -170,7 +170,7 @@ It prints the voice's log, the checks, what the voice said first on each call, a
 from each offer to the voice's first audio. It uses your Claude subscription, 5 Haiku
 sessions, and takes about 3 min.
 
-Result on 2026-10-30, Claude Code 2.1.314, three runs of 2–3 min:
+Result on 2026-10-30, Claude Code 2.1.314, four runs of 2–3 min:
 - the first: 22 of 23 checks passed. The one that failed was the check's own: the voice server
   told the switchboard no session listened 3.6 s after the mod stopped, but the check took
   the empty list for none heard. Fixed in the check;
@@ -184,7 +184,17 @@ Result on 2026-10-30, Claude Code 2.1.314, three runs of 2–3 min:
   voice the phone didn't hear within its 20 s: Haiku's first words came 22 and 20 s after it
   was asked (and none at all on the answered call), while `tools/restart-check` ran its own
   Haiku sessions beside it. Each offer was answered in 0.14 s at most, and audio connected
-  in 0.44 s at most; on the calls after, Haiku answered in 1.3–2.7 s.
+  in 0.44 s at most; on the calls after, Haiku answered in 1.3–2.7 s;
+- the fourth, alone, after merging with main (Remote Control taken as on): all 24 passed, in
+  2 min 5 s. With the briefing you'd heard: "Nothing new has come in since that call. The
+  session is asking whether to push the config parser fix to a branch and open a pull
+  request. What would you like to do?". From the offer to the voice's first audio, a median
+  2.67 s (1.75–3.27 s).
+
+`--back` after the same merge (one run, 2 min 32 s): 21 of 22. The one that failed: the missed
+call's call back opened "Hi, I'm calling about the config parser crash…", as one did twice
+before (above, and in `tools/restart-check`); that lead is unchanged. Moved on, not listening,
+the permission and inside the window passed.
 
 Openings, as said: with no briefing, "Hi there. The session hasn't written a briefing yet,
 so I don't know what it's been working on. What would you like me to pass along?"; calling
