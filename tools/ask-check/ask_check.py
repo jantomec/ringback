@@ -371,6 +371,12 @@ async def main() -> int:
         held_qid = body.get("question", "")
         check(f"a question goes to the held call too: {status} {body}",
               status == 200 and body.get("call") == "held" and len(rung) == n + 1)  # fmt: skip
+        # Outside your work hours the mod gives a question to the terminal at once.
+        status, _ = await api("DELETE", of("question", held_qid, session=HELD))
+        logged = await wait_for(voice_log, rf"call {re.escape(held_id[:8])}: question {held_qid} is asked in the terminal", 2)
+        gone, _, _ = await waited("question", held_qid, 0, HELD)
+        check(f"withdrawn, as the mod does outside your work hours, it's asked in the terminal: {status}, then {gone}",
+              status == 200 and gone == 404 and logged is not None)  # fmt: skip
 
         # Asked again after --reask s; then at the time the switchboard gave; after a 503,
         # --reask s later (a minute, unless --reask is shorter); then it rings.
@@ -406,7 +412,10 @@ async def main() -> int:
               HELD_BRIEFING.split("\n")[0] in held_text and "has stopped because it needs" not in held_text)  # fmt: skip
         check("the permission the old briefing asked went to the voice as a note",
               f"**The session asks:** Permission {held_pid}:" in held_text)  # fmt: skip
-        check("so did the question", f"**The session asks:** Question {held_qid}," in held_text)
+        check("so did the question, as one that waits in the terminal",
+              f"**The session asks:** Question {held_qid}," in held_text)  # fmt: skip
+        voice_said = " ".join(l for l in held_text.splitlines() if l.startswith("**Voice:**")).lower()
+        check("the voice said it waits in the terminal", "terminal" in voice_said or "claude app" in voice_said)
         check(f"hung up, the permission has no verdict: {body}", body.get("verdict") == "none")
         if held_text:
             print(f"--- the held call's transcript\n{held_text}")

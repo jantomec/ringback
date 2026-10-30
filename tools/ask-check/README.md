@@ -37,12 +37,15 @@ the switchboard does outside every phone's hours. It checks:
   switchboard gave), which starts no Haiku and keeps the Mac awake (a `caffeinate` child
   of the voice server); a long poll answers `"held": true`; an offer for it gets 403;
 - a session's new briefing (`/calls`) goes to the held call, without asking the
-  switchboard for another, and a question goes to it too;
+  switchboard for another, and a question goes to it too. Withdrawn, as the mod does
+  outside your work hours, the question is asked in the terminal: its long poll gets 404,
+  and the voice server logs it;
 - held for an hour, it's asked again after `--reask` seconds, with the same call ID and
   the new subject; held for 2.5 s, at the time the switchboard gave; after a 503,
   `--reask` seconds later (a minute, in real use); then it rings and Haiku starts;
 - answered, its transcript has the new briefing, and the permission the old briefing
-  asked, and the question, went to the voice as notes;
+  asked, and the question, went to the voice as notes, the question as one that waits in
+  the terminal, and the voice said so (it mentions the terminal or the Claude app);
 - another session's call, held 3 s, rings and isn't answered: it's forgotten
   `--unanswered` seconds after it rang, not after it was placed, and then no Haiku and no
   sleep assertion are left.
@@ -82,8 +85,13 @@ both the permission the old briefing asked and the question to you. The other ca
 Result on 2026-10-30 with what a call you don't answer asked kept pending (Stage 3 step 5),
 two runs. Before merging with work hours, 23 of 24 checks passed: once Haiku answered the
 question with its text as the id, then again with the right one after saying "Okay.", and
-the answer waited 40 s for a sentence that was never spoken (an open problem under Stage 3
-step 3 in `docs/design.md`). After merging, all 43 passed, in 2 min 48 s with the models
+the answer waited 40 s for a sentence that was never spoken (fixed since; Stage 3 step 3 in
+`docs/design.md`, and `tools/reply-check`). After merging, all 43 passed, in 2 min 48 s with the models
 loading. Both permissions of the unanswered call were still `pending` once it was
 forgotten, and a 14 s long poll waited to its end. The next call you answered asked the
 one left after its opening, and "Yes, go ahead." allowed it.
+
+Result on 2026-10-30, after the "Okay." fix: all 43 passed. After questions outside your work
+hours started going to the terminal (Stage 3 step 7), all 45 passed, about 3 min with the
+models loading: answered, the held call's voice asked the permission, then said "Separately,
+a question about where to push the parser fix is waiting in the terminal."

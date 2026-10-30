@@ -731,6 +731,24 @@ test('a question with no answer from the call shows the dialog', async ($, on) =
   expect(created(asked.fetches, 'permissions').length).toBe(0)
 })
 
+test('outside your work hours, a question shows the dialog at once', async ($, on) => {
+  const clock = mock.clock(on)
+  const asked = engine(on, {
+    clock,
+    held: true,
+    created: { status: 200, body: { question: 'q1', call: 'held', held_until: '2026-10-31T08:00:00+01:00' } },
+  })
+  const core = tools(on)
+  await start($)
+  await $.tool.call(asking)
+  await settle()
+  // No wait for the morning call: withdrawn at once, and the dialog shows.
+  expect(polls(asked.fetches).length).toBe(0)
+  expect(withdrawn(asked.fetches)).toEqual(['http://voice/sessions/session-1234/questions/q1'])
+  expect(core.asked).toEqual(['AskUserQuestion'])
+  expect(asked.logs.at(-1)).toBe("Outside your work hours, so it's asked here.")
+})
+
 test('off, a question shows the dialog untouched', async ($, on) => {
   mock.clock(on)
   const asked = engine(on)

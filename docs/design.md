@@ -1035,7 +1035,19 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
    7. Questions outside your work hours go to the terminal at once, where Remote Control
       can answer them (decided 2026-10-30; see "The session's questions"). The mod gives
       the question to the terminal when its call is held; the voice server tells the held
-      call's voice the question waits there, rather than that it's no longer needed.
+      call's voice the question waits there, rather than that it's no longer needed: in
+      the call's briefing if the call was placed to ask it, otherwise in its note. A newer
+      briefing drops that note, since by then you've answered it. Built, and tried
+      offline, not yet on the phone:
+      - The mod (a new test, 35 in all): a question whose call is held is withdrawn at once
+        and the dialog shows, with "Outside your work hours, so it's asked here."; the
+        test fails on the mod before the change.
+      - The voice server (`tools/ask-check`, one run, 45 checks): withdrawn, the question's
+        long poll gets 404 and the voice server logs it; answered in the morning, the voice
+        asked the permission, then said "Separately, a question about where to push the
+        parser fix is waiting in the terminal." The briefing's case, where the call was
+        placed to ask the question, was checked once in the voice server's own process,
+        not on a call.
    8. On the phone, in one sitting: a better model on the line (step 4); work hours (set
       From a few minutes ahead, let a session finish, and the call rings then); a question
       outside the hours reaching the terminal (step 7); calling back a declined call

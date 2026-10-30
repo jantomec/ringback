@@ -148,6 +148,9 @@ class Link:
         """The call has a new briefing, which doesn't mention what the old one asked: the
         asks still waiting for it go to the voice as notes instead."""
         briefed, self._briefed = self._briefed, []
+        # Notes about what no longer waits, such as a question since asked in the terminal,
+        # are old news by now.
+        self._notes = [(a, t) for a, t in self._notes if a is None or self.asks.get(a.id) is a]
         for ask in briefed:
             if self.asks.get(ask.id) is ask:
                 self.tell(ask.note(), ask)
@@ -181,6 +184,18 @@ class Link:
         self._notes = kept
         if self.transcript:
             self.transcript.add("No longer asked", f"{ask.name}: {why}")
+
+    def to_terminal(self, ask: "Ask") -> bool:
+        """Takes back a question from this held call, which the session asks in the terminal
+        instead, outside your work hours. Its note becomes one saying it waits there; True if
+        the call's briefing asks it, for the caller to replace."""
+        if self.asks.pop(ask.id, None) is None:
+            return False
+        if ask in self._briefed:
+            self._briefed.remove(ask)
+            return True
+        self._notes = [(a, t) for a, t in self._notes if a is not ask] + [(ask, ask.in_terminal())]
+        return False
 
 
 @dataclass
@@ -245,6 +260,22 @@ class Ask:
             f"The session asks, and waits for the answer.\n{self.details()}{self.context()}\n"
             f"Put it to the developer, then answer with {how}."
         )
+
+    def in_terminal(self, briefing: bool = False) -> str:
+        """For a question asked outside your work hours, which waits in the terminal instead:
+        the note for the held call's voice, or its briefing if the call was placed to ask it."""
+        where = (
+            "Outside the developer's work hours it was asked in the terminal instead, where it "
+            "waits for their answer: they can give it there, or from the Claude app with Remote "
+            "Control. You can't answer it on this call, so don't call answer_question for it."
+        )
+        if briefing:
+            return (
+                f"The session has stopped because it has questions for the developer, and this call is "
+                f"about that. {where} Open the call by saying it waits there, then talk it through if "
+                f"they want.\n\n{self.details()}\n{self.context()}"
+            )
+        return f"The session has a question for the developer. {where} Tell them, and talk it through if they want.\n{self.details()}{self.context()}"
 
     def briefing(self) -> str:
         """The briefing of a call placed to ask it."""
@@ -582,7 +613,13 @@ class Calls:
         self._asks.pop(ask.id, None)
         self._pool.get(ask.session, {}).pop(ask.id, None)
         for call in self._calls.values():
-            call.link.drop(ask, "it withdrew the question" if ask.kind == "question" else "it withdrew the request")
+            if ask.kind == "question" and call.held_until and ask.id in call.link.asks:
+                # Outside your work hours, the mod gives a question to the terminal at once.
+                if call.link.to_terminal(ask):
+                    call.briefing = ask.in_terminal(briefing=True)
+                self._log(f"call {call.id[:8]}: {ask.name} is asked in the terminal, outside your work hours")
+            else:
+                call.link.drop(ask, "it withdrew the question" if ask.kind == "question" else "it withdrew the request")
         ask.settle("withdrawn")  # wakes those waiting for it, who find it gone
 
     async def _keep(self, ask: Ask) -> None:

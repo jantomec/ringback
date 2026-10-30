@@ -133,7 +133,8 @@ export const register: Register = on => {
   // So is a question the session asks you: your answers come back as the dialog's would, so
   // the dialog never shows. Without them, it shows in the terminal as usual: when you hang up
   // without answering, switch ringback off, or after 15 min. A call you don't answer leaves the
-  // question waiting for a call back, so the dialog shows only after those 15 min.
+  // question waiting for a call back, so the dialog shows only after those 15 min. Outside your
+  // work hours it shows at once, so Remote Control can answer it.
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
     if (!isOn) return next(e)
     const answer = await hold($, 'questions', await questions($, e.questions), next.signal)
@@ -290,7 +291,7 @@ type Answer = {
 // count against the hook's 10 s; a `$.clock.sleep` would, so there's none. Each poll waits
 // 25 s at most, inside the 30 s that one `$.http.fetch` may take. While the call is held
 // outside your work hours, the 15 min start again with each poll, so they count from when
-// it rings.
+// it rings; a question then goes to the terminal at once.
 async function hold(
   $: EngineInterface,
   kind: 'permissions' | 'questions',
@@ -331,6 +332,12 @@ async function hold(
       return undefined
     }
     if (value.call === 'held') {
+      // Outside your work hours, a question goes to the terminal at once, where Remote
+      // Control can answer it; the held call's voice is told it waits there.
+      if (kind === 'questions') {
+        why = 'Outside your work hours'
+        return undefined
+      }
       restart()
       await showHeld($, value.held_until)
     }
