@@ -191,3 +191,13 @@ server's Opus (`voice/ringback_voice/opus.py`) and three after, each about 30 mi
   asked for 24 kbps in wideband with FEC, 21.2–21.9, 3.2, 11.8 and 61;
 - 50 packets a second each way, with 36 bytes of RTP and SRTP each, in every call; the
   voice server counted the same packets lost as the check dropped.
+- the words were heard a median 0.27–0.31 s after the speech in each sentence ended, at
+  every loss, after; before (one more run, with this measure) 0.57, 0.68 and 0.93 s at 0%,
+  5% and 15% (48 and 150 words wrong at 5% and 15%). With the phone's encoder as before
+  and the voice server's Opus as now, one call at 0%: 0.29 s, so the gain is the voice
+  server's receive path. aiortc's jitter buffer held 80 ms of it back; the rest isn't
+  explained.
+
+After merging Stages 4 and 5 (one run, about 11 min): 5, 3 and 3 words wrong at 0%, 5% and
+15% lost (at 0%, "Approved." heard for "Approve it.", with nothing lost), heard 0.27–0.30 s
+after, and the same kbps as above.

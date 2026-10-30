@@ -483,7 +483,12 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
          call, the phone's packets lost at random, 3 calls at each loss: words heard wrong
          with 0%, 5% and 15% lost were 1.4%, 21.9% and 73.3% before, and are 1.4%, 1.7%
          and 1.9% now. With none lost, all 3 wrong words in each call were numbers written
-         as digits ("200", "30").
+         as digits ("200", "30"). Your words also reach speech recognition sooner: a
+         median 0.27–0.31 s after you stop, at every loss, against 0.57, 0.68 and 0.93 s
+         before with 0%, 5% and 15% lost (one call each, with the wait for silence). The
+         phone's encoder made no difference to that, so it's the Mac's receive path;
+         aiortc's buffer holding 4 packets explains 80 ms of the 0.28 s with none lost,
+         the rest isn't known.
        - **Measure.** Each call's "ended" report to the switchboard carries the phone's
          WebRTC stats (in `events.jsonl`): `sent_bytes`, `sent_header_bytes`,
          `sent_packets`, `sent_lost` and `sent_jitter_ms` (as the Mac reported them), the
@@ -1257,7 +1262,8 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
    correction; a jitter buffer and decoder of our own on the Mac rebuild or conceal your
    lost packets, where aiortc's lost several more around each. Offline, with 5% and 15% of
    your packets lost, words heard wrong fell from 21.9% and 73.3% to 1.7% and 1.9% (1.4%
-   with none lost, before and after), and a call from about 1.1 to 0.9 MB a minute. On the
+   with none lost, before and after), your words reached speech recognition 0.3–0.6 s
+   sooner, and a call went from about 1.1 to 0.9 MB a minute. On the
    phone, left: a call measured before and after, and calls under the Network Link
    Conditioner's 3G, Edge and Very Bad Network, which you judge by ear.
 7. **Several sessions + retries.** A second session waits for the first call to end.
