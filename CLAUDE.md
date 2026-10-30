@@ -24,7 +24,11 @@ and tried offline only (`tools/ask-check`, `tools/phone-check --back`): work hou
 the app, outside which the switchboard holds a call and the calling Mac asks again when they
 start; and step 5, calling back a call you didn't answer from the app's call history, where
 what the missed call asked waits for the call back while the session's mod holds it (15 min).
-How it works:
+The plan from here, in order (under Stages in `docs/design.md`): Stage 3 step 7, questions
+outside your work hours going to the terminal at once; step 8, one phone test of steps 4–7;
+then Stage 4 (staying up through restarts), 5 (waiting calls in the app), 6 (weak signal),
+7 (several sessions and retries) and 8 (later: a phone-network fallback, showing you
+things). How it works:
 the ringback mod (`mod/`) adds `/ringback`; while it's on, each finished turn has the
 session write a call briefing, and the voice server places the call through the
 switchboard's `/call`. On the call, the voice passes what you say to the session with its

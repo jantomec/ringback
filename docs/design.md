@@ -43,7 +43,8 @@ and on mobile data.
 Sessions can run on several Macs. All of them share one switchboard, so there is one
 queue, and each call's audio goes to the Mac whose session is calling.
 
-Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is built.
+Parts marked with a stage that isn't done, such as (Stage 5), are planned and not built
+yet; the rest is built. The plan for them is under Stages.
 
 1. **Ringback mod** (in each session, in `mod/`). A Claude Code mod is code that runs
    inside Claude Code: it's installed once, as a plugin, and loads in every session
@@ -53,6 +54,10 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
    - `/ringback` switches calling on or off for its session, at once and without a
      Claude turn. While it's on, the dim line under the prompt ends with "☎ ringback on",
      where Remote Control shows too (a placeholder until ringback has an icon).
+     **Remembered** (Stage 4): it stays on through a reload of the mod, and when you
+     resume the session after Claude Code restarts (`claude --resume`), until you switch
+     it off. It's kept by the session's ID; that a resumed session keeps its ID is to be
+     checked in a real session.
    - When a turn ends while it's on, the mod asks the session to write its call briefing:
      a subject of 3–8 words, then what's new and what needs you, written to be spoken.
      The session has its whole context then and its prompt cache is warm, so this extra
@@ -86,6 +91,15 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      and gives your answer back as the dialog's own, so the dialog doesn't show. Without
      an answer, it does, as for permissions. So after a call you didn't answer, the dialog
      shows only after 15 min, or once you switch ringback off.
+     - **Outside your work hours** (Stage 3, step 7), a question goes to the terminal at
+       once, instead of waiting for the morning call: Remote Control keeps it open until
+       you answer it from the Claude app, and can push you a notification ("Push when
+       actions required" in `/config`). The call stays held. When it rings in the morning,
+       the voice says the question waits in the terminal and can talk it through, but
+       can't answer it: the dialog takes no answer from a hook. If you've answered it by
+       then, the session's next briefing has replaced the call's. Permissions are
+       unchanged: their terminal prompt shows anyway, so the morning call can still
+       answer them.
 2. **Voice server's session side** (`voice/ringback_voice/sessions.py`). The voice server
    also listens on a Unix socket that only you can open
    (`~/.local/state/ringback/voice.sock`), for the mods of the sessions on its Mac:
@@ -119,6 +133,23 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      - what the session asks goes to the held call (`"call": "held"`, with `held_until`),
        and the mod's long polls answer `"held": true`;
      - an offer for it is refused, as for an unknown call: the phone can't know its ID yet.
+       From Stage 5 the phone can know it (waiting calls), and an offer for it with
+       `"now": true` calls it at once, without ringing, as a call back does.
+   - **Staying up** (Stage 4). What it keeps today lives in memory, so a restart loses it:
+     held calls never ring, calls can't be called back, and what missed calls asked goes
+     to the terminal. Instead it writes its state to a file in `~/.local/state/ringback/`
+     on every change and reads it at start: held calls (held again), calls remembered for
+     calling back, what missed calls asked (with the same ids, so a mod's long poll
+     carries on), and the messages and outcomes waiting for a session's mod. A call in
+     progress during a restart ends, and what it asked waits as a missed call's does. A
+     launchd agent starts it at login and again if it stops (`docs/setup.md`); starting
+     fails while Nebula is down, and launchd tries again.
+     - It isn't small like the switchboard: measured on 2026-10-30, it held 3.1 GB of
+       memory while idle (4.2 GB at its peak), with 1.7 GB of Python packages and about
+       3 GB of speech models on disk; its own code is 2,685 lines. Each call also runs a
+       Claude Code process for Haiku. The models load in 5 s. An option, not decided:
+       load them only when a call is placed, while the phone rings, and drop them after a
+       while without calls. That frees the memory, but adds up to 5 s to a call back.
    - It keeps what the voice passes on for each session until that session's mod
      collects it, and takes the session's answers back as news for the call. When a mod
      last collected tells whether its session is listening: within 30 s, as the mod
@@ -163,7 +194,13 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
 3. **Switchboard** (a daemon on one always-on Mac on the Nebula network, such as the
    lighthouse):
    - keeps one FIFO queue for the sessions on every Mac and places one call at a time
-     (Stage 4; for now `ringback-switchboard ring` places a call by hand);
+     (Stage 7; for now each `/call` rings at once, unless it's outside your work hours);
+   - **waiting calls** (Stage 5): keeps the calls that wait (held outside your work
+     hours, and from Stage 7 queued) in a file in its state folder, with their project,
+     subject, voice server and when they ring, so they survive a restart, and gives them
+     to the app (`/waiting`). Each voice server's asking again every 10 min refreshes its
+     calls; one not refreshed for 25 min is dropped, so a call from a Mac that's gone
+     doesn't wait forever. A call that rings, or is called from the app, leaves the list;
    - starts a call with a VoIP push through APNs that names the Mac taking the call;
    - takes calls from the voice servers at `/call` over Nebula, with their project,
      subject and call ID;
@@ -176,7 +213,7 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      them;
    - on "not now" (declined or unanswered), retries on the schedule in requirement 3,
      with the whole queue paused in between. After a final decline it holds all calls
-     until the app calls that session back (Stage 4);
+     until the app calls that session back (Stage 7);
    - every 30 min, wakes the app with a background push so it checks that calls can still
      reach the phone (the connection check in the iPhone app);
    - is one Swift binary of about 470 KB that needs nothing but macOS 13 or later (Intel
@@ -353,6 +390,25 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
        session, which provides echo cancellation, and hands it to WebRTC.
      - The offer carries all ICE candidates at once, because the Mac's server doesn't
        take them one by one.
+     - **Data and weak signal.** The voice is Opus in both directions, 50 packets a second
+       each way. Estimated from the code's defaults, not measured: the Mac sends 96 kbps
+       stereo (aiortc's fixed encoder setting), the phone about 32 kbps (WebRTC's default,
+       unverified), and the headers add about 44 kbps each way (RTP, SRTP, UDP and IP,
+       wrapped again by Nebula), so about 140 kbps to the phone and 75 kbps from it, about
+       1.6 MB a minute in all. 4G carries that easily, and the calls on mobile data so far
+       worked. On weak signal, lost and late packets hurt more than bandwidth. Stage 6:
+       - Measure: the app adds each call's bytes sent and received, packet loss and jitter
+         (WebRTC's stats) to its "ended" report.
+       - Send less: the Mac's encoder sends mono at about 24 kbps, which keeps speech
+         clear and saves about 70 kbps, half of what goes to the phone. Opus already keeps
+         to the speech band at such rates and sends almost nothing in silence, so filtering
+         frequencies ourselves would save nothing more. Longer packets (40 ms) would halve
+         the headers for about 20 ms more delay; only if measuring shows it's worth it.
+       - Recover: Opus's forward error correction, which carries a rougher copy of each
+         packet in the next, on in both directions, and the Mac's decoder using it and
+         concealing what's still lost, so speech recognition gets fewer gaps.
+       - Test on the phone with its Network Link Conditioner (Settings → Developer), which
+         simulates 3G, Edge or a very bad network.
      - **Reaching the Mac first.** After the phone moves from Wi-Fi to mobile data, its
        Nebula tunnel to the Mac can stay stale: in the first phone test of Stage 3 the
        offer timed out after 15 s without reaching the Mac, while the switchboard on the
@@ -422,7 +478,13 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
        the call ends and an alert says "Claude can't take this call back any more." A call
        back whose audio never connected is red, and tapping it calls the same call back
        again.
-   - **Held calls** (Stage 4). While all calls are held after a final decline, the app
+   - **Waiting calls** (Stage 5). The calls that wait, held outside your work hours (and
+     from Stage 7 queued), show at the top of the call history in orange, with when they
+     ring ("Waiting · rings at 08:00"). The app fetches them from the switchboard when you
+     open it, and with each connection check. Tapping one calls it now, as a call back
+     does: no ringing, and the voice picks up. It then stays in the history as a call like
+     any other.
+   - **Held calls** (Stage 7). While all calls are held after a final decline, the app
      says so and shows which call to call back. Calling it back releases them.
    - **Settings:**
      - **Switchboard:** the switchboard's Nebula address. The app registers its push
@@ -462,7 +524,19 @@ Each entry says why it lost and what would make it worth retrying.
 
 - **Calling through the phone network (e.g. Twilio) instead of an app.** Per-minute and
   number costs are hard to justify for a personal tool. Retry if those costs become
-  negligible.
+  negligible. As a fallback where data is too weak, it's still worth pricing (Stage 8):
+  - **Gained:** it needs neither the app nor Nebula, and works where there's voice
+    coverage but no usable data.
+  - **Lost:**
+    - Narrowband phone audio makes speech recognition worse, especially for accented
+      English; wideband needs VoLTE end to end.
+    - Calls over a provider stream their audio to a public internet address, which ringback
+      doesn't have to open today.
+  - **Cheaper routes to look at:**
+    - providers cheaper than Twilio, such as SIP trunks from a local operator;
+    - an LTE modem with an ordinary SIM at the lighthouse, which costs only the SIM's plan,
+      but needs a modem whose call audio macOS can reach (Linux supports such modems
+      better).
 - **The Mac opening the Nebula tunnel to the phone.** It can't reach a phone on mobile
   data, and Mobile Nebula 0.12.0 can't list relays of its own (Stage 0). Retry if Mobile
   Nebula gains `relay.relays`.
@@ -618,7 +692,14 @@ Each entry says why it lost and what would make it worth retrying.
 
 - **Showing you things.** Sometimes talking isn't enough and you need to see what a
   session is doing: images sent over iMessage, or a way to inspect large geometric
-  models, perhaps screen sharing. This comes after the calling stages.
+  models, perhaps screen sharing. This comes after the calling stages. Claude Code's
+  official iMessage channel plugin (a research preview) can send images and relay
+  permission prompts, but not AskUserQuestion questions. It needs macOS, Bun, Full Disk
+  Access, and Messages signed in on the Mac where the session runs.
+- **The lighthouse after a reboot.** With FileVault on and no automatic login, nothing
+  runs on it after a restart, not even Nebula, until someone logs in, so no call can ring.
+  It runs on battery through power cuts. Making it start by itself is a separate task,
+  already noted on that machine.
 
 ## Risks (unverified)
 
@@ -948,9 +1029,47 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         call held overnight on a Mac that sleeps or a laptop with its lid closed, and a
         time zone change while travelling.
       - Left: when the hours start, every session's held call rings at once, until Stage
-        4's queue lets them wait their turn. Days of the week aren't covered: the same
+        7's queue lets them wait their turn. Days of the week aren't covered: the same
         hours hold every day. If a phone is inside its hours, every phone rings, including
         those outside theirs.
-4. **Several sessions + retries.** A second session waits for the first call to end.
+   7. Questions outside your work hours go to the terminal at once, where Remote Control
+      can answer them (decided 2026-10-30; see "The session's questions"). The mod gives
+      the question to the terminal when its call is held; the voice server tells the held
+      call's voice the question waits there, rather than that it's no longer needed.
+   8. On the phone, in one sitting: a better model on the line (step 4); work hours (set
+      From a few minutes ahead, let a session finish, and the call rings then); a question
+      outside the hours reaching the terminal (step 7); calling back a declined call
+      (step 5), also after the session called again since.
+4. **Staying up.** Restarts lose nothing that matters:
+   - The voice server keeps its state in a file and reads it at start (see "Staying up"
+     under the voice server's session side), and runs as a launchd agent (`docs/setup.md`;
+     installing it on your Mac asks you first).
+   - The mod remembers `/ringback` for each session, through a reload and
+     `claude --resume`.
+   - When the voice server is down or has lost what a session asked, the mod tries again
+     instead of giving up: a briefing is sent again when it's back, and a question or
+     permission is asked again.
+   - Checks: restart the voice server with a held call, a call to call back and a
+     missed call's question waiting, and each carries on; reload the mod and resume a
+     session, and ringback is still on.
+   - Left: the switchboard on the lighthouse starting by itself after a reboot (Open
+     questions); the option of loading the speech models only for calls.
+5. **Waiting calls in the app.** The switchboard keeps the waiting calls (see "waiting
+   calls" under the switchboard), the app shows them in orange at the top of the call
+   history, and tapping one calls it now, without ringing (`"now": true` in the offer).
+   It's the base of Stage 7's queue. Checks: the switchboard's smoke test (a held call is
+   listed, survives a restart, leaves when it rings or is called, and is dropped when its
+   voice server stops asking), the voice server answering a `now` offer
+   (`tools/phone-check`), and on the phone: a call held outside your hours shows, and
+   tapping it talks.
+6. **Weak signal.** Measure, then send less and recover more (see "Data and weak signal"
+   in the iPhone app): each call reports its data, loss and jitter; the Mac sends mono at
+   about 24 kbps, with forward error correction both ways and the Mac's decoder using it.
+   On the phone: a call measured before and after, and calls under the Network Link
+   Conditioner's 3G, Edge and Very Bad Network, which you judge by ear.
+7. **Several sessions + retries.** A second session waits for the first call to end.
    "Not now" retries on schedule while the queue waits. A final decline holds all calls
    until a call back releases them.
+8. **Later.** A phone-network fallback for when data is too weak: price SIP trunks and an
+   LTE modem with a SIM at the lighthouse first (Rejected alternatives). Showing you
+   things, such as images over iMessage (Open questions).
