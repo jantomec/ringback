@@ -30,7 +30,7 @@ struct CallRecord: Codable, Identifiable {
     /// keeps the call's own ID.
     var calledNow: Bool?
 
-    var callerName: String { "Claude from \(project)" }
+    var callerName: String { project }
 
     /// A call you made: a call back, or a waiting call you called now.
     var isOutgoing: Bool { callsBack != nil || calledNow == true }
@@ -58,7 +58,7 @@ struct WaitingCall: Identifiable, Equatable {
     /// When it rings, once your work hours start.
     let heldUntil: Date
 
-    var callerName: String { "Claude from \(project)" }
+    var callerName: String { project }
 }
 
 /// The call you're on, while it lasts; the in-call screen shows it.

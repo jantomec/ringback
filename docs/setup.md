@@ -233,6 +233,6 @@ with the voice server started with `--report`:
   --voice http://10.0.0.2:8788   # on the always-on Mac
 ```
 
-The phone rings as "Claude from myproject". The switchboard logs ringing, answered, the
+The phone rings as "myproject". The switchboard logs ringing, answered, the
 time to connected audio, and how the call ended. `ring` without `--voice` rings without
 audio.
