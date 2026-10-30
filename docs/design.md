@@ -495,15 +495,48 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
          same for `received_`, `concealed_pct` (how much of the voice the phone made up),
          and `rtt_ms`. The voice server logs its own side at the end of each call ("audio
          for …").
-       - Left for the phone: a call measured before and after; calls under the Network
-         Link Conditioner's 3G, Edge and Very Bad Network (Settings → Developer), judged by
-         ear; whether the phone's WebRTC sends what the answer asks for and the stats come
-         as expected; and how the wideband voice sounds in AirPods.
+       - **On the phone** (2026-10-30, mobile data, AirPods, calls rung by hand; the
+         stats as above):
+         - A normal call (61 s): nothing lost either way, 4–7 ms jitter, 67–74 ms round
+           trip; 12.7 kbps of Opus to the phone and 16.0 kbps from it over the call; the
+           phone made up 0.2% of the voice. The wideband voice sounded no different to the
+           developer ("sounds great").
+         - Network Link Conditioner (Settings → Developer) slows Nebula's packets twice:
+           inside the tunnel and again outside it. Its 3G gave a 478 ms round trip, where
+           its 100 ms each way predicts about 270; its Very Bad Network (500 ms and 10% lost
+           each way) gave 2.06–2.18 s and 12 of 40 pings lost, which 1 s and 19% each way
+           predicts. A profile of its own with Very Bad Network's values on the Cellular
+           interface only slows them once: 1.05–1.17 s, about 22% of pings lost.
+         - 3G (42 s): nothing lost, voice clear, the voice started 1.5 s after you
+           answered.
+         - Very Bad Network as it comes: the app never reached the Mac (each try then
+           needs two 2.1 s round trips, and gave up after 3 s); see below.
+         - Very Bad Network on the cellular interface (1.06 s round trip): 10.2% of your
+           packets and 9.8% of the voice's lost; the phone made up 5.3% of the voice; the
+           call lasted until hung up (91 s); of the 111 words heard from you, two look wrong
+           ("applet", likely "updates"; "forgive", likely "forget"; not checked with the
+           developer, and not told apart from accent). The first time, before the fixes below, it ended 31 s after
+           it connected.
+         - Left: Edge, and what the phone's encoder sends (its rate fits 24 kbps, but its
+           band isn't checked).
+       - **Slow networks.** Two limits, both found on Very Bad Network and fixed:
+         - aioice checks every 4–6 s during a call that the other side still wants it
+           (consent, RFC 7675). It sent each check once and gave up on it after 0.5 s,
+           and ended the call after 6 unanswered in a row: on a network slower than a
+           0.5 s round trip, every call ended about 30 s after it connected. The voice
+           server now sends each check up to 3 times and waits 3.5 s, and ends the call
+           after 4 unanswered in a row (`patient_consent` in
+           `voice/ringback_voice/__main__.py`). Offline (`tools/ice-check`), with a 1.1 s
+           and a 2.1 s round trip, connections ended after 30–36 s before and lasted 60 s
+           after; a phone that's gone is noticed after 32–36 s, as before.
+         - The app's tries to reach the Mac waited 3 s each, and each takes two round
+           trips: above about 1.5 s, none got through. They now wait 3 s, then 6, then 12.
+           On the phone with a 1.06 s round trip, the second try got through.
      - **Reaching the Mac first.** After the phone moves from Wi-Fi to mobile data, its
        Nebula tunnel to the Mac can stay stale: in the first phone test of Stage 3 the
        offer timed out after 15 s without reaching the Mac, while the switchboard on the
        lighthouse was reachable. So from the moment the phone rings, the app tries to
-       reach the voice server (`/ping`, 3 s per try) until it answers. Each try sends
+       reach the voice server (`/ping`, 3 s, then 6, then 12 per try) until it answers. Each try sends
        fresh packets, so Nebula notices sooner and goes through the relay. The offer goes
        when the voice server has answered, while the phone rings or up to 45 s after you
        answer; the app reports how long reaching it took, how many tries, and whether the
@@ -809,6 +842,16 @@ Each entry says why it lost and what would make it worth retrying.
   it met a stale tunnel later that day, the call worked, but the Mac answered only the
   fourth try, 12.2 s into ringing, and audio started 10.5 s after you answered: you can
   wait that long, up to the 45 s the app waits.
+- On mobile data the phone reaches the Mac only through the lighthouse's relay: it tries
+  the addresses the Mac gives the lighthouse first, which include those of other VPNs on
+  the Mac, and they fail ("no route to host"). On 2026-10-30, after the lighthouse had
+  dropped its tunnel to the idle phone and the phone had made a new one, the phone's
+  tunnel to the Mac still pointed through the old one ("unable to find host with relay"):
+  it gave up on it only 15 s into the next call, and a call you hang up before then never
+  reaches the Mac. The lighthouse drops the locked phone's tunnel about a minute after a
+  call; the phone's Nebula has punchy (keeping that tunnel alive) off. Calls then wait up
+  to about 20 s for the tunnel. Not changed: both are Nebula settings on your devices
+  (punchy on the phone, `lighthouse.local_allow_list` on the Mac).
 - Every placed call now costs a Haiku opening on the subscription, even if you decline
   it, and a declined call keeps its Haiku and the Mac awake until it's forgotten after
   90 s.
@@ -820,7 +863,8 @@ Each entry says why it lost and what would make it worth retrying.
 - The voice server replaces parts of aiortc at start, by name (`voice/ringback_voice/opus.py`):
   its Opus encoder and decoder, its audio jitter buffer and its Opus parameters, and loads
   the libopus that PyAV ships. An upgrade of aiortc or PyAV can break that; if libopus
-  doesn't load, the server says so at start and keeps aiortc's buffer and decoder.
+  doesn't load, the server says so at start and keeps aiortc's buffer and decoder. It
+  also replaces aioice's consent check (`patient_consent`), copied from aioice 0.10.2.
 - Xcode needs device support for the phone's iOS version to install development builds.
 - Only the phone's processing and the background filter keep other sounds out, so:
   - gym noise or other people's voices near you could still stop the voice, or be heard
@@ -1263,9 +1307,11 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
    lost packets, where aiortc's lost several more around each. Offline, with 5% and 15% of
    your packets lost, words heard wrong fell from 21.9% and 73.3% to 1.7% and 1.9% (1.4%
    with none lost, before and after), your words reached speech recognition 0.3–0.6 s
-   sooner, and a call went from about 1.1 to 0.9 MB a minute. On the
-   phone, left: a call measured before and after, and calls under the Network Link
-   Conditioner's 3G, Edge and Very Bad Network, which you judge by ear.
+   sooner, and a call went from about 1.1 to 0.9 MB a minute. On the phone (2026-10-30;
+   "On the phone" in "Data and weak signal"): the stats arrive, the voice sounds the same,
+   3G worked, and Very Bad Network worked after two fixes for slow networks (the Mac's
+   consent checks, the app's tries to reach the Mac); about 10% lost each way, two of 111
+   words heard from you look wrong. Left: Edge.
 7. **Several sessions + retries.** A second session waits for the first call to end.
    "Not now" retries on schedule while the queue waits. A final decline holds all calls
    until a call back releases them.

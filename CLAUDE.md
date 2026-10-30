@@ -31,7 +31,9 @@ remembers `/ringback`), 5 (waiting calls in the app, and calling one now) and 6 
 signal: the Mac sends mono at 24 kbps with forward error correction, asks the phone for the
 same, and rebuilds or conceals your lost packets) are built and tried offline
 (`tools/restart-check`, the switchboard's smoke test, `tools/phone-check --signal`,
-`tools/opus-check`), not yet on the phone; the voice server's launchd agent is written up in
+`tools/opus-check`). Stage 6 worked on the phone (2026-10-30: normal, 3G and Very Bad
+Network, after fixing two limits that broke calls on slow networks, `tools/ice-check`); 4
+and 5 aren't tried on the phone yet. The voice server's launchd agent is written up in
 `docs/setup.md`, not installed. Then 7 (several sessions and retries) and 8 (later: a
 phone-network fallback, showing you things), under Stages in `docs/design.md`. How it works:
 the ringback mod (`mod/`) adds `/ringback`; while it's on, each finished turn has the
@@ -67,8 +69,9 @@ Nebula, speech-to-text, speech speed, reply speed, briefings, scripted calls
 (`call-check`), sessions' calls and asks (`session-check`), the phone's side of calls
 (`phone-check`), what sessions ask the voice server (`ask-check`), Opus taking a call
 over (`handover-check`), what the voice speaks around its tool calls (`reply-check`), the
-voice server's calls through a restart (`restart-check`), and the call's Opus with lost
-packets (`opus-check`; `phone-check --signal` runs it through a call)). How to set it all up
+voice server's calls through a restart (`restart-check`), the call's Opus with lost
+packets (`opus-check`; `phone-check --signal` runs it through a call), and how long a call's
+connection lasts on a slow network (`ice-check`)). How to set it all up
 and place a test call: `docs/setup.md`.
 
 ## Checks

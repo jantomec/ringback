@@ -302,6 +302,46 @@ def only_address(host: str) -> None:
         aioice.ice.get_host_addresses = lambda use_ipv4, use_ipv6: [host]
 
 
+CONSENT_TRIES = 3  # each consent check is sent again after 0.5 s and 1 s, and waits 3.5 s in all
+CONSENT_FAILURES = 4  # unanswered checks in a row that end the call
+
+
+def patient_consent() -> None:
+    """Every 4-6 s during a call, aioice checks that the phone still wants it (consent, RFC
+    7675). It sent each check once and gave up on it after 0.5 s, and ended the call after 6
+    unanswered in a row: on a network slower than a 0.5 s round trip, every call ended about
+    30 s after it connected (Very Bad Network on the phone, Stage 6). Here each check is sent
+    up to CONSENT_TRIES times and waits 3.5 s, and CONSENT_FAILURES unanswered in a row end
+    the call, 30-38 s after the last answered one (`tools/ice-check`)."""
+    import random
+
+    import aioice.ice
+    from aioice import stun
+
+    async def query_consent(self) -> None:
+        failures = 0
+        while True:
+            await asyncio.sleep(aioice.ice.CONSENT_INTERVAL * (0.8 + 0.4 * random.random()))
+            for pair in self._nominated.values():
+                request = self.build_request(pair, nominate=False)
+                try:
+                    await pair.protocol.request(
+                        request,
+                        pair.remote_addr,
+                        integrity_key=self.remote_password.encode("utf8"),
+                        retransmissions=CONSENT_TRIES - 1,
+                    )
+                    failures = 0
+                except stun.TransactionError:
+                    failures += 1
+                if failures >= CONSENT_FAILURES:
+                    self._Connection__log_info("Consent to send expired")
+                    self._query_consent_task = None
+                    return await self.close()
+
+    aioice.ice.Connection.query_consent = query_consent
+
+
 def setting(body: dict, key: str, default: float) -> float:
     """A setting from 0 to 1 sent with the offer, or default if it's missing or invalid."""
     try:
@@ -324,6 +364,7 @@ def main() -> None:
     )  # fmt: skip
     args = p.parse_args()
     only_address(args.listen.rsplit(":", 1)[0])
+    patient_consent()
     log(opus.install())
 
     logger.remove()
