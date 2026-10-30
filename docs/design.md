@@ -393,25 +393,65 @@ yet; the rest is built. The plan for them is under Stages.
        session, which provides echo cancellation, and hands it to WebRTC.
      - The offer carries all ICE candidates at once, because the Mac's server doesn't
        take them one by one.
-     - **Data and weak signal.** The voice is Opus in both directions, 50 packets a second
-       each way. Estimated from the code's defaults, not measured: the Mac sends 96 kbps
-       stereo (aiortc's fixed encoder setting), the phone about 32 kbps (WebRTC's default,
-       unverified), and the headers add about 44 kbps each way (RTP, SRTP, UDP and IP,
-       wrapped again by Nebula), so about 140 kbps to the phone and 75 kbps from it, about
-       1.6 MB a minute in all. 4G carries that easily, and the calls on mobile data so far
-       worked. On weak signal, lost and late packets hurt more than bandwidth. Stage 6:
-       - Measure: the app adds each call's bytes sent and received, packet loss and jitter
-         (WebRTC's stats) to its "ended" report.
-       - Send less: the Mac's encoder sends mono at about 24 kbps, which keeps speech
-         clear and saves about 70 kbps, half of what goes to the phone. Opus already keeps
-         to the speech band at such rates and sends almost nothing in silence, so filtering
-         frequencies ourselves would save nothing more. Longer packets (40 ms) would halve
-         the headers for about 20 ms more delay; only if measuring shows it's worth it.
-       - Recover: Opus's forward error correction, which carries a rougher copy of each
-         packet in the next, on in both directions, and the Mac's decoder using it and
-         concealing what's still lost, so speech recognition gets fewer gaps.
-       - Test on the phone with its Network Link Conditioner (Settings → Developer), which
-         simulates 3G, Edge or a very bad network.
+     - **Data and weak signal.** The voice is Opus in both directions, in 20 ms packets,
+       50 a second each way. On weak signal, lost and late packets hurt more than
+       bandwidth. Measured offline (Stage 6), the phone played by aiortc set up as Google's
+       WebRTC sets itself up from the Mac's answer (`tools/phone-check --signal`), and
+       Opus on its own (`tools/opus-check`):
+       - **Headers.** Each packet carries 36 bytes of RTP and SRTP, and 88 more of UDP, IP
+         and Nebula over IPv4 (counted, not measured): about 50 kbps each way however
+         little the voice sends, now most of the traffic.
+       - **Before Stage 6** the Mac sent 96 kbps stereo (aiortc's fixed setting). In test
+         calls of about 3 min where the voice spoke about a third of the time (9 calls):
+         89–90 kbps of Opus while it spoke, 1.5–2.4 kbps in silence, 28–33 kbps over the
+         call, about 80 kbps through Nebula. The phone sent 32 kbps mono in Opus's full
+         band (31 kbps while you spoke, about 71 kbps through Nebula), without forward error
+         correction (FEC, a rougher copy of each packet in the next): WebRTC turns FEC on
+         only when the answer has `useinbandfec=1`, and aiortc's answer had no Opus
+         parameters. The phone's offer has `minptime=10;useinbandfec=1`. (From the app's
+         WebRTC package run on the Mac, and libwebrtc's source; not seen on the phone.) A
+         call was about 1.1 MB a minute in all.
+       - **Send less** (`voice/ringback_voice/opus.py`). The Mac sends mono at 24 kbps,
+         with FEC set for 10% loss. libopus 1.6 then encodes wideband (up to 8 kHz); at 5%
+         it left FEC out. In the same test calls: 23 kbps of Opus while the voice speaks,
+         3.3 kbps in silence, 8–10 kbps over the call, about 59 kbps through Nebula. The
+         voice also comes out about 3 dB louder: aiortc's mono-to-stereo resampling had made
+         it quieter. The answer asks the phone for 24 kbps, only the band speech recognition
+         uses (it hears at 16 kHz), and FEC, still as `opus/48000/2`:
+         `useinbandfec=1;maxaveragebitrate=24000;maxplaybackrate=16000`. Limited to that
+         band, Opus adds FEC from 1% loss on; at 24 kbps in its full band only from 10%.
+         WebRTC sets the loss Opus expects from the loss the Mac reports about every
+         second. The phone's stand-in then sent 21–22 kbps while you spoke, about 61 kbps
+         through Nebula. A call is about 0.9 MB a minute.
+       - Not sent less: DTX (almost nothing sent in silence) isn't among the options PyAV
+         takes for libopus here; it would need libopus directly, as the decoder below
+         uses it. Longer packets (40 ms) would halve the headers, about 25 kbps less each
+         way, for 20 ms more delay each way and twice the audio lost with each packet; not
+         changed.
+       - **Recover.** aiortc's jitter buffer held 4 of your packets back, and on a lost one
+         waited for 16 more, then dropped the 4 good ones before it too. After its first
+         loss it held 14 (0.28 s) for the rest of the call. Its decoder (FFmpeg) neither
+         used FEC nor concealed a loss: the gap was left out. Of 12 s of speech with 5% of
+         packets lost, 8.3 s came through; with 15%, 5.0 s (`tools/opus-check`). Now a
+         jitter buffer passes each packet on as soon as those before it have come, and
+         gives up on a missing one once 3 later ones have; the decoder (libopus as PyAV
+         ships it) rebuilds a lost packet from the next one's FEC, or else conceals it.
+         All 12 s come through; 25 of the 36 packets lost at 5% had FEC in the next.
+       - **Speech recognition**, through the voice server, 29 sentences (215 words) a
+         call, the phone's packets lost at random, 3 calls at each loss: words heard wrong
+         with 0%, 5% and 15% lost were 1.4%, 21.9% and 73.3% before, and are 1.4%, 1.7%
+         and 1.9% now. With none lost, all 3 wrong words in each call were numbers written
+         as digits ("200", "30").
+       - **Measure.** Each call's "ended" report to the switchboard carries the phone's
+         WebRTC stats (in `events.jsonl`): `sent_bytes`, `sent_header_bytes`,
+         `sent_packets`, `sent_lost` and `sent_jitter_ms` (as the Mac reported them), the
+         same for `received_`, `concealed_pct` (how much of the voice the phone made up),
+         and `rtt_ms`. The voice server logs its own side at the end of each call ("audio
+         for …").
+       - Left for the phone: a call measured before and after; calls under the Network
+         Link Conditioner's 3G, Edge and Very Bad Network (Settings → Developer), judged by
+         ear; whether the phone's WebRTC sends what the answer asks for and the stats come
+         as expected; and how the wideband voice sounds in AirPods.
      - **Reaching the Mac first.** After the phone moves from Wi-Fi to mobile data, its
        Nebula tunnel to the Mac can stay stale: in the first phone test of Stage 3 the
        offer timed out after 15 s without reaching the Mac, while the switchboard on the
@@ -721,6 +761,10 @@ Each entry says why it lost and what would make it worth retrying.
   `~/.claude/projects`; nothing cleans it up at the next start.
 - Pipecat expects a WebRTC data channel and logs a warning without one. Nothing needs one
   yet: the interruption settings go with the offer.
+- The voice server replaces parts of aiortc at start, by name (`voice/ringback_voice/opus.py`):
+  its Opus encoder and decoder, its audio jitter buffer and its Opus parameters, and loads
+  the libopus that PyAV ships. An upgrade of aiortc or PyAV can break that; if libopus
+  doesn't load, the server says so at start and keeps aiortc's buffer and decoder.
 - Xcode needs device support for the phone's iOS version to install development builds.
 - Only the phone's processing and the background filter keep other sounds out, so:
   - gym noise or other people's voices near you could still stop the voice, or be heard
@@ -1109,9 +1153,15 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
    (`tools/phone-check`), and on the phone: a call held outside your hours shows, and
    tapping it talks.
 6. **Weak signal.** Measure, then send less and recover more (see "Data and weak signal"
-   in the iPhone app): each call reports its data, loss and jitter; the Mac sends mono at
-   about 24 kbps, with forward error correction both ways and the Mac's decoder using it.
-   On the phone: a call measured before and after, and calls under the Network Link
+   in the iPhone app). Built and tried offline (`tools/phone-check --signal`,
+   `tools/opus-check`): each call's "ended" report carries the phone's WebRTC stats, and
+   the voice server logs its own; the Mac sends mono at 24 kbps with forward error
+   correction, and its answer asks the phone for 24 kbps in wideband with forward error
+   correction; a jitter buffer and decoder of our own on the Mac rebuild or conceal your
+   lost packets, where aiortc's lost several more around each. Offline, with 5% and 15% of
+   your packets lost, words heard wrong fell from 21.9% and 73.3% to 1.7% and 1.9% (1.4%
+   with none lost, before and after), and a call from about 1.1 to 0.9 MB a minute. On the
+   phone, left: a call measured before and after, and calls under the Network Link
    Conditioner's 3G, Edge and Very Bad Network, which you judge by ear.
 7. **Several sessions + retries.** A second session waits for the first call to end.
    "Not now" retries on schedule while the queue waits. A final decline holds all calls

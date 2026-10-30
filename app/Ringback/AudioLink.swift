@@ -38,6 +38,8 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     private var voice: RTCMediaStreamTrack?
     private var muted = false
     private var stopped = false
+    /// Waits for the call's stats while the link stops (`stop(reporting:)`).
+    private var reporting: (([String: String]) -> Void)?
     /// Which addresses the offer gave, for the switchboard's log.
     private(set) var addresses = ""
     /// True while the phone rings. The link then neither sends your microphone nor plays the
@@ -229,6 +231,70 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
         peer = nil
         microphone = nil
         voice = nil
+    }
+
+    /// Stops the link once it has read the call's audio stats (`stats`), and gives them to
+    /// `done` on the main queue, for the call's report to the switchboard. Without an answer
+    /// from WebRTC within 2 s, it stops anyway, and `done` gets none.
+    func stop(reporting done: @escaping ([String: String]) -> Void) {
+        guard let peer, !stopped else {
+            stop()
+            return done([:])
+        }
+        stopped = true
+        onConnected = nil
+        onFailed = nil
+        reporting = done
+        peer.statistics { report in
+            let stats = Self.stats(report)
+            DispatchQueue.main.async { [self] in stopReporting(stats) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [self] in stopReporting([:]) }
+    }
+
+    private func stopReporting(_ stats: [String: String]) {
+        guard let done = reporting else { return }
+        reporting = nil
+        stop()
+        done(stats)
+    }
+
+    /// What the call's audio did, from WebRTC's stats, as fields for the switchboard (see "Data
+    /// and weak signal" in docs/design.md): each way, the bytes of Opus and of RTP headers and
+    /// the packets, the packets lost and the jitter as the receiving end saw them, how much of
+    /// the voice the phone made up for lost or late packets, and the round trip.
+    private static func stats(_ report: RTCStatisticsReport) -> [String: String] {
+        let all = Array(report.statistics.values)
+        func audio(_ type: String) -> [String: NSObject] {
+            all.first { $0.type == type && ($0.values["kind"] as? String ?? "audio") == "audio" }?.values ?? [:]
+        }
+        var fields: [String: String] = [:]
+        func add(_ key: String, _ value: NSObject?, scale: Double = 1) {
+            if let number = value as? NSNumber { fields[key] = String(format: "%.0f", number.doubleValue * scale) }
+        }
+        let sent = audio("outbound-rtp"), far = audio("remote-inbound-rtp"), received = audio("inbound-rtp")
+        add("sent_bytes", sent["bytesSent"])
+        add("sent_header_bytes", sent["headerBytesSent"])
+        add("sent_packets", sent["packetsSent"])
+        add("sent_lost", far["packetsLost"])
+        add("sent_jitter_ms", far["jitter"], scale: 1000)
+        add("received_bytes", received["bytesReceived"])
+        add("received_header_bytes", received["headerBytesReceived"])
+        add("received_packets", received["packetsReceived"])
+        add("received_lost", received["packetsLost"])
+        add("received_jitter_ms", received["jitter"], scale: 1000)
+        if let concealed = received["concealedSamples"] as? NSNumber,
+            let total = received["totalSamplesReceived"] as? NSNumber, total.doubleValue > 0
+        {
+            fields["concealed_pct"] = String(format: "%.1f", 100 * concealed.doubleValue / total.doubleValue)
+        }
+        // The Mac's reports give the round trip; failing that, the connection's own checks.
+        add("rtt_ms", far["roundTripTime"], scale: 1000)
+        if fields["rtt_ms"] == nil {
+            let pair = all.first { $0.type == "candidate-pair" && ($0.values["nominated"] as? NSNumber)?.boolValue == true }
+            add("rtt_ms", pair?.values["currentRoundTripTime"], scale: 1000)
+        }
+        return fields
     }
 
     private func updateTracks() {

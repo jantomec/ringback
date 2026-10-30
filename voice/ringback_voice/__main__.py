@@ -49,7 +49,7 @@ from pipecat.turns.empty_user_turn import EmptyUserTurnConfig
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
-from ringback_voice import hearing, models, sessions
+from ringback_voice import hearing, models, opus, sessions
 from ringback_voice.claude_code import ClaudeCodeLLMService
 from ringback_voice.haiku import Haiku
 from ringback_voice.instructions import instructions
@@ -208,11 +208,14 @@ async def run_call(
     )
     task = call_task(transport, text, say, sensitivity=sensitivity, gate=gate, link=link, haiku=haiku)
     connected = asyncio.Event()
+    connected_at = 0.0
     started = False
 
     @transport.event_handler("on_client_connected")
     async def on_connected(transport, connection):
+        nonlocal connected_at
         say(f"connected, {since()}")
+        connected_at = time.monotonic()
         connected.set()
 
     @transport.event_handler("on_client_disconnected")
@@ -246,7 +249,39 @@ async def run_call(
     finally:
         for waiter in waiting:
             waiter.cancel()
+    if connected.is_set() and answered.done():
+        # Audio went both ways from when you answered or it connected, whichever came last.
+        say(await audio_stats(conn, time.monotonic() - max(connected_at, answered.result())))
     say("finished")
+
+
+async def audio_stats(conn: SmallWebRTCConnection, secs: float) -> str:
+    """What the call's audio sent and received, from aiortc's stats: Opus's own rate, and the
+    rate with RTP, SRTP and RTCP, but not UDP, IP or Nebula (see "Data and weak signal" in
+    docs/design.md). Loss and jitter on the way to the phone are as the phone reported them."""
+    try:
+        stats = list((await conn.pc.getStats()).values())
+    except Exception as e:  # the connection's end can't stop the call's end
+        return f"no audio stats: {e!r}"
+    one = lambda kind: next((s for s in stats if s.type == kind and getattr(s, "kind", "audio") == "audio"), None)
+    out, back, into, phone, wire = (
+        one("outbound-rtp"), one("remote-inbound-rtp"), one("inbound-rtp"), one("remote-outbound-rtp"), one("transport")
+    )
+    kbps = lambda count: f"{count * 8 / max(secs, 0.001) / 1000:.1f} kbps"
+    ms = lambda jitter: f"{jitter / 48:.0f} ms"  # in 48 kHz samples
+    line = f"audio for {secs:.1f} s:"
+    if out and wire:
+        line += f" sent {out.packetsSent} packets, {kbps(out.bytesSent)} of Opus, {kbps(wire.bytesSent)} with headers"
+    if back:
+        line += f"; the phone lost {back.packetsLost}, jitter {ms(back.jitter)}"
+        if back.roundTripTime is not None:
+            line += f", round trip {back.roundTripTime * 1000:.0f} ms"
+    if into and wire:
+        line += f"; received {into.packetsReceived} packets, lost {into.packetsLost}, jitter {ms(into.jitter)}"
+        line += f", {kbps(wire.bytesReceived)} with headers"
+    if phone:
+        line += f"; the phone sent {phone.packetsSent} packets, {kbps(phone.bytesSent)} of Opus"
+    return line
 
 
 def only_address(host: str) -> None:
@@ -286,6 +321,7 @@ def main() -> None:
     )  # fmt: skip
     args = p.parse_args()
     only_address(args.listen.rsplit(":", 1)[0])
+    log(opus.install())
 
     logger.remove()
     logger.add(sys.stderr, level="WARNING")

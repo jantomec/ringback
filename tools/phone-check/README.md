@@ -3,7 +3,8 @@
 Plays the phone's side of calls against a voice server started here, to time the silence
 after you answer without the phone. The voice server gets its own socket, in a temporary
 folder, and ports 18797 and 18798, so it can run beside your own voice server and other
-checks. Calls are placed through that socket, as a session's mod places them. A stand-in
+checks. With `--port P` (in every mode) they're P and P + 1, so two phone checks can run at
+once. Calls are placed through that socket, as a session's mod places them. A stand-in
 switchboard in the script takes them, because the real one gives the call's ID only to
 the phone, in its push, and the check needs it for the phone's offer. Nothing rings.
 
@@ -132,3 +133,61 @@ audio: a median 2.72 s (2.13–3.48 s, 25 call backs), about as on a call rung b
 since Haiku starts only at the offer; its first words came 1.5–2.5 s after. In the first
 run, before the lead said not to, one opening began "Hi, I'm calling about…"; the check for
 that came after it, and passed in the four runs since.
+
+## Weak signal (`--signal`)
+
+    uv run --project voice tools/phone-check/phone_check.py --signal [--loss 0,5,15] [--runs N] [--port P] [--keep DIR]
+
+Says known sentences on calls rung by hand whose line loses some of the phone's packets,
+and compares what the voice server heard with what was said. For each run, one call for
+each loss in `--loss` (percent; 0, 5 and 15 by default):
+- the sentences are `tools/stt-eval/sentences.txt`, but for one Haiku could take for asking
+  for a better model: 29 sentences, 215 words, about 97 s of speech, spoken by another
+  Kokoro voice, 2.5 s apart, after the voice's opening;
+- each RTP packet the phone sends is lost at random with that chance, on its own, not in
+  bursts. The same packets are lost for the same run and loss, counted from the call's
+  first packet;
+- the phone's Opus is set up as Google's WebRTC sets it up from the voice server's answer
+  (libwebrtc's `audio_encoder_opus.cc`): mono, at `maxaveragebitrate`, or else 32 kbps (20
+  kbps if `maxplaybackrate` is 16 kHz or less), in the band `maxplaybackrate` allows, and
+  with forward error correction only if the answer has `useinbandfec=1`. WebRTC sets
+  Opus's expected loss from the loss the Mac reports; here it's the loss the check makes.
+  aiortc's own encoder would send 96 kbps stereo.
+
+It prints, for each call:
+- the packets lost, and the words heard wrong: the edit distance in words between what was
+  said and what the voice server heard (its log), after lowercasing and dropping
+  punctuation, so "200" for "two hundred" counts as wrong at any loss;
+- a median of how soon after the speech in each sentence ended (its last sample above the
+  level of 100) its words were heard, as the voice server's log times them. It includes
+  the voice-activity detector's wait for silence, so compare it between runs, not with
+  zero. Measured from the end of each clip instead, as at first, it missed the words the
+  voice server heard before the clip's trailing silence had all gone;
+- each way, the kbps of Opus over the call, and on average in the seconds with speech and
+  in those without (where the voice or you spoke in at least 3 of 4 frames, or in none),
+  the packets a second, and the bytes of RTP and SRTP each of the phone's packets carried.
+  "Through Nebula" adds those and 88 bytes a packet for UDP and IP inside Nebula, Nebula's
+  header and tag, and UDP and IP outside, over IPv4, counted, not measured;
+- the voice server's own line about the call's audio, and what it heard.
+
+Then the words heard wrong for each loss over all runs. It uses your Claude subscription,
+one Haiku session for each call, and takes about 3.2 min a call.
+
+The stand-in phone's microphone sends digital silence between sentences, which Opus
+encodes at 10–14 kbps in its full band and about 3 kbps in wideband; a real microphone's
+background noise costs more. The phone's audio path, its jitter buffer and concealment, and
+a real network's late or reordered packets aren't part of it.
+
+Result on 2026-10-30, Claude Code 2.1.314, three runs before Stage 6 changed the voice
+server's Opus (`voice/ringback_voice/opus.py`) and three after, each about 30 min:
+- words heard wrong with 0%, 5% and 15% lost: before 9, 141 and 473 of 645 (1.4%, 21.9%,
+  73.3%; per run 3, 3, 3; 57, 43, 41; 165, 150, 158), after 9, 11 and 12 (1.4%, 1.7%,
+  1.9%; 3, 3, 3; 3, 4, 4; 5, 4, 3). With none lost, the 3 words wrong are numbers written
+  as digits;
+- Mac to phone, kbps of Opus while the voice spoke, in silence and over the call, and
+  through Nebula: before 88–90, 1.5–2.4, 28–33 and 78–83; after 22.7–23.5, 3.2–3.4,
+  8.3–9.8 and 58–59. The voice spoke about a third of each call;
+- phone to Mac, the same: before 30.5–31.1, 13.5 (digital silence), 21.5 and 71; after,
+  asked for 24 kbps in wideband with FEC, 21.2–21.9, 3.2, 11.8 and 61;
+- 50 packets a second each way, with 36 bytes of RTP and SRTP each, in every call; the
+  voice server counted the same packets lost as the check dropped.

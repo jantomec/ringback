@@ -30,13 +30,26 @@ listening gets a voice that passes nothing on; that a permission asked on a call
 answer is answered on its call back; and that a call back while the missed call is still
 placed leaves no "wasn't answered" note. Prints the openings, and the time from each offer
 to the voice's first audio.
+
+    uv run --project voice tools/phone-check/phone_check.py --signal [--loss 0,5,15] [--runs N] [--keep DIR]
+
+says known sentences instead, on calls rung by hand whose line loses some of the phone's
+packets (each at random, with the chances given in percent), with the phone's Opus set up as
+Google's WebRTC sets it up from the voice server's answer. Compares what the voice server
+heard with what was said, and prints the words heard wrong, how soon after each sentence its
+words were heard, and the data each way.
+
+--port P gives the stand-in switchboard port P and the voice server P + 1 (18797 and 18798 by
+default), so two checks can run at once.
 """
 
 import argparse
+import ast
 import asyncio
 import fractions
 import json
 import os
+import random
 import re
 import secrets
 import shutil
@@ -46,6 +59,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import aiohttp
@@ -54,10 +68,13 @@ import numpy as np
 import soxr
 from aiohttp import web
 from aiortc import MediaStreamTrack, RTCConfiguration, RTCPeerConnection, RTCSessionDescription
+from aiortc.codecs.opus import OpusEncoder
 from aiortc.mediastreams import MediaStreamError
+from aiortc.rtp import RtpPacket, is_rtcp
 
-SWITCHBOARD = "127.0.0.1:18797"  # the stand-in, in this script
-VOICE = "127.0.0.1:18798"
+PORT = 18797  # the stand-in switchboard's port, in this script; the voice server gets the next
+SWITCHBOARD = f"127.0.0.1:{PORT}"
+VOICE = f"127.0.0.1:{PORT + 1}"
 SESSION = "phone-check-session"
 SUBJECT = "Parser fix ready to push"
 BRIEFING = """\
@@ -86,6 +103,7 @@ class Mic(MediaStreamTrack):
         self._pending = np.zeros(0, dtype=np.int16)
         self._start: float | None = None
         self._sent = 0  # samples
+        self.frames: list[tuple[float, bool]] = []  # when each frame went, and whether you spoke in it
 
     def say(self, samples: np.ndarray) -> None:
         self._pending = np.concatenate([self._pending, samples])
@@ -97,6 +115,7 @@ class Mic(MediaStreamTrack):
             self._start = time.monotonic()
         await asyncio.sleep(max(0.0, self._start + self._sent / RATE - time.monotonic()))
         chunk, self._pending = self._pending[:step], self._pending[step:]
+        self.frames.append((time.monotonic(), len(chunk) > 0))
         chunk = np.pad(chunk, (0, step - len(chunk)))
         frame = av.AudioFrame.from_ndarray(chunk.reshape(1, -1), format="s16", layout="mono")
         frame.sample_rate, frame.pts, frame.time_base = RATE, self._sent, fractions.Fraction(1, RATE)
@@ -114,6 +133,8 @@ class Phone:
         self.first_audio: float | None = None  # when the voice was first heard
         self.last_audio: float | None = None
         self.frames = 0  # audio frames received, silent ones too
+        self.heard: list[tuple[float, bool]] = []  # when each frame came, and whether the voice spoke in it
+        self.on_answer = None  # called with the voice server's answer before it's applied
         self._listener: asyncio.Task | None = None
 
         @self.pc.on("track")
@@ -128,7 +149,9 @@ class Phone:
             except MediaStreamError:
                 return
             self.frames += 1
-            if np.abs(frame.to_ndarray().astype(np.int32)).max(initial=0) > LOUD:
+            loud = np.abs(frame.to_ndarray().astype(np.int32)).max(initial=0) > LOUD
+            self.heard.append((time.monotonic(), loud))
+            if loud:
                 self.last_audio = time.monotonic()
                 self.first_audio = self.first_audio or self.last_audio
 
@@ -147,6 +170,8 @@ class Phone:
                 if r.status != 200:
                     return r.status
                 answer = await r.json()
+        if self.on_answer:
+            self.on_answer(answer["sdp"])
         await self.pc.setRemoteDescription(RTCSessionDescription(sdp=answer["sdp"], type=answer["type"]))
         return 200
 
@@ -221,12 +246,19 @@ async def main() -> int:
     p.add_argument("--keep", type=Path, help="keep the voice log and transcripts in this directory")
     p.add_argument("--back", action="store_true", help="call back calls you didn't answer instead")
     p.add_argument("--unanswered", type=float, default=8, help="with --back: seconds before an unanswered call is forgotten")
+    p.add_argument("--signal", action="store_true", help="say known sentences through a line that loses packets instead")
+    p.add_argument("--loss", default="0,5,15", help="with --signal: percentages of the phone's packets lost (default 0,5,15)")
+    p.add_argument("--port", type=int, default=PORT, help=f"the stand-in switchboard's port; the voice server's is the next (default {PORT})")
     args = p.parse_args()
+    global SWITCHBOARD, VOICE
+    SWITCHBOARD, VOICE = f"127.0.0.1:{args.port}", f"127.0.0.1:{args.port + 1}"
     for address in (SWITCHBOARD, VOICE):
         if not free(address):
             sys.exit(f"{address} is in use: is another phone check running?")
     if args.back:
         return await call_backs(args)
+    if args.signal:
+        return await weak_signal(args)
 
     sessions = kept()
     tmp = Path(tempfile.mkdtemp(prefix="ringback-phone-check-"))
@@ -740,6 +772,246 @@ async def call_backs(args) -> int:
     shutil.rmtree(own, ignore_errors=True)
     return 1 if fails else 0
 
+
+# Weak signal (--signal): known sentences, said on calls whose line loses some of the phone's
+# packets.
+SENTENCES = Path(__file__).parents[1] / "stt-eval" / "sentences.txt"
+# Left out: Haiku could take it for asking for a better model, and hand the call to Opus.
+NOT_SAID = "Use the Haiku model for the voice and keep Opus for the session."
+GAP = 2.5  # seconds of silence after each sentence, past the end of your turn (1.5 s)
+# Bytes each packet gains outside SRTP through Nebula over IPv4: UDP and IP inside Nebula (28),
+# Nebula's header (16) and tag (16), and UDP and IP outside (28).
+NEBULA = 88
+PHONE_OPUS: dict = {}  # how the stand-in phone's encoder runs, set from each answer
+
+
+class PhoneOpus(OpusEncoder):
+    """The phone's Opus encoder, as Google's WebRTC sets it up from the Mac's answer (`phone_opus`):
+    mono, and with forward error correction if the answer has useinbandfec=1, set for the loss
+    the Mac reports, as WebRTC sets it (here, the loss the check makes). aiortc's own encoder
+    sends 96 kbps stereo."""
+
+    def __init__(self):
+        self.codec = av.CodecContext.create("libopus", "w")
+        self.codec.bit_rate = PHONE_OPUS.get("bitrate", 32000)
+        self.codec.format = "s16"
+        self.codec.layout = "mono"
+        self.codec.sample_rate = RATE
+        self.codec.time_base = fractions.Fraction(1, RATE)
+        options = {"application": "voip"}
+        if PHONE_OPUS.get("cutoff"):
+            options["cutoff"] = str(PHONE_OPUS["cutoff"])
+        if PHONE_OPUS.get("fec") and PHONE_OPUS.get("loss"):
+            options |= {"fec": "1", "packet_loss": str(PHONE_OPUS["loss"])}
+        self.codec.options = options
+        self.resampler = av.AudioResampler(format="s16", layout="mono", rate=RATE, frame_size=int(RATE * TICK))
+        self.first_packet_pts = None
+
+
+def phone_opus(answer: str, loss: float) -> dict:
+    """How Google's WebRTC sets up the phone's Opus encoder from the answer's Opus parameters:
+    the bitrate is maxaveragebitrate, or else 32 kbps, or 20 kbps if maxplaybackrate is 16 kHz
+    or less; the band is what maxplaybackrate allows; FEC is on with useinbandfec=1."""
+    rtpmap = re.search(r"a=rtpmap:(\d+) opus/48000/2", answer, re.I)
+    line = rtpmap and re.search(rf"a=fmtp:{rtpmap[1]} (\S+)", answer)
+    fmtp = dict(p.split("=", 1) for p in line[1].split(";") if "=" in p) if line else {}
+    playback = int(fmtp.get("maxplaybackrate", 48000))
+    default = 12000 if playback <= 8000 else 20000 if playback <= 16000 else 32000
+    cutoff = next((c for rate, c in ((8000, 4000), (12000, 6000), (16000, 8000), (24000, 12000)) if playback <= rate), 0)
+    return {
+        "bitrate": int(fmtp.get("maxaveragebitrate", default)), "cutoff": cutoff,
+        "fec": fmtp.get("useinbandfec") == "1", "loss": round(loss),
+    }  # fmt: skip
+
+
+def words(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9']+", text.lower().replace("-", " "))
+
+
+def wrong(said: list[str], heard: list[str]) -> int:
+    """Words heard wrong, missed or added: the edit distance in words."""
+    row = list(range(len(heard) + 1))
+    for i, w in enumerate(said, 1):
+        diagonal, row[0] = row[0], i
+        for j, h in enumerate(heard, 1):
+            diagonal, row[j] = row[j], min(row[j] + 1, row[j - 1] + 1, diagonal + (w != h))
+    return row[-1]
+
+
+def rates(packets: list[tuple[float, int]], frames: list[tuple[float, bool]]) -> tuple[float, float, float]:
+    """kbps of Opus over the call, and on average in the seconds where at least 3 in 4 frames
+    had speech, and where none had. packets are when each went or came and its bytes of Opus;
+    frames when each frame went or came and whether it had speech."""
+    start, end = packets[0][0], packets[-1][0]
+    total = sum(b for _, b in packets) * 8 / max(end - start, 0.001) / 1000
+    speaking, silent = [], []
+    for second in np.arange(start, end - 1, 1.0):
+        inside = [s for t, s in frames if second <= t < second + 1]
+        kbps = sum(b for t, b in packets if second <= t < second + 1) * 8 / 1000
+        if inside and sum(inside) >= 0.75 * len(inside):
+            speaking.append(kbps)
+        elif inside and not any(inside):
+            silent.append(kbps)
+    mean = lambda values: statistics.mean(values) if values else float("nan")
+    return total, mean(speaking), mean(silent)
+
+
+def spoken(kokoro, text: str) -> np.ndarray:
+    audio = np.concatenate([np.array(r.audio) for r in kokoro.generate(text, voice=YOUR_VOICE, lang_code="a")])
+    return (np.clip(soxr.resample(audio, 24000, RATE), -1, 1) * 32767).astype(np.int16)
+
+
+async def weak_signal(args) -> int:
+    """Says known sentences on calls rung by hand whose line loses some of the phone's packets,
+    and compares what the voice server heard with what was said."""
+    import aiortc.codecs
+
+    aiortc.codecs.OpusEncoder = PhoneOpus
+    losses = [float(x) for x in args.loss.split(",")]
+    said = [line for line in SENTENCES.read_text().splitlines() if line.strip() and line != NOT_SAID]
+    reference = [w for line in said for w in words(line)]
+    tmp = Path(tempfile.mkdtemp(prefix="ringback-phone-check-"))
+    voice_log = tmp / "voice.log"
+    (tmp / "report.txt").write_text(BRIEFING)
+    voice = subprocess.Popen(
+        [sys.executable, "-m", "ringback_voice", "serve", "--listen", VOICE, "--socket", str(tmp / "voice.sock"),
+         "--report", str(tmp / "report.txt")],
+        stdout=voice_log.open("w"), stderr=subprocess.STDOUT,
+    )  # fmt: skip
+    results: list[dict] = []
+
+    async def lossy_call(run: int, loss: float, clips: list[np.ndarray]) -> dict:
+        # The same packets are lost for the same run and loss, counted from the call's first.
+        dice = random.Random(f"{run} {loss}")
+        sent: list[tuple[float, int]] = []  # when each RTP packet went, and its bytes of Opus
+        received: list[tuple[float, int]] = []
+        headers: list[int] = []  # bytes each packet the phone sent gained from RTP and SRTP
+        dropped = 0
+        phone = Phone()
+
+        def on_answer(sdp: str) -> None:
+            PHONE_OPUS.clear()
+            PHONE_OPUS.update(phone_opus(sdp, loss))
+            transport = phone.pc.getSenders()[0].transport
+            send = transport._send_rtp
+            receiver = phone.pc.getReceivers()[0]
+            handle = receiver._handle_rtp_packet
+
+            async def lossy(data: bytes) -> None:
+                nonlocal dropped
+                if is_rtcp(data):
+                    return await send(data)
+                opus = len(RtpPacket.parse(data).payload)
+                sent.append((time.monotonic(), opus))
+                if dice.random() < loss / 100:
+                    dropped += 1
+                    return
+                before = transport._RTCDtlsTransport__tx_bytes
+                await send(data)
+                headers.append(transport._RTCDtlsTransport__tx_bytes - before - opus)
+
+            async def heard(packet, arrival_time_ms):
+                received.append((time.monotonic(), len(packet.payload)))
+                await handle(packet, arrival_time_ms)
+
+            transport._send_rtp = lossy
+            receiver._handle_rtp_packet = heard
+
+        phone.on_answer = on_answer
+        call_id = secrets.token_hex(8)
+        t = time.monotonic()
+        ok = await phone.offer(call_id, ringing=False) == 200
+        ok = ok and await phone.heard_after(t) is not None
+        await phone.quiet_for(2.5, limit=60)
+        ends: list[datetime] = []  # when the speech in each sentence ended
+        for clip in clips:
+            phone.mic.say(clip)
+            while len(phone.mic._pending):
+                await asyncio.sleep(0.01)
+            # Kokoro ends a sentence in silence, which the voice server may stop hearing it in
+            # before it has all gone: count from the last sample louder than that.
+            quiet = len(clip) - 1 - np.flatnonzero(np.abs(clip.astype(np.int32)) > LOUD)[-1]
+            ends.append(datetime.now() - timedelta(seconds=quiet / RATE))
+            await asyncio.sleep(GAP)
+        await asyncio.sleep(1)
+        await phone.hang_up()
+        found = await wait_for(voice_log, rf"call {call_id[:8]}: finished", WAIT)
+        log = voice_log.read_text()
+        today = datetime.now().date()
+        you = [
+            (datetime.combine(today, datetime.strptime(stamp, "%H:%M:%S.%f").time()), ast.literal_eval(text))
+            for stamp, text in re.findall(rf"^(\S+)  call {call_id[:8]}: you \(.*?\): (.+)$", log, re.M)
+        ]
+        heard = [w for _, text in you for w in words(text)]
+        # From the end of the speech in each sentence to the first words heard after it, before the
+        # next one's ended.
+        delays = []
+        for end, after in zip(ends, ends[1:] + [datetime.max]):
+            first = next((stamp for stamp, _ in you if end < stamp < after), None)
+            if first:
+                delays.append((first - end).total_seconds())
+        stats = re.search(rf"call {call_id[:8]}: (audio for .+)$", log, re.M)
+        header = statistics.mean(headers) if headers else 0
+        wire = lambda packets: (
+            (sum(b for _, b in packets) + len(packets) * (header + NEBULA)) * 8 / (packets[-1][0] - packets[0][0]) / 1000
+        )
+        return {
+            "run": run, "loss": loss, "ok": ok and found is not None, "dropped": dropped, "sent": len(sent),
+            "wrong": wrong(reference, heard), "words": len(reference), "delays": delays,
+            "up": rates(sent, phone.mic.frames), "down": rates(received, phone.heard),
+            "up_pps": len(sent) / (sent[-1][0] - sent[0][0]), "down_pps": len(received) / (received[-1][0] - received[0][0]),
+            "up_wire": wire(sent), "down_wire": wire(received), "header": header,
+            "voice": stats[1] if stats else "no stats", "heard": " / ".join(text for _, text in you),
+            "encoder": dict(PHONE_OPUS),
+        }  # fmt: skip
+
+    try:
+        from mlx_audio.tts.utils import load_model
+
+        kokoro = load_model(KOKORO)
+        clips = [spoken(kokoro, line) for line in said]
+        if not await wait_for(voice_log, r"voice listening", 180):
+            print(voice_log.read_text())
+            sys.exit("The voice server didn't start.")
+        for run in range(1, args.runs + 1):
+            for loss in losses:
+                results.append(r := await lossy_call(run, loss, clips))
+                heard = statistics.median(r["delays"] or [float("nan")])
+                print(f"loss {loss:g}%, run {run}: {r['wrong']} of {r['words']} words wrong, heard {heard:.2f} s after", flush=True)
+    finally:
+        voice.terminate()
+        voice.wait()
+
+    print("--- voice log")
+    print("".join(line for line in voice_log.open() if re.search(r"call |voice listening|models loaded", line)))
+    seconds = sum(len(c) for c in clips) / RATE
+    print(f"{len(said)} sentences, {len(reference)} words, {seconds:.0f} s of speech, {GAP:g} s apart")
+    for r in results:
+        up, down = r["up"], r["down"]
+        print(f"\nloss {r['loss']:g}%, run {r['run']}{'' if r['ok'] else ' (FAILED: no voice, or the call did not end)'}: "
+              f"{r['dropped']} of the phone's {r['sent']} packets lost ({100 * r['dropped'] / max(r['sent'], 1):.1f}%); "
+              f"{r['wrong']} of {r['words']} words heard wrong ({100 * r['wrong'] / r['words']:.1f}%); first words heard "
+              f"a median {statistics.median(r['delays'] or [float('nan')]):.2f} s after the speech in each sentence ended")
+        print(f"  the phone's encoder: {r['encoder']}")
+        print(f"  phone to Mac: {up[0]:.1f} kbps of Opus (speaking {up[1]:.1f}, silent {up[2]:.1f}), "
+              f"{r['up_pps']:.1f} packets/s, {r['header']:.0f} bytes of RTP and SRTP each, "
+              f"about {r['up_wire']:.0f} kbps through Nebula")
+        print(f"  Mac to phone: {down[0]:.1f} kbps of Opus (speaking {down[1]:.1f}, silent {down[2]:.1f}), "
+              f"{r['down_pps']:.1f} packets/s, about {r['down_wire']:.0f} kbps through Nebula")
+        print(f"  the voice server: {r['voice']}")
+        print(f"  heard: {r['heard']}")
+    print("\nwords heard wrong, over all runs:")
+    for loss in losses:
+        mine = [r for r in results if r["loss"] == loss]
+        errors, total = sum(r["wrong"] for r in mine), sum(r["words"] for r in mine)
+        delays = [d for r in mine for d in r["delays"]]
+        print(f"  {loss:4g}% lost: {errors} of {total} ({100 * errors / total:.1f}%), "
+              f"per run {', '.join(str(r['wrong']) for r in mine)}; first words heard a median "
+              f"{statistics.median(delays or [float('nan')]):.2f} s after the speech in each sentence")
+    if args.keep:
+        shutil.copytree(tmp, args.keep, dirs_exist_ok=True, ignore=shutil.ignore_patterns("*.sock"))
+    shutil.rmtree(tmp, ignore_errors=True)
+    return 0 if all(r["ok"] for r in results) else 1
 
 if __name__ == "__main__":
     sys.exit(asyncio.run(main()))

@@ -175,23 +175,29 @@ final class CallService: NSObject, CXProviderDelegate {
 
     // MARK: Ending calls
 
-    /// Ends our record of a call and tells the switchboard.
+    /// Ends our record of a call and tells the switchboard, with what its audio did.
     private func finish(_ uuid: UUID, _ outcome: CallRecord.Outcome, event: String, extra: [String: String] = [:]) {
-        links.removeValue(forKey: uuid)?.stop()
+        let link = links.removeValue(forKey: uuid)
         connecting.removeValue(forKey: uuid)?.cancel()
         ringingAudio[uuid] = nil
         voiceURLs[uuid] = nil
         callingBack[uuid] = nil
         connected.remove(uuid)
         if state.activeCall?.uuid == uuid { endHeartbeat() }
-        guard let callID = callIDs.removeValue(forKey: uuid) else { return }
+        guard let callID = callIDs.removeValue(forKey: uuid) else {
+            link?.stop()
+            return
+        }
         var extra = extra
         state.update(callID) { call in
             call.outcome = outcome
             call.endedAt = .now
             if let duration = call.duration { extra["duration_s"] = String(format: "%.1f", duration) }
         }
-        Switchboard.report(callID: callID, event: event, extra: extra)
+        guard let link else { return Switchboard.report(callID: callID, event: event, extra: extra) }
+        link.stop { [extra] stats in
+            Switchboard.report(callID: callID, event: event, extra: extra.merging(stats) { mine, _ in mine })
+        }
     }
 
     /// Calls left open because the app was closed (killed, crashed, or iOS ran out of
