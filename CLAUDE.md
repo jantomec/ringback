@@ -25,10 +25,15 @@ app, outside which the switchboard holds a call and the calling Mac asks again w
 start) are built, tried offline (`tools/call-check`, `tools/handover-check`,
 `tools/ask-check`, `tools/phone-check --back`) and worked on the phone (2026-10-30). Step 7,
 questions outside your work hours going to the terminal at once, is tried offline only. The
-voice now asks several things one at a time and passes the answers on together. The plan
-from here, in order (under Stages in `docs/design.md`): Stage 4 (staying up through
-restarts), 5 (waiting calls in the app), 6 (weak signal), 7 (several sessions and retries)
-and 8 (later: a phone-network fallback, showing you things). How it works:
+voice now asks several things one at a time and passes the answers on together. Stages 4
+(staying up through restarts: the voice server keeps its calls in a state file, the mod
+remembers `/ringback`), 5 (waiting calls in the app, and calling one now) and 6 (weak
+signal: the Mac sends mono at 24 kbps with forward error correction, asks the phone for the
+same, and rebuilds or conceals your lost packets) are built and tried offline
+(`tools/restart-check`, the switchboard's smoke test, `tools/phone-check --signal`,
+`tools/opus-check`), not yet on the phone; the voice server's launchd agent is written up in
+`docs/setup.md`, not installed. Then 7 (several sessions and retries) and 8 (later: a
+phone-network fallback, showing you things), under Stages in `docs/design.md`. How it works:
 the ringback mod (`mod/`) adds `/ringback`; while it's on, each finished turn has the
 session write a call briefing, and the voice server places the call through the
 switchboard's `/call`. On the call, the voice passes what you say to the session with its
@@ -61,7 +66,10 @@ voice), `mod/` (the Claude Code mod in each session, TypeScript), `tools/` (chec
 Nebula, speech-to-text, speech speed, reply speed, briefings, scripted calls
 (`call-check`), sessions' calls and asks (`session-check`), the phone's side of calls
 (`phone-check`), what sessions ask the voice server (`ask-check`), Opus taking a call
-over (`handover-check`), and what the voice speaks around its tool calls (`reply-check`)). How to set it all up and place a test call: `docs/setup.md`.
+over (`handover-check`), what the voice speaks around its tool calls (`reply-check`), the
+voice server's calls through a restart (`restart-check`), and the call's Opus with lost
+packets (`opus-check`; `phone-check --signal` runs it through a call)). How to set it all up
+and place a test call: `docs/setup.md`.
 
 ## Checks
 
