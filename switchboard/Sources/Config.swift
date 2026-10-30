@@ -6,7 +6,7 @@ let usage = """
       serve    listen for phone registrations and call events, and every 30 min ask each
                phone to check that it can still reach the switchboard over Nebula
       ring     ring every registered phone, at any time: work hours are for sessions' calls
-                 --project NAME  shown as 'Claude from <project>' (default: ringback)
+                 --project NAME  shown as the caller (default: ringback)
                  --subject TEXT  a few words on what the call is about
                  --voice URL     the calling Mac's voice server, e.g. http://10.0.0.1:8788
       check    ask every phone to check its connection now; one that can't reach the

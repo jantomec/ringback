@@ -11,7 +11,7 @@ and on mobile data.
 1. **Conversation.** Real back-and-forth in one call. You can interrupt Claude
    mid-sentence. It stops talking the moment it hears you and waits for you to finish,
    and it answers everything you say.
-2. **One call per session.** The phone shows the call as "Claude from \<project\>", so the
+2. **One call per session.** The phone shows the call as the project's name, so the
    voice doesn't repeat it. It opens with what's new, then what needs your attention.
    Your replies, including permission approvals and answers to its questions, go to that
    session.
@@ -624,7 +624,8 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        the push. With Nebula off and the phone locked, the warning came, but later than
        35 s after the push; how much later wasn't timed.
    - **Calls:** the whole call history.
-     - Each call shows its caller ("Claude from \<project\>") and a 3–8 word subject.
+     - Each call shows its caller (the project's name; "Claude from \<project\>" until
+       2026-10-30) and a 3–8 word subject.
        The session writes it with its briefing, and the push carries it.
      - A green phone and the duration mean answered. A red one means declined, missed,
        busy or failed. A call back shows as an outgoing call, with the subject of the call
