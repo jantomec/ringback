@@ -31,7 +31,9 @@ A call you didn't answer can be called back from the phone's call history. Each 
 remembered for a day after it's forgotten. The call back is a new call for the same
 session, with a fresh Haiku, answered at once: its voice has the missed call's briefing, and
 the session's latest one if it wrote a newer one since, for a later call or a held one. Work
-hours don't apply to it: you called.
+hours don't apply to it: you called. A held call can be called from the app too, where it
+shows as waiting: it's released at once, without ringing, and its voice picks up as a call
+back's does.
 
 What it keeps is written to a file beside its socket on every change, and read again at
 start, so a restart loses nothing that matters: held calls are held again, calls are still
@@ -56,7 +58,7 @@ from pathlib import Path
 from aiohttp import ClientError, ClientSession, ClientTimeout, web
 
 from ringback_voice.haiku import PICKED_UP, Haiku
-from ringback_voice.instructions import called_back, instructions
+from ringback_voice.instructions import called_back, called_now, instructions
 from ringback_voice.transcript import Transcript
 
 SOCKET = Path("~/.local/state/ringback/voice.sock").expanduser()
@@ -364,7 +366,10 @@ class Call:
     at: float = field(default_factory=time.time)
     # Once it's forgotten and remembered: what its briefing asks, by name ("permission abcd").
     asked: tuple[str, ...] = ()
-    back: "Call | None" = field(default=None, repr=False)  # on a call back: the call it calls back
+    # On a call you made: the call you called, as it was placed. A call back calls back a call
+    # you didn't answer; with `now`, you called a held call from the app while it waited.
+    back: "Call | None" = field(default=None, repr=False)
+    now: bool = False
 
 
 class Calls:
@@ -487,7 +492,8 @@ class Calls:
     def offer(self, call_id: str) -> Call | None:
         """The call an offer is for, if it's one this server placed. The offer can come while
         the phone still rings, and a call you haven't answered stays placed until it's
-        forgotten, so the phone can offer again. A held one is refused (__main__.py)."""
+        forgotten, so the phone can offer again. A held one is refused (__main__.py), unless
+        the offer calls it now."""
         return self._calls.get(call_id)
 
     async def back(self, call_id: str) -> Call | None:
@@ -536,6 +542,27 @@ class Calls:
             ", with a newer briefing since" if since else ""
         )
         self._log(f"call {call.id[:8]}: called back about {call.subject!r}, {how}")
+        await self._pick_up(call)
+        return call
+
+    async def now(self, call_id: str) -> Call | None:
+        """The call you make by calling a waiting call from the phone, which it answers at
+        once: a call held outside your work hours is released without ringing, and isn't asked
+        about at the switchboard any more. Its voice has the briefing with a lead that says you
+        called. A call that's no longer held but still placed (it rang meanwhile) is given as it
+        is, for an ordinary offer. None if there's no such call."""
+        held = self._calls.get(call_id)
+        if not held or not held.held_until:
+            return held
+        if held.holding:
+            held.holding.cancel()
+        # The held call's link goes with it: what it asks, and what its briefing asks.
+        call = dataclasses.replace(
+            held, briefing=called_now(held.briefing), placed=time.monotonic(), held_until=None, holding=None,
+            back=remembered(held), now=True,
+        )  # fmt: skip
+        self._calls[call.id] = call
+        self._log(f"call {call.id[:8]}: called now from the app, held until {held.held_until}: {call.subject!r}")
         await self._pick_up(call)
         return call
 
@@ -836,7 +863,7 @@ class Calls:
         call = Call(
             data["id"], data["session"], data["project"], data["cwd"], data["subject"], data["briefing"],
             time.monotonic(), at=data["at"], held_until=data["held_until"], asked=tuple(data["asked"]),
-            back=self._loaded(data["back"], asks) if data["back"] else None,
+            back=self._loaded(data["back"], asks) if data["back"] else None, now=data.get("now", False),
             answered_at=time.monotonic() if data["answered"] else None,
         )  # fmt: skip
         if link := data["link"]:
@@ -856,7 +883,7 @@ def saved(call: Call, ref: Callable[[Ask], int]) -> dict:
     return {
         "id": call.id, "session": call.session, "project": call.project, "cwd": call.cwd, "subject": call.subject,
         "briefing": call.briefing, "at": call.at, "held_until": call.held_until, "asked": list(call.asked),
-        "answered": call.answered_at is not None,
+        "answered": call.answered_at is not None, "now": call.now,
         "back": saved(call.back, ref) if call.back else None,
         "link": link and {
             "listening": link.listening,
@@ -875,7 +902,8 @@ def restarted(call: Call) -> str:
     transcript = f" Its transcript: {path}" if path else ""
     if call.back:
         what = f'"{call.subject}"' if call.subject else "an earlier call"
-        return f"The developer called back about {what}, and the call {ended}.{transcript}"
+        how = f"called about {what} from the app while it waited" if call.now else f"called back about {what}"
+        return f"The developer {how}, and the call {ended}.{transcript}"
     about = f'The call about "{call.subject}"' if call.subject else "The call"
     if call.answered_at is not None:
         return f"{about} was answered, and {ended}.{transcript}"
@@ -897,9 +925,11 @@ def outcome(call: Call, transcript: str | None) -> str:
     about = f'The call about "{call.subject}"' if call.subject else "The call"
     if call.back:
         what = f'"{call.subject}"' if call.subject else "an earlier call"
+        # From the app's call history, or a held call from the app's waiting calls.
+        how = f"called about {what} from the app while it waited" if call.now else f"called back about {what}"
         if call.answered_at is None:
-            return f"The developer called back about {what}, but the call didn't connect."
-        text = f"The developer called back about {what} and it lasted {duration(time.monotonic() - call.answered_at)}."
+            return f"The developer {how}, but the call didn't connect."
+        text = f"The developer {how} and it lasted {duration(time.monotonic() - call.answered_at)}."
         return f"{text} Its transcript: {transcript}" if transcript else text
     if call.answered_at is None:
         took = duration(time.monotonic() - call.placed)

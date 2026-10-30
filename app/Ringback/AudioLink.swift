@@ -107,10 +107,11 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     /// offer also carries your interruption sensitivity and background filter, and whether the
     /// phone still rings (`ringing` as the offer goes). Returns whether it did. On the main
     /// actor, as `stop` is, so once the link is stopped no offer goes and no answer is applied.
-    /// `back` calls back the call `callID`, which the voice server answers at once; it throws
-    /// `RefusedCall` if the server doesn't know the call.
+    /// `back` calls back the call `callID`, and `now` calls it while it waits, held outside
+    /// your work hours; the voice server answers either at once, and throws `RefusedCall` if
+    /// it doesn't know the call, or it no longer waits.
     @MainActor
-    func start(voiceURL: URL, callID: String, back: Bool = false) async throws -> Bool {
+    func start(voiceURL: URL, callID: String, back: Bool = false, now: Bool = false) async throws -> Bool {
         var local = try await gather(nebulaOnly: true)
         guard !stopped else { throw CancellationError() }
         var found = Self.candidates(local)
@@ -132,6 +133,7 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
         ]
         if ringing { body["ringing"] = true }
         if back { body["back"] = true }
+        if now { body["now"] = true }
         var request = URLRequest(url: voiceURL.appending(path: "offer"), timeoutInterval: 15)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

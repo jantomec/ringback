@@ -132,8 +132,9 @@ class Phone:
                 self.last_audio = time.monotonic()
                 self.first_audio = self.first_audio or self.last_audio
 
-    async def offer(self, call_id: str, ringing: bool, back: bool = False) -> int:
-        """Offers the call's audio: while it rings, once you've answered, or calling it back."""
+    async def offer(self, call_id: str, ringing: bool, back: bool = False, now: bool = False) -> int:
+        """Offers the call's audio: while it rings, once you've answered, calling it back, or
+        calling a waiting call now."""
         if not ringing:
             self.mic.on.set()
         await self.pc.setLocalDescription(await self.pc.createOffer())
@@ -142,6 +143,8 @@ class Phone:
             body["ringing"] = True
         if back:
             body["back"] = True
+        if now:
+            body["now"] = True
         async with aiohttp.ClientSession() as http:
             async with http.post(f"http://{VOICE}/offer", json=body) as r:
                 if r.status != 200:

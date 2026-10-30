@@ -32,14 +32,19 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         Task { await push.connect() }
     }
 
-    /// The switchboard's background push for a connection check.
+    /// The switchboard's background push for a connection check, which also fetches the calls
+    /// that wait.
     func application(
         _ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completion: @escaping (UIBackgroundFetchResult) -> Void
     ) {
         guard userInfo["check"] != nil else { return completion(.noData) }
         let token = state.token
-        Task { completion(await ConnectionCheck.run(token: token) ? .newData : .failed) }
+        Task { @MainActor [state] in
+            let reached = await ConnectionCheck.run(token: token)
+            if reached { await state.refreshWaiting() }
+            completion(reached ? .newData : .failed)
+        }
     }
 
     func applicationWillTerminate(_ application: UIApplication) {

@@ -150,9 +150,16 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        notes, since the new one doesn't mention it;
      - what the session asks goes to the held call (`"call": "held"`, with `held_until`),
        and the mod's long polls answer `"held": true`;
-     - an offer for it is refused, as for an unknown call: the phone can't know its ID yet.
-       From Stage 5 the phone can know it (waiting calls), and an offer for it with
-       `"now": true` calls it at once, without ringing, as a call back does.
+     - an offer for it is refused, as for an unknown call: the phone knows its ID only
+       from the switchboard's waiting calls (Stage 5; built, not yet tried on the phone).
+       An offer for it with `"now": true` calls it at once, without ringing, as a call back
+       does: asking the switchboard again stops, and a fresh Haiku picks up, with the
+       briefing and a lead that says you saw the call waiting and called it (`called_now`
+       in `voice/ringback_voice/instructions.py`). It talks with the session as an answered
+       call does, and its session is told "The developer called about "…" from the app
+       while it waited and it lasted 2 min." Work hours don't apply: you called. A `now`
+       offer for a call that rang meanwhile and is still placed is answered as any offer
+       is; one for a call that doesn't wait here gets 403.
    - **Staying up** (Stage 4; built, not yet tried on the phone). It writes what it keeps
      to `voice-state.json` in the folder of its socket (`~/.local/state/ringback/`, so a
      check with a socket of its own has its own), on every change, atomically and readable
@@ -225,12 +232,17 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
    lighthouse):
    - keeps one FIFO queue for the sessions on every Mac and places one call at a time
      (Stage 7; for now each `/call` rings at once, unless it's outside your work hours);
-   - **waiting calls** (Stage 5): keeps the calls that wait (held outside your work
-     hours, and from Stage 7 queued) in a file in its state folder, with their project,
-     subject, voice server and when they ring, so they survive a restart, and gives them
-     to the app (`/waiting`). Each voice server's asking again every 10 min refreshes its
-     calls; one not refreshed for 25 min is dropped, so a call from a Mac that's gone
-     doesn't wait forever. A call that rings, or is called from the app, leaves the list;
+   - **waiting calls** (Stage 5; built, not yet tried on the phone): keeps the calls that
+     wait (held outside your work hours, and from Stage 7 queued) in `waiting.json` in its
+     state folder, with their project, subject, voice server, when they ring and when they
+     were last refreshed, so they survive a restart, and gives them to the app, soonest
+     first (`POST /waiting`, `{"calls": [...]}`). Only a phone that registered gets them,
+     by its push token in the request: a call's ID lets whoever has it take the call. Each
+     voice server's asking again every 10 min refreshes its calls; one not refreshed for
+     25 min is dropped, so a call from a Mac that's gone doesn't wait forever. A call that
+     rings, or is called from the app (the phone's event "called now"), leaves the list. A
+     new briefing for a held call reaches the list with the voice server's next asking, so
+     its subject can be up to 10 min old;
    - starts a call with a VoIP push through APNs that names the Mac taking the call;
    - takes calls from the voice servers at `/call` over Nebula, with their project,
      subject and call ID;
@@ -511,12 +523,20 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        and an alert says "Claude can't take this call back any more." A call
        back whose audio never connected is red, and tapping it calls the same call back
        again.
-   - **Waiting calls** (Stage 5). The calls that wait, held outside your work hours (and
-     from Stage 7 queued), show at the top of the call history in orange, with when they
-     ring ("Waiting · rings at 08:00"). The app fetches them from the switchboard when you
-     open it, and with each connection check. Tapping one calls it now, as a call back
-     does: no ringing, and the voice picks up. It then stays in the history as a call like
-     any other.
+   - **Waiting calls** (Stage 5; built, not yet tried on the phone). The calls that wait,
+     held outside your work hours (and from Stage 7 queued), show at the top of the call
+     history in orange, with a clock, the caller name and subject, and when they ring
+     ("Waiting · rings at 08:00", with the date if it isn't today). The app fetches them
+     from the switchboard when you open it, after it registers, and with each connection
+     check. Tapping one calls it now, as a call back does: an outgoing CallKit call, no
+     ringing, and its offer carries the call's ID and `"now": true`, so the voice picks
+     up. It's then a record in the history under the call's own ID, shown as an outgoing
+     call ("Called · 1:05"), and reported to the switchboard as "called now", then
+     ended or audio failed. If the voice server refuses it (403) or can't be reached, the
+     call ends, an alert says "This call isn't waiting any more." or that the Mac can't be
+     reached, and the list is fetched again. Not done: a call that didn't connect stays
+     red, and tapping it calls it back (`back`), which the voice server refuses while it
+     still holds the call.
    - **Held calls** (Stage 7). While all calls are held after a final decline, the app
      says so and shows which call to call back. Calling it back releases them.
    - **Settings:**
@@ -773,6 +793,8 @@ Each entry says why it lost and what would make it worth retrying.
 - Calls are protected only by Nebula and the call's secret: any device with a
   certificate from your Nebula CA can reach the switchboard and ring you, and any program
   running as you on the calling Mac can reach the voice server's session side. The
+  switchboard also gives out the IDs of waiting calls (Stage 5), but only for a registered
+  phone's push token, which travels only between the phone, Apple and the switchboard. The
   voice server's state file holds call IDs too, readable only by you.
 - Development builds use the APNs sandbox, and provisioning profiles expire.
 - The connection check relies on background pushes, which iOS treats as low priority: it
@@ -1132,12 +1154,13 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
      missed call's question waiting, and each carries on; reload the mod and resume a
      session, and ringback is still on.
    - Built, and tried offline, not yet on the phone:
-     - The voice server (`tools/restart-check`, two runs, 19 checks each): see "Staying up". The
-       held call, the calls to call back, the waiting permissions and long polls, and the
-       messages and outcomes for sessions all carried on through a SIGTERM and a SIGKILL;
-       the call that was on got its note; the killed server's Haiku processes ended 0.4 s
-       after it, but left their sessions' folders (Risks). With the state file in use,
-       `tools/ask-check` passed all 45 checks. `tools/phone-check
+     - The voice server (`tools/restart-check`, two runs, 19 checks each): see "Staying
+       up". The held call, the calls to call back, the waiting permissions and long polls,
+       and the messages and outcomes for sessions all carried on through a SIGTERM and a
+       SIGKILL; the call that was on got its note; the killed server's Haiku processes
+       ended 0.4 s after it, but left their sessions' folders (Risks). With the state file
+       in use,
+       `tools/ask-check` passed all 45 checks (and Stage 5's 6). `tools/phone-check
        --back` passed 21 of 22: one call back opened "Hi, I'm calling about the release
        notes…", as one did once before the lead told it not to. Plain `tools/phone-check`
        passed all but its last check, which counts every voice server's Haiku folders and
@@ -1158,14 +1181,30 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
    - Left: the switchboard on the lighthouse starting by itself after a reboot (Open
      questions); the option of loading the speech models only for calls. A briefing
      waiting for the voice server is lost if the mod reloads meanwhile.
-5. **Waiting calls in the app.** The switchboard keeps the waiting calls (see "waiting
-   calls" under the switchboard), the app shows them in orange at the top of the call
-   history, and tapping one calls it now, without ringing (`"now": true` in the offer).
+5. **Waiting calls in the app** (built, tried offline, not yet on the phone). The
+   switchboard keeps the waiting calls (see "waiting calls" under the switchboard), the app
+   shows them in orange at the top of the call history, and tapping one calls it now,
+   without ringing (`"now": true` in the offer).
    It's the base of Stage 7's queue. Checks: the switchboard's smoke test (a held call is
    listed, survives a restart, leaves when it rings or is called, and is dropped when its
    voice server stops asking), the voice server answering a `now` offer
    (`tools/phone-check`), and on the phone: a call held outside your hours shows, and
-   tapping it talks.
+   tapping it talks. Built, and tried offline, not yet on the phone:
+   - The switchboard (`switchboard/smoke-test.sh`, 21 new checks, 75 in all, about 8.6 s,
+     5 s of it waiting for a call to go stale): an unregistered token or none gets 403; two
+     held calls are listed soonest first, with project, subject, voice server and when they
+     ring; both survive a restart; asked again, a held call stays; one that rings leaves,
+     and so does one the phone reports "called now"; one not asked about for the stale
+     time (4 s here, `RINGBACK_WAITING_STALE`) is dropped, and each is logged.
+   - The voice server (`tools/ask-check`, two runs, 6 new checks, 51 in all, about 3.5 min;
+     in that tool rather than `tools/phone-check`, which has no held calls): a `now` offer
+     for an unknown call gets 403; a held call is answered at once, voice heard 2.5 s after
+     the offer, and no longer asked about at the switchboard; its voice opened "The config
+     parser fix is done. It crashed on empty lines between sections…", without saying it
+     was calling, and its session was told you called it from the app; a call that rang
+     meanwhile was answered as any offer is.
+   - The app builds with no Swift warnings. Its list, the tap, the alerts and the events
+     are untried: they need the phone.
 6. **Weak signal.** Measure, then send less and recover more (see "Data and weak signal"
    in the iPhone app): each call reports its data, loss and jitter; the Mac sends mono at
    about 24 kbps, with forward error correction both ways and the Mac's decoder using it.

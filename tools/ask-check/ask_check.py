@@ -36,6 +36,11 @@ min. Checks:
   put to the voice as a note;
 - another held call rings when its time comes and isn't answered: it's forgotten S
   (`--unanswered`) seconds after it rang, not after it was placed, and the Mac sleeps again.
+
+Calling a waiting call from the app (`"now": true` in the offer): one that doesn't wait here
+is refused; a held one is answered at once, isn't asked about at the switchboard any more,
+and its voice picks up; its session is told you called it; one that rang meanwhile is
+answered as any offer is.
 """
 
 import argparse
@@ -56,7 +61,9 @@ import soxr
 from aiohttp import web
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "phone-check"))
-from phone_check import KOKORO, RATE, SWITCHBOARD, VOICE, YOUR_VOICE, Phone, answered, free, wait_for  # noqa: E402
+from phone_check import (  # noqa: E402
+    INTRODUCES, KOKORO, RATE, SWITCHBOARD, VOICE, YOUR_VOICE, Phone, answered, free, wait_for,
+)  # fmt: skip
 
 SESSION = "ask-check-session"
 BRIEFING = """\
@@ -92,6 +99,9 @@ HELD_SUBJECT = "Parser fix, and the docs"
 HELD_BRIEFING = """\
 Since I asked about the force-push, I also updated the parser's docs to say that empty lines
 between sections are fine now. The force-push is still waiting for your answer."""
+# Waiting calls called from the app: one held, and one that rang meanwhile.
+NOW, RANG = "ask-check-now", "ask-check-rang"
+NOW_SUBJECT = "Parser fix rebased"
 
 
 async def main() -> int:
@@ -443,6 +453,77 @@ async def main() -> int:
               and args.unanswered - 0.5 <= forgotten - rang <= args.unanswered + 2)  # fmt: skip
         gone = await until(lambda: children(haiku) == children("caffeinate") == 0, 10)
         check(f"with no call left, no Haiku runs and the Mac can sleep again ({gone} s)", gone is not None)
+
+        # Calling a waiting call from the app ("now"): an unknown one is refused; a held one is
+        # answered at once, without ringing, and no longer asked about at the switchboard.
+        phone = Phone()
+        refused = await phone.offer("never-placed-call-id", ringing=False, now=True)
+        await phone.hang_up()
+        check(f"calling now a call that doesn't wait here is refused: {refused}", refused == 403)
+        n = len(rung)
+        holds[:] = [3600] * 20
+        waiting = {"session_id": NOW, "project": "demo", "cwd": str(held_project), "subject": NOW_SUBJECT,
+                   "briefing": BRIEFING}  # fmt: skip
+        status, body = await api("POST", "/calls", waiting)
+        now_id = rung[n]["call_id"] if len(rung) > n else ""
+        await asyncio.sleep(args.reask + 1)  # it's asked about again meanwhile
+        asked_before = len([r for r in rung if r["call_id"] == now_id])
+        haikus = children(haiku)
+        before = set(held_project.glob(".ringback/calls/*.md"))
+        phone = Phone()
+        t = time.monotonic()
+        offered = await phone.offer(now_id, ringing=False, now=True)
+        heard = await phone.heard_after(t)
+        check(f"a held call, asked about {asked_before} times, called now: {offered}, voice heard "
+              f"{heard or 0:.2f} s after the offer, with a Haiku of its own ({haikus} before)",
+              status == 200 and "held_until" in body and asked_before >= 2 and offered == 200 and heard is not None
+              and children(haiku) == haikus + 1)  # fmt: skip
+        await phone.quiet_for(2.5, limit=45)
+        await asyncio.sleep(args.reask + 1)
+        asked_after = len([r for r in rung if r["call_id"] == now_id])
+        check(f"it isn't asked about at the switchboard any more ({asked_after - asked_before} times since)",
+              asked_after == asked_before)  # fmt: skip
+        transcript = next(iter(set(held_project.glob(".ringback/calls/*.md")) - before), None)
+        found = transcript and await wait_for(transcript, r"\*\*Voice:\*\* (.+)", 10)
+        opening = found[1] if found else ""
+        lines.append(f"      called now, the voice opened: {opening}")
+        check("its voice picks up, opening with what the call is about, without saying it's calling",
+              re.search(r"parser|empty line|rebase", opening, re.I) is not None and not INTRODUCES.search(opening))  # fmt: skip
+        await phone.hang_up()
+        outcome, end = None, time.time() + 15
+        while outcome is None and time.time() < end:
+            _, body = await api("GET", f"/sessions/{NOW}/messages")
+            outcome = next((m["text"] for m in body.get("messages", []) if m.get("kind") == "outcome"), None)
+            await asyncio.sleep(0 if outcome else 0.2)
+        check(f"its session is told you called it from the app: {outcome!r}",
+              (outcome or "").startswith(f'The developer called about "{NOW_SUBJECT}" from the app while it waited and '
+                                         "it lasted"))  # fmt: skip
+
+        # One that rang meanwhile is answered as any offer is.
+        n = len(rung)
+        holds[:] = [2, None]
+        status, body = await api("POST", "/calls", waiting | {"session_id": RANG})
+        await until(lambda: len(rung) >= n + 2, 10)
+        rang_id = rung[n]["call_id"] if len(rung) > n else ""
+        await asyncio.sleep(1)
+        phone = Phone()
+        t = time.monotonic()
+        offered = await phone.offer(rang_id, ringing=False, now=True)
+        heard = await phone.heard_after(t)
+        await asyncio.sleep(2)
+        await phone.hang_up()
+        logged = await wait_for(voice_log, rf"call {re.escape(rang_id[:8])}: offer answered in [\d.]+ s, called now", 2)
+        outcome, end = None, time.time() + 15
+        while outcome is None and time.time() < end:
+            _, body = await api("GET", f"/sessions/{RANG}/messages")
+            outcome = next((m["text"] for m in body.get("messages", []) if m.get("kind") == "outcome"), None)
+            await asyncio.sleep(0 if outcome else 0.2)
+        check(f"one that rang meanwhile, called now, is answered as any call is: {offered}, voice heard after "
+              f"{heard or 0:.2f} s: {outcome!r}",
+              offered == 200 and heard is not None and logged is not None
+              and (outcome or "").startswith(f'The call about "{NOW_SUBJECT}" was answered'))  # fmt: skip
+        # Its Haiku closes, and deletes its session's folder, before the voice server stops.
+        await until(lambda: children(haiku) == 0, 10)
     finally:
         await socket_side.close()
         voice.terminate()

@@ -3,8 +3,9 @@
 How to run ringback as built so far (Stage 3 in progress: a session with `/ringback` on
 calls you when it finishes, what you tell the voice reaches the session, you can answer
 its permission prompts and questions on the call, and you can call back a call you missed
-from the app; built but not yet tried on the phone: staying up through restarts). Replace
-the example addresses with your own.
+from the app; built but not yet tried on the phone: staying up through restarts, and
+calling a call that waits for your work hours from the app). Replace the example addresses
+with your own.
 
 ## You need
 
@@ -57,7 +58,9 @@ people nearby, from stopping it. Changes apply from the next call. During your f
 turn on Voice Isolation in Control Center (Mic Mode), so background noise doesn't stop it.
 
 **Calls** lists every call. Tap a red one (declined, missed or failed) to call that session
-back at once. Calls from an app older than calling back can't be.
+back at once. Calls from an app older than calling back can't be. Calls that wait for your
+work hours show at the top in orange, with when they ring; tap one to call it now, without
+waiting.
 
 ## 3. The switchboard (one always-on Mac)
 
@@ -80,7 +83,8 @@ it:
 
 It listens only on its Nebula address. Phones register at `/register` and report call
 events at `/events`, and voice servers ask it to ring at `/call`. Those are kept in
-`~/.local/state/ringback/` (`devices.json` and `events.jsonl`).
+`~/.local/state/ringback/` (`devices.json` and `events.jsonl`), with the calls that wait for
+your work hours (`waiting.json`), which the app fetches at `/waiting`.
 
 Every 30 min it wakes each phone with a background push, and the app checks in at
 `/check` over Nebula; if it can't, the phone warns you. `ringback-switchboard check` does
@@ -89,7 +93,8 @@ that now, and `ringback-switchboard devices` shows when each phone last checked 
 To update it, copy the new binary over the old one, stop `serve` and start it again.
 Work hours (a setting in the app) need the voice servers updated too: one from before them
 takes a call the switchboard holds for one that rang, so the call is lost and its session
-hears it wasn't answered.
+hears it wasn't answered. Calling a waiting call from the app needs all three updated: a
+voice server from before it refuses the call, and the app says it isn't waiting any more.
 
 ## 4. The voice server (every Mac that runs sessions)
 

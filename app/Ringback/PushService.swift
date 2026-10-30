@@ -21,10 +21,11 @@ final class PushService: NSObject, PKPushRegistryDelegate {
     }
 
     /// Sends the token and the work hours to the switchboard, which is also how the app checks
-    /// that calls can reach it. On the main actor, because it updates what the settings screen
-    /// shows. Automatic checks (app opened, token arrived, hours changed) skip a check that
-    /// just succeeded with the same tokens and hours; things you do yourself (Try Again, pull
-    /// to refresh, Connect) always check.
+    /// that calls can reach it, then fetches the calls that wait. On the main actor, because it
+    /// updates what the settings screen shows. Automatic checks (app opened, token arrived,
+    /// hours changed) skip a check that just succeeded with the same tokens and hours, and only
+    /// fetch the waiting calls; things you do yourself (Try Again, pull to refresh, Connect)
+    /// always check.
     @MainActor
     func connect(force: Bool = false) async {
         guard Switchboard.url != nil else { state.connection = .notSetUp; return }
@@ -33,6 +34,7 @@ final class PushService: NSObject, PKPushRegistryDelegate {
         if !force, case .connected(let at) = state.connection, Date.now.timeIntervalSince(at) < 10,
             state.notificationToken == sentNotificationToken, WorkHours.fields == sentHours
         {
+            await state.refreshWaiting()
             return
         }
         state.connection = .connecting
@@ -51,7 +53,8 @@ final class PushService: NSObject, PKPushRegistryDelegate {
             return
         }
         // Hours changed while it registered, which skipped that change: send them too.
-        if WorkHours.fields != sentHours { await connect() }
+        if WorkHours.fields != sentHours { return await connect() }
+        await state.refreshWaiting()
     }
 
     func pushRegistry(_ registry: PKPushRegistry, didUpdate credentials: PKPushCredentials, for type: PKPushType) {
