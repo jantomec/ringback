@@ -459,7 +459,7 @@ class Calls:
                     except ValueError:
                         answer = None  # a switchboard from before work hours answers only 200
         except (ClientError, TimeoutError) as e:
-            raise RuntimeError(f"can't reach the switchboard at {self._switchboard}: {e or type(e).__name__}") from e
+            raise RuntimeError(f"can't reach the switchboard at {self._switchboard}: {str(e) or type(e).__name__}") from e
         held_until = answer.get("held_until") if isinstance(answer, dict) else None
         return held_until if isinstance(held_until, str) and held_until else None
 
@@ -669,7 +669,7 @@ class Calls:
                 except (ClientError, TimeoutError, RuntimeError) as e:
                     again = now + CHANGED
                     if not failing:
-                        self._log(f"can't tell the switchboard which sessions listen: {e or type(e).__name__}")
+                        self._log(f"can't tell the switchboard which sessions listen: {str(e) or type(e).__name__}")
                     failing = True
             await asyncio.sleep(1)
 
