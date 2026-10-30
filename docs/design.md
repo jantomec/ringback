@@ -43,8 +43,8 @@ and on mobile data.
 Sessions can run on several Macs. All of them share one switchboard, so there is one
 queue, and each call's audio goes to the Mac whose session is calling.
 
-Parts marked with a stage that isn't done, such as (Stage 5), are planned and not built
-yet; the rest is built. The plan for them is under Stages.
+Parts marked with a stage that isn't done, such as (Stage 7), are planned and not built
+yet, unless they say they're built; the rest is built. The plan for them is under Stages.
 
 1. **Ringback mod** (in each session, in `mod/`). A Claude Code mod is code that runs
    inside Claude Code: it's installed once, as a plugin, and loads in every session
@@ -54,10 +54,17 @@ yet; the rest is built. The plan for them is under Stages.
    - `/ringback` switches calling on or off for its session, at once and without a
      Claude turn. While it's on, the dim line under the prompt ends with "☎ ringback on",
      where Remote Control shows too (a placeholder until ringback has an icon).
-     **Remembered** (Stage 4): it stays on through a reload of the mod, and when you
-     resume the session after Claude Code restarts (`claude --resume`), until you switch
-     it off. It's kept by the session's ID; that a resumed session keeps its ID is to be
-     checked in a real session.
+     **Remembered** (Stage 4; built, not yet tried on the phone): it stays on through a
+     reload of the mod, and when you resume the session after Claude Code restarts
+     (`claude --resume`), until you switch it off. Through a reload it's kept in `$.state`;
+     across sessions, in the mod's store by the session's ID, for 30 days from the
+     session's last start with it on. A resumed session keeps its ID: checked on
+     2026-10-30 (Claude Code 2.1.314) with a mod that logged `$.session.id()`, a session
+     started with `claude -p --session-id <id>`, then resumed with `claude -p --resume
+     <id>` and with an interactive `claude --resume <id>`, saw the same ID at
+     `session.start` each time. Not checked: `/resume` inside a running session, which
+     switches sessions without a new `session.start`, and `/clear`, which gives the
+     session a new ID.
    - When a turn ends while it's on, the mod asks the session to write its call briefing:
      a subject of 3–8 words, then what's new and what needs you, written to be spoken.
      The session has its whole context then and its prompt cache is warm, so this extra
@@ -66,6 +73,17 @@ yet; the rest is built. The plan for them is under Stages.
      voice gets the session's answer as news instead. Outside your work hours, a dim line
      says when the call rings ("Outside your work hours: the call rings at 08:00."), with
      the date if it isn't today.
+   - **While the voice server is down** (Stage 4; built, not yet tried on the phone), as
+     while it restarts, the mod doesn't give up. A briefing the voice server doesn't take
+     (it isn't running, or answers 5xx, as when it can't reach the switchboard) is kept and
+     offered again every 30 s for up to 30 min, a newer briefing taking its place; a dim
+     line says so once, and the line under the prompt ends with "☎ waiting for the voice
+     server…". A permission or question that can't reach the voice server is asked again
+     every 5 s within its 15 min, and so is a long poll for its answer; the voice server
+     keeps what was asked across a restart, so the poll carries on under the same id. A
+     404 still means it's gone. A hook can't wait with `$.clock.sleep`, which counts
+     against its 10 s, so the 5 s are a `sleep` run on the Mac (`$.process.run`), a call on
+     `$` whose wait doesn't count.
    - Once a second, it collects what the voice passed on for the session and submits each
      message to the session as a prompt, with the call transcript's path. A question the
      voice forwards goes the same way, and the session's answer goes back to the call.
@@ -135,15 +153,27 @@ yet; the rest is built. The plan for them is under Stages.
      - an offer for it is refused, as for an unknown call: the phone can't know its ID yet.
        From Stage 5 the phone can know it (waiting calls), and an offer for it with
        `"now": true` calls it at once, without ringing, as a call back does.
-   - **Staying up** (Stage 4). What it keeps today lives in memory, so a restart loses it:
-     held calls never ring, calls can't be called back, and what missed calls asked goes
-     to the terminal. Instead it writes its state to a file in `~/.local/state/ringback/`
-     on every change and reads it at start: held calls (held again), calls remembered for
-     calling back, what missed calls asked (with the same ids, so a mod's long poll
-     carries on), and the messages and outcomes waiting for a session's mod. A call in
-     progress during a restart ends, and what it asked waits as a missed call's does. A
-     launchd agent starts it at login and again if it stops (`docs/setup.md`); starting
-     fails while Nebula is down, and launchd tries again.
+   - **Staying up** (Stage 4; built, not yet tried on the phone). It writes what it keeps
+     to `voice-state.json` in the folder of its socket (`~/.local/state/ringback/`, so a
+     check with a socket of its own has its own), on every change, atomically and readable
+     only by you (it holds the calls' IDs), and reads it at start: held calls, with their
+     briefing and what they ask (held again, and asking the switchboard when due); calls
+     remembered for calling back; what missed calls asked; what sessions asked and wait
+     for, with the same ids, so a mod's long poll carries on; and the messages and outcomes
+     waiting for a session's mod. A call that was ringing or on during a restart has ended:
+     its session is told it "ended when the voice server restarted" (with the transcript if
+     you'd answered), what it asked waits as a missed call's does, and it can be called
+     back. A launchd agent starts it at login and again if it stops (`docs/setup.md`);
+     starting fails while Nebula is down, and launchd tries again every 30 s.
+     - Offline (`tools/restart-check`, two runs, 19 checks each, 2–3 min): killed with
+       SIGTERM, then with SIGKILL right after a message was left, and started again each
+       time, it kept a held call (still held, its offer refused, and asking the switchboard
+       again with the same ID 4.9 s after it listened), calls to call back, a missed call's
+       permission (a long poll carried on under its id), the messages and outcomes waiting
+       for sessions, and told a session whose call was on that it ended with the restart.
+       Called back afterwards, both missed calls' voices opened with what they were about,
+       and the spoken yes allowed both waiting permissions, one asked by the call back's
+       briefing and one, from the call that ended, as a note.
      - It isn't small like the switchboard: measured on 2026-10-30, it held 3.1 GB of
        memory while idle (4.2 GB at its peak), with 1.7 GB of Python packages and about
        3 GB of speech models on disk; its own code is 2,685 lines. Each call also runs a
@@ -165,7 +195,7 @@ yet; the rest is built. The plan for them is under Stages.
      has a 4-letter id, kept 10 min after it's answered (`tools/ask-check`).
    - **Calling back** (`"back": true` in the phone's offer). The voice server remembers
      each call it placed (session, project, folder, subject, briefing, and when it was
-     placed) for a day after it's forgotten, in memory only, so a restart forgets them. An
+     placed) for a day after it's forgotten, also across a restart (Staying up). An
      offer marked `back` for such a call makes a new call for its session under the same
      ID: a fresh Haiku, answered at once. It talks with the session as an answered call
      does: messages, news, what the session asks, a transcript, and a call outcome ("The
@@ -477,8 +507,8 @@ yet; the rest is built. The plan for them is under Stages.
      - It's a new record in the history, with its own ID, and keeps the ID of the call it
        calls back. Its events go to the switchboard under its own ID: called back (with the
        missed call's ID in a note), then ended with its duration, or audio failed.
-     - If the voice server no longer knows the call (forgotten after a day, or restarted),
-       the call ends and an alert says "Claude can't take this call back any more." A call
+     - If the voice server no longer knows the call (forgotten after a day), the call ends
+       and an alert says "Claude can't take this call back any more." A call
        back whose audio never connected is red, and tapping it calls the same call back
        again.
    - **Waiting calls** (Stage 5). The calls that wait, held outside your work hours (and
@@ -718,7 +748,8 @@ Each entry says why it lost and what would make it worth retrying.
   it, and a declined call keeps its Haiku and the Mac awake until it's forgotten after
   90 s.
 - If the voice server crashes mid-call, that call's Claude Code session stays in
-  `~/.claude/projects`; nothing cleans it up at the next start.
+  `~/.claude/projects`; nothing cleans it up at the next start (one folder for the call on
+  during a kill, `tools/restart-check`).
 - Pipecat expects a WebRTC data channel and logs a warning without one. Nothing needs one
   yet: the interruption settings go with the offer.
 - Xcode needs device support for the phone's iOS version to install development builds.
@@ -741,7 +772,8 @@ Each entry says why it lost and what would make it worth retrying.
   the phone; the terminal prompt still works.
 - Calls are protected only by Nebula and the call's secret: any device with a
   certificate from your Nebula CA can reach the switchboard and ring you, and any program
-  running as you on the calling Mac can reach the voice server's session side.
+  running as you on the calling Mac can reach the voice server's session side. The
+  voice server's state file holds call IDs too, readable only by you.
 - Development builds use the APNs sandbox, and provisioning profiles expire.
 - The connection check relies on background pushes, which iOS treats as low priority: it
   delivers at most a few an hour, sometimes late, and none after you swipe the app away,
@@ -1086,7 +1118,8 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
       - At the start of a held call, Haiku tried to pass the session a message before you'd
         said anything ("The developer answered the call but has not yet given a choice…").
         Nothing passed in the opening goes, so nothing reached the session.
-4. **Staying up.** Restarts lose nothing that matters:
+4. **Staying up** (built, tried offline, not yet on the phone). Restarts lose nothing that
+   matters:
    - The voice server keeps its state in a file and reads it at start (see "Staying up"
      under the voice server's session side), and runs as a launchd agent (`docs/setup.md`;
      installing it on your Mac asks you first).
@@ -1098,8 +1131,33 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
    - Checks: restart the voice server with a held call, a call to call back and a
      missed call's question waiting, and each carries on; reload the mod and resume a
      session, and ringback is still on.
+   - Built, and tried offline, not yet on the phone:
+     - The voice server (`tools/restart-check`, two runs, 19 checks each): see "Staying up". The
+       held call, the calls to call back, the waiting permissions and long polls, and the
+       messages and outcomes for sessions all carried on through a SIGTERM and a SIGKILL;
+       the call that was on got its note; the killed server's Haiku processes ended 0.4 s
+       after it, but left their sessions' folders (Risks). With the state file in use,
+       `tools/ask-check` passed all 45 checks. `tools/phone-check
+       --back` passed 21 of 22: one call back opened "Hi, I'm calling about the release
+       notes…", as one did once before the lead told it not to. Plain `tools/phone-check`
+       passed all but its last check, which counts every voice server's Haiku folders and
+       caught another voice server's live call on this Mac.
+     - The mod (15 new tests, 50 in all; 11 of the new ones fail on the mod before the
+       change, the other 4 guard what shouldn't change): switched on, the session is kept
+       by its ID in the store, and switched off, forgotten; after a reload (`$.state` on),
+       ringback is on and a finished turn asks for a briefing; a session resumed within 30
+       days is on again, with a dim line, and collects, while older ones are forgotten; a
+       briefing the voice server can't take is offered again every 30 s until it can, a
+       newer one taking its place, and given up after 61 tries in 30 min; a 400 isn't
+       offered again; a long poll that can't connect is asked again every 5 s and carries
+       on with the same id; one that never reconnects goes to the terminal after 15 min; a
+       404 still ends the wait.
+     - `claude --resume` keeps the session's ID (see "Remembered").
+     - The launchd agent's file was written and checked with `plutil -lint`; it wasn't
+       loaded, so starting at login and after a crash isn't tried.
    - Left: the switchboard on the lighthouse starting by itself after a reboot (Open
-     questions); the option of loading the speech models only for calls.
+     questions); the option of loading the speech models only for calls. A briefing
+     waiting for the voice server is lost if the mod reloads meanwhile.
 5. **Waiting calls in the app.** The switchboard keeps the waiting calls (see "waiting
    calls" under the switchboard), the app shows them in orange at the top of the call
    history, and tapping one calls it now, without ringing (`"now": true` in the offer).

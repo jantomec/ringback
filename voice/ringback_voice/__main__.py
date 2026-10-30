@@ -8,7 +8,8 @@ rings, marked "ringing", and then it posts to /answered when you answer; or, fro
 app, once you've answered. The voice opens when you've answered and audio is connected. A
 new offer for the same call replaces the earlier one, as when an offer made while ringing
 didn't connect. An offer marked "back" calls back a call you didn't answer, from the phone's
-call history: it's answered at once, and the voice picks up.
+call history: it's answered at once, and the voice picks up. What it keeps for sessions and
+their calls is written beside the socket, and read again at start (sessions.py).
 
 The call is a conversation: Parakeet v2 hears you, Haiku answers in a Claude Code session
 that stays open for the call (Opus takes it over if you ask for a better model), and Kokoro
@@ -289,7 +290,8 @@ def main() -> None:
 
     logger.remove()
     logger.add(sys.stderr, level="WARNING")
-    calls = sessions.Calls(args.switchboard, args.listen, log)
+    # What it keeps across a restart, beside the socket.
+    calls = sessions.Calls(args.switchboard, args.listen, log, state=args.socket.parent / sessions.STATE)
     # The latest offer for each call, while its pipeline runs.
     offered: dict[str, Offer] = {}
 
@@ -393,6 +395,8 @@ def main() -> None:
             # The phone checks it can reach this Mac while it rings (AudioLink.reach).
             return web.json_response({"ok": True})
 
+        args.socket.parent.mkdir(parents=True, exist_ok=True)
+        await calls.restore()
         app = web.Application()
         app.add_routes([web.post("/offer", offer), web.post("/answered", answer), web.get("/ping", ping)])
         runner = web.AppRunner(app)

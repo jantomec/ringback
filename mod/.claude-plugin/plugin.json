@@ -1,5 +1,6 @@
 {
   "name": "ringback",
   "version": "0.1.0",
-  "description": "/ringback: this session calls your iPhone when it finishes or needs you"
+  "description": "/ringback: this session calls your iPhone when it finishes or needs you",
+  "types": "./types/index.d.ts"
 }
