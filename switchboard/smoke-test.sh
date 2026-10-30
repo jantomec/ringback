@@ -50,6 +50,8 @@ utc_hour=$(date -u +%H)
 ahead=$((12 - ${utc_hour#0}))
 zone=$(zone_ahead $ahead)
 zone2=$(zone_ahead $((ahead - 1)))  # an hour behind, where 14:00 hasn't come yet either
+# In a pattern, the + of Etc/GMT+2 must be a plus.
+zone_re=$(printf '%s' "$zone" | sed 's/+/\\+/g') zone2_re=$(printf '%s' "$zone2" | sed 's/+/\\+/g')
 today=$(TZ=$zone date +%Y-%m-%d)
 offset=$(TZ=$zone date +%z | sed -E 's/^\+0000$/Z/; s/([0-9]{2})([0-9]{2})$/\1:\2/')
 phone='"token": "aaaa1111bbbb2222", "environment": "sandbox", "device": "Test phone"'
@@ -114,8 +116,8 @@ check "held calls ring nobody" no "$(yes_if grep -qE 'call held000[0-9] →' "$h
 check "calls inside the hours ring" 5 "$(grep -cE 'call ring000[1-5] → Test phone: no \[apns.sandbox\] key' "$home/log")"
 check "unreadable hours from a check are logged and left out" yes "$(yes_if grep -qF 'check from …bbbb2222: work hours that can'"'"'t be read, left out' "$home/log")"
 devices=$(HOME="$home" "$bin" devices)
-check "devices shows the hours, in the time zone the check brought" yes "$(yes_if has "$devices" "…bbbb2222  Test phone .*  work hours 14:00–16:00 $zone2\$")"
-check "devices shows the second phone's hours" yes "$(yes_if has "$devices" "…eeee5555  Second phone .*  work hours 13:30–13:45 $zone\$")"
+check "devices shows the hours, in the time zone the check brought" yes "$(yes_if has "$devices" "…bbbb2222  Test phone .*  work hours 14:00–16:00 $zone2_re\$")"
+check "devices shows the second phone's hours" yes "$(yes_if has "$devices" "…eeee5555  Second phone .*  work hours 13:30–13:45 $zone_re\$")"
 out=$(HOME="$home" "$bin" ring --project smoke-test)
 check "ring ignores work hours: it pushes to both phones" 2 "$(printf '%s\n' "$out" | grep -c 'no \[apns.sandbox\] key')"
 
