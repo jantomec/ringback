@@ -376,6 +376,7 @@ test('your no on the call refuses it, and the session reads what you said', abov
   expect(core.ran).toEqual([])
 })
 
+// `none`: you hung up without answering it.
 test("with no answer from the call, it's withdrawn and the terminal asks", above(observing), async ($, on) => {
   mock.clock(on)
   const asked = engine(on, { answers: [{ verdict: 'none', said: 'Hmm, not sure.' }] })
@@ -612,6 +613,30 @@ test('a question is answered on the call, as from the dialog', async ($, on) => 
   expect(result.context).toEqual([expect.stringContaining('"Alternating, like the first."')])
   expect((result.context as string[])[0]).toStartWith('A note from ringback')
   // The dialog never showed.
+  expect(core.asked).toEqual([])
+  expect(withdrawn(asked.fetches)).toEqual([])
+})
+
+// The voice server keeps it pending after a call you don't answer, for a call back or the
+// session's next call. 10 min of collecting once a second takes about 3 s.
+test("a question waits through a call you don't answer, for a call back", { timeoutMs: 30_000 }, async ($, on) => {
+  const clock = mock.clock(on)
+  const later: object[] = []
+  const asked = engine(on, { clock, answers: later })
+  const core = tools(on)
+  await start($)
+  const ran = $.tool.call(asking)
+  await clock.advance(10 * 60_000)
+  // One every 25 s, the 25th still waiting.
+  expect(polls(asked.fetches).length).toBe(25)
+  expect(core.asked).toEqual([])
+  expect(withdrawn(asked.fetches)).toEqual([])
+
+  // You call back, and answer it.
+  later.push({ status: 'answered', answers: { [question.question]: 'AABB' }, said: 'Couplets.' })
+  await clock.advance(25_000)
+  const result = await ran
+  expect(result.result).toEqual({ questions: [question], answers: { [question.question]: 'AABB' } })
   expect(core.asked).toEqual([])
   expect(withdrawn(asked.fetches)).toEqual([])
 })

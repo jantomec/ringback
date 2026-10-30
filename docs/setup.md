@@ -1,8 +1,9 @@
 # Setup
 
 How to run ringback as built so far (Stage 3 in progress: a session with `/ringback` on
-calls you when it finishes, what you tell the voice reaches the session, and you can
-answer its permission prompts and questions on the call). Replace the example addresses with your own.
+calls you when it finishes, what you tell the voice reaches the session, you can answer
+its permission prompts and questions on the call, and you can call back a call you missed
+from the app). Replace the example addresses with your own.
 
 ## You need
 
@@ -54,6 +55,9 @@ Background Noise** (on by default) keeps quieter voices and sounds than yours, s
 people nearby, from stopping it. Changes apply from the next call. During your first call,
 turn on Voice Isolation in Control Center (Mic Mode), so background noise doesn't stop it.
 
+**Calls** lists every call. Tap a red one (declined, missed or failed) to call that session
+back at once. Calls from an app older than calling back can't be.
+
 ## 3. The switchboard (one always-on Mac)
 
 Build it on a Mac with Xcode. The binary runs on Intel and Apple silicon Macs with macOS
@@ -103,13 +107,18 @@ a call rung by hand (step 6), add `--report report.txt`: a few plain sentences o
 session did and what needs you, which the voice talks about instead. It's read again for
 every call, so you can change it between calls.
 
+It remembers the calls it placed for a day after they end, so you can call them back from
+the app, but only in memory: after a restart, calling back an earlier call gets "Claude
+can't take this call back any more."
+
 To try a change without the phone, `tools/call-check` plays a scripted call through the
 same pipeline, and `tools/phone-check` plays the phone's side of whole calls and times the
-silence after you answer. `--socket PATH` moves the session socket, for running a second
-voice server beside your own.
+silence after you answer (with `--back`, calls back calls you didn't answer). `--socket
+PATH` moves the session socket, for running a second voice server beside your own.
 
 The app and the voice server change together: since the app connects while the phone
-rings, a voice server without `/answered` stays silent on its calls. Update both.
+rings, a voice server without `/answered` stays silent on its calls, and one from before
+calling back refuses a call back, or with `--report` talks about the report. Update both.
 
 ## 5. The ringback mod (every Mac that runs sessions)
 
@@ -132,7 +141,10 @@ Run `/ringback` again when you're back.
 When the session needs your permission, the prompt shows in the terminal and the voice
 asks you on a call; whichever you answer first decides. Questions the session asks you
 with options go to the call instead of the terminal, and show there only if the call
-brings no answer. In auto mode, what auto mode approves by itself never rings.
+brings no answer. In auto mode, what auto mode approves by itself never rings. If you don't
+answer the call, both wait for you to call it back from the app, or for the session's next
+call, for up to 15 min: a question then shows in the terminal only after those 15 min, or
+once you run `/ringback` to switch calling off.
 
 `tools/session-check` tries a session's call without the phone.
 

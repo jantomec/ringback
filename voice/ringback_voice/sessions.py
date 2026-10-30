@@ -19,10 +19,18 @@ its outcome waits here for the mod too, as a note the session reads rather than 
 When the session needs your permission, or asks you questions, its mod holds the tool call
 and asks here (an Ask). The call you're on with that session gets it as a note; otherwise a
 call is placed to ask it. The mod waits for the answer the voice gives, and shows its own
-prompt if the call ends without one.
+prompt if you hang up without one. If you don't answer the call, what it asked waits for
+the next call with that session you answer: a call back, or its next call.
+
+A call you didn't answer can be called back from the phone's call history. Each call is
+remembered for a day after it's forgotten, in memory only, so a restart forgets them. The
+call back is a new call for the same session, with a fresh Haiku, answered at once: its
+voice has the missed call's briefing, and the session's latest one if it called again
+since.
 """
 
 import asyncio
+import dataclasses
 import os
 import re
 import secrets
@@ -34,8 +42,8 @@ from pathlib import Path
 
 from aiohttp import ClientError, ClientSession, ClientTimeout, web
 
-from ringback_voice.haiku import Haiku
-from ringback_voice.instructions import instructions
+from ringback_voice.haiku import PICKED_UP, Haiku
+from ringback_voice.instructions import called_back, instructions
 from ringback_voice.transcript import Transcript
 
 SOCKET = Path("~/.local/state/ringback/voice.sock").expanduser()
@@ -51,6 +59,11 @@ INPUT = 2000
 CONTEXT = 1500
 # Seconds a mod's request for an answer waits for one at most.
 LONGEST_WAIT = 25
+# Seconds a forgotten call is remembered, so you can call it back: a day.
+REMEMBER = 24 * 3600
+# A session whose mod hasn't collected its messages for this many seconds isn't listening:
+# ringback is off in it, or it has ended. While it's on, the mod collects once a second.
+LISTENING = 30
 
 
 class Link:
@@ -60,6 +73,9 @@ class Link:
     def __init__(self, send: Callable[[str], None], transcript: Transcript | None = None):
         self._send = send
         self.transcript = transcript
+        # False on a call back to a session that isn't listening any more: the voice can't
+        # pass it anything or answer what it asked.
+        self.listening = True
         # Set by the call's voice: tells it a note from the session, when you've both stopped
         # talking.
         self.notify: Callable[[str], Awaitable[None]] | None = None
@@ -146,7 +162,7 @@ class Ask:
     kind: str  # "permission" or "question"
     session: str
     request: dict  # as the mod sent it, checked
-    outcome: str | None = None  # allow, deny or answered; none if the call ended without one
+    outcome: str | None = None  # allow, deny or answered; none if you hung up without one
     said: str | None = None  # your words, as the voice heard them
     answers: dict[str, str] | None = None  # each question's answer
     settled: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
@@ -262,6 +278,9 @@ class Call:
     # call ends or is forgotten.
     haiku: Haiku | None = field(default=None, repr=False)
     deadline: asyncio.Task | None = field(default=None, repr=False)  # forgets it if it isn't answered
+    at: float = field(default_factory=time.time)  # when it was placed, by the clock, for how long ago
+    asked: tuple[str, ...] = ()  # what the session asks in its briefing, by name ("permission abcd")
+    back: "Call | None" = field(default=None, repr=False)  # on a call back: the call it calls back
 
 
 class Calls:
@@ -275,6 +294,11 @@ class Calls:
         self._calls: dict[str, Call] = {}
         self._waiting: dict[str, list[dict]] = {}  # messages for each session
         self._asks: dict[str, Ask] = {}  # what sessions ask you, by its id
+        # What each session asked on calls you didn't answer, by id, until you answer one of
+        # its calls or it's withdrawn or answered elsewhere.
+        self._pool: dict[str, dict[str, Ask]] = {}
+        self._past: dict[str, tuple[Call, float]] = {}  # forgotten calls, and when, for a day
+        self._seen: dict[str, float] = {}  # when each session's mod last collected (time.monotonic())
         self._keeping: set[asyncio.Task] = set()  # each waits for an answer, then forgets it
         self._asking = asyncio.Lock()
         self._awake: asyncio.subprocess.Process | None = None
@@ -318,9 +342,67 @@ class Calls:
         forgotten, so the phone can offer again."""
         return self._calls.get(call_id)
 
+    async def back(self, call_id: str) -> Call | None:
+        """The call you make by calling call_id back from the phone, which it answers at once:
+        a call this server placed and you didn't answer, remembered for a day after it was
+        forgotten, or still placed. None if there's no such call. A call back already on is
+        given as it is, so a new offer replaces the earlier one, as for any call."""
+        self._expire()
+        if call := self._calls.get(call_id):
+            if call.back or call.answered_at is not None:
+                return call
+            # Still placed: the call back takes its place, so it's never told it wasn't
+            # answered, and what it asked waits for the call back.
+            self._calls.pop(call.id)
+            if call.deadline:
+                call.deadline.cancel()
+            self._close_haiku(call)
+            pool = self._pool.setdefault(call.session, {})
+            pool.update(call.link.asks)
+            call.link.asks.clear()
+            missed = dataclasses.replace(call, answered_at=None, link=None, haiku=None, deadline=None)
+        elif past := self._past.pop(call_id, None):
+            missed = past[0]
+        else:
+            return None
+        listening = time.monotonic() - self._seen.get(missed.session, float("-inf")) < LISTENING
+        # The session's latest call, if it placed one after this.
+        later = max(
+            [c for c in self._calls.values() if c.session == missed.session and not c.back]
+            + [c for c, _ in self._past.values() if c.session == missed.session],
+            key=lambda c: c.at, default=None,
+        )  # fmt: skip
+        since = (later.briefing, time.time() - later.at) if later and later.at > missed.at else None
+        # What the missed call's briefing asks and no longer waits for an answer; a session
+        # that isn't listening waits for none.
+        waiting = {ask.name for ask in self._pool.get(missed.session, {}).values()} if listening else set()
+        settled = [name for name in missed.asked if name not in waiting]
+        briefing = called_back(missed.briefing, time.time() - missed.at, since, settled)
+        call = dataclasses.replace(missed, briefing=briefing, placed=time.monotonic(), back=missed)
+        link = Link(lambda text: self.send(call.session, text, link.transcript.relative if link.transcript else None))
+        link.listening = listening
+        call.link = link
+        self._calls[call.id] = call
+        how = ("the session listens" if listening else "the session isn't listening") + (
+            ", and called again since" if since else ""
+        )
+        self._log(f"call {call.id[:8]}: called back about {call.subject!r}, {how}")
+        say = lambda line: self._log(f"call {call.id[:8]}: {line}")
+        haiku = Haiku(instructions(briefing, session=True, listening=listening), say, tools=listening, opening=PICKED_UP)
+        try:
+            await haiku.start()
+            call.haiku = haiku
+        except OSError as e:
+            self._log(f"call {call.id[:8]}: Haiku didn't start ({e}); the call starts its own")
+            await haiku.close()
+        call.deadline = asyncio.create_task(self._deadline(call))
+        await self._stay_awake()
+        return call
+
     def answered(self, call_id: str) -> Call | None:
         """Marks an offered call you've answered, once, and starts its transcript, so a call
-        you don't answer leaves none."""
+        you don't answer leaves none. What its session asked on calls you didn't answer goes
+        to this one."""
         call = self._calls.get(call_id)
         if call and call.answered_at is None:
             call.answered_at = time.monotonic()
@@ -329,6 +411,11 @@ class Calls:
                     call.link.transcript = Transcript(Path(call.cwd), call.subject, call.briefing)
                 except OSError as e:
                     self._log(f"call {call_id[:8]}: no transcript ({e})")
+            if call.link and call.link.listening:
+                for ask in self._pool.pop(call.session, {}).values():
+                    # In a note, unless the briefing asks it: a call back's can.
+                    call.link.ask(ask, briefed=ask.name in call.asked)
+                    self._log(f"call {call_id[:8]}: {ask.name}, asked on a call you didn't answer, goes to this one")
         return call
 
     async def end(self, call_id: str) -> None:
@@ -342,6 +429,7 @@ class Calls:
         self._log(f"{kind} for session {session[:8]}: {text!r}")
 
     def collect(self, session: str) -> list[dict]:
+        self._seen[session] = time.monotonic()  # it's listening
         return self._waiting.pop(session, [])
 
     async def news(self, session: str, text: str) -> bool:
@@ -360,7 +448,8 @@ class Calls:
         # One at a time: parallel tool calls can ask at once, and should share one call.
         async with self._asking:
             ask = Ask(new_id(self._asks), kind, session, request)
-            ours = [c for c in self._calls.values() if c.session == session]
+            # Not a call back whose voice can't answer the session.
+            ours = [c for c in self._calls.values() if c.session == session and c.link.listening]
             if call := ([c for c in ours if c.answered_at is not None] or ours or [None])[-1]:
                 call.link.ask(ask)
                 how = "live" if call.answered_at is not None else "placed"
@@ -368,6 +457,7 @@ class Calls:
                 r = request
                 call = await self.place(session, r["project"], r["cwd"], r["subject"], ask.briefing())
                 call.link.ask(ask, briefed=True)
+                call.asked = (ask.name,)
                 how = "placed"
             self._asks[ask.id] = ask
         self._log(f"call {call.id[:8]}: {ask.name} for session {session[:8]}, {how}: {ask.details()[:100]!r}")
@@ -385,6 +475,7 @@ class Calls:
         """Records an answer given outside a call (by a tool); False if it has one already."""
         if not ask.settle(outcome, said, answers):
             return False
+        self._pool.get(ask.session, {}).pop(ask.id, None)
         for call in self._calls.values():
             call.link.drop(ask, f"it was answered outside the call, {ask.answered()}")
         return True
@@ -392,6 +483,7 @@ class Calls:
     def withdraw(self, ask: Ask) -> None:
         """The session's mod no longer waits for an answer, so a call's voice no longer asks."""
         self._asks.pop(ask.id, None)
+        self._pool.get(ask.session, {}).pop(ask.id, None)
         for call in self._calls.values():
             call.link.drop(ask, "it withdrew the question" if ask.kind == "question" else "it withdrew the request")
         ask.settle("withdrawn")  # wakes those waiting for it, who find it gone
@@ -413,22 +505,42 @@ class Calls:
 
     async def _forget(self, call: Call) -> None:
         """Drops a call, answered and ended or never answered: the one place a call goes. Its
-        session is told how it went, and the Haiku that wrote its opening is closed."""
+        session is told how it went, the Haiku that wrote its opening is closed, and it's
+        remembered for a day, so you can call it back."""
         self._calls.pop(call.id, None)
         if call.deadline and call.deadline is not asyncio.current_task():
             call.deadline.cancel()
+        self._close_haiku(call)
+        if call.answered_at is None and call.link.listening:
+            # You didn't answer: what it was asking waits for the next call with its session
+            # you answer, a call back or its next call, while the session's mod waits.
+            self._pool.setdefault(call.session, {}).update(call.link.asks)
+        else:
+            # You hung up without answering it: the session's mod asks you itself.
+            for ask in list(call.link.asks.values()):
+                ask.settle("none")
+        call.link.asks.clear()
+        transcript = call.link.transcript.relative if call.link.transcript else None
+        self.send(call.session, outcome(call, transcript), transcript, kind="outcome")
+        # What's remembered is the call as it was placed, also after a call back.
+        self._past[call.id] = (
+            call.back or dataclasses.replace(call, answered_at=None, link=None, haiku=None, deadline=None),
+            time.time(),
+        )
+        self._expire()
+        await self._stay_awake()
+
+    def _close_haiku(self, call: Call) -> None:
         if call.haiku:
             closing = asyncio.create_task(call.haiku.close())
             self._closing.add(closing)
             closing.add_done_callback(self._closing.discard)
             call.haiku = None
-        # What it was asking gets no answer from it: the session's mod asks you itself.
-        for ask in list(call.link.asks.values()):
-            ask.settle("none")
-        call.link.asks.clear()
-        transcript = call.link.transcript.relative if call.link.transcript else None
-        self.send(call.session, outcome(call, transcript), transcript, kind="outcome")
-        await self._stay_awake()
+
+    def _expire(self) -> None:
+        """Forgets the calls forgotten more than a day ago."""
+        now = time.time()
+        self._past = {id: (call, at) for id, (call, at) in self._past.items() if now - at < REMEMBER}
 
     async def _stay_awake(self) -> None:
         """Holds a sleep assertion while any call is placed or in progress."""
@@ -444,6 +556,12 @@ def outcome(call: Call, transcript: str | None) -> str:
     """How a call went, for its session to read. If it wasn't answered, the voice server
     can't tell why; the switchboard's log can."""
     about = f'The call about "{call.subject}"' if call.subject else "The call"
+    if call.back:
+        what = f'"{call.subject}"' if call.subject else "an earlier call"
+        if call.answered_at is None:
+            return f"The developer called back about {what}, but the call didn't connect."
+        text = f"The developer called back about {what} and it lasted {duration(time.monotonic() - call.answered_at)}."
+        return f"{text} Its transcript: {transcript}" if transcript else text
     if call.answered_at is None:
         took = duration(time.monotonic() - call.placed)
         return f"{about} wasn't answered within {took}: declined, missed, or its audio didn't connect."
@@ -481,7 +599,8 @@ def session_side(calls: Calls) -> web.Application:
       it (`"placed"`), and answered with its id; 502 if no call can be placed;
     - `GET .../{ask}?wait=S` waits up to S seconds (at most 25) for the answer: a permission's
       `verdict` (allow, deny, none or pending), or the questions' `status` (answered, none or
-      pending) and `answers`, with your `said`. None: the call ended without an answer;
+      pending) and `answers`, with your `said`. None: you hung up without answering it. A
+      call you didn't answer leaves it pending, for the next call with the session you answer;
     - `POST .../{ask}` records an answer, as the voice does (for tools);
     - `DELETE .../{ask}` withdraws it: the session no longer waits for an answer.
     """

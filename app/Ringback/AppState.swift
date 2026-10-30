@@ -9,18 +9,31 @@ struct CallRecord: Codable, Identifiable {
         case busy
     }
 
-    let id: String  // the switchboard's call ID
+    let id: String  // the switchboard's call ID; a call back's own, made on the phone
     let project: String
     /// A few words on what the call is about, written on the calling Mac.
     var subject: String?
+    /// When it rang, or when you called back.
     let ringAt: Date
     var answeredAt: Date?
     var endedAt: Date?
     var outcome: Outcome
     /// It rang as call waiting during another call (phone, WhatsApp, FaceTime…).
     var onAnotherCall: Bool?
+    /// The voice server the push named, which a call back goes to. Calls from before calling
+    /// back have none, so they can't be called back.
+    var voice: URL?
+    /// On a call you made by calling one back: the ID of the call it calls back, which its
+    /// offer carries.
+    var callsBack: String?
 
     var callerName: String { "Claude from \(project)" }
+
+    /// A red call whose voice server is known: tapping it calls it back. A call back that
+    /// didn't connect calls back the same call again.
+    var canCallBack: Bool {
+        voice != nil && [.declined, .missed, .failed].contains(outcome)
+    }
 
     var duration: TimeInterval? {
         guard let answeredAt, let endedAt else { return nil }
@@ -72,6 +85,8 @@ final class AppState {
     var notificationToken: String?
     var connection: Connection = .notSetUp
     var activeCall: ActiveCall?
+    /// Why a call back ended by itself, shown once the in-call screen is gone.
+    var callBackProblem: String?
     /// Counts successful checks you started yourself; the haptic tap plays on each.
     var confirmations = 0
     /// The last time the switchboard confirmed this phone, kept across launches.

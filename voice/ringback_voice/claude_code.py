@@ -108,7 +108,7 @@ class ClaudeCodeLLMService(LLMService):
         await super().start(frame)
         if not self._haiku:
             # The call starts when the phone's offer arrives, before its audio connects.
-            self._haiku = Haiku(self._instructions, self._log, tools=self._link is not None)
+            self._haiku = Haiku(self._instructions, self._log, tools=self._link is not None and self._link.listening)
             self._own_haiku = True
             await self._haiku.start()
         self.create_task(self._pass_heard())
@@ -299,6 +299,8 @@ class ClaudeCodeLLMService(LLMService):
             return self._better_model()
         if not self._link:
             return "Nothing done: this call isn't for a session."
+        if not self._link.listening:
+            return "Nothing done: the session isn't listening any more."
         if name == "answer_permission":
             return self._answer_permission(arguments)
         if name == "answer_question":

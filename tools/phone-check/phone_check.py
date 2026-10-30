@@ -18,6 +18,18 @@ As on the phone, the microphone sends nothing until you answer. It also declines
 and offers it again, replaces a live offer with a new one, answers a call with a reply for
 Haiku to pass to the session, and checks the calls' transcripts, and that no Claude Code
 session folder is left. Prints the voice's log, the checks and the timings.
+
+    uv run --project voice tools/phone-check/phone_check.py --back [--unanswered S] [--keep DIR]
+
+calls back calls you didn't answer instead, as the app does from its call history: an offer
+marked "back", answered at once. A stand-in for the session's mod collects its messages once
+a second, so the session listens. Checks that a call back is refused for a call the server
+doesn't know; that the voice of a call back opens with what the missed call was about, and
+when the session has called again since, with what changed; that a session that isn't
+listening gets a voice that passes nothing on; that a permission asked on a call you didn't
+answer is answered on its call back; and that a call back while the missed call is still
+placed leaves no "wasn't answered" note. Prints the openings, and the time from each offer
+to the voice's first audio.
 """
 
 import argparse
@@ -120,13 +132,16 @@ class Phone:
                 self.last_audio = time.monotonic()
                 self.first_audio = self.first_audio or self.last_audio
 
-    async def offer(self, call_id: str, ringing: bool) -> int:
+    async def offer(self, call_id: str, ringing: bool, back: bool = False) -> int:
+        """Offers the call's audio: while it rings, once you've answered, or calling it back."""
         if not ringing:
             self.mic.on.set()
         await self.pc.setLocalDescription(await self.pc.createOffer())
         body = {"sdp": self.pc.localDescription.sdp, "type": "offer", "call_id": call_id}
         if ringing:
             body["ringing"] = True
+        if back:
+            body["back"] = True
         async with aiohttp.ClientSession() as http:
             async with http.post(f"http://{VOICE}/offer", json=body) as r:
                 if r.status != 200:
@@ -185,11 +200,18 @@ def free(address: str) -> bool:
             return False
 
 
-def kept() -> set[Path]:
+def kept(under: Path | None = None) -> set[Path]:
     """The folders where Claude Code keeps the voice's sessions, which it deletes at the end
-    of a call (forget in voice/ringback_voice/haiku.py)."""
+    of a call (forget in voice/ringback_voice/haiku.py). With under, only those of a voice
+    server whose temporary folder (TMPDIR) is under, not of other voice servers on this Mac."""
     home = Path(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude").expanduser()
-    return set((home / "projects").glob("*ringback-voice-*"))
+    found = set((home / "projects").glob("*ringback-voice-*"))
+    if under:
+        # Claude Code names the folder for the session's real path, with every character but
+        # letters and digits made "-".
+        prefix = re.sub(r"[^a-zA-Z0-9]", "-", os.path.realpath(under))
+        found = {p for p in found if p.name.startswith(prefix)}
+    return found
 
 
 async def main() -> int:
@@ -197,10 +219,14 @@ async def main() -> int:
     p.add_argument("--runs", type=int, default=3, help="calls of each kind (default 3)")
     p.add_argument("--ring", type=float, default=6.0, help="seconds from placing a call to answering it (default 6)")
     p.add_argument("--keep", type=Path, help="keep the voice log and transcripts in this directory")
+    p.add_argument("--back", action="store_true", help="call back calls you didn't answer instead")
+    p.add_argument("--unanswered", type=float, default=8, help="with --back: seconds before an unanswered call is forgotten")
     args = p.parse_args()
     for address in (SWITCHBOARD, VOICE):
         if not free(address):
             sys.exit(f"{address} is in use: is another phone check running?")
+    if args.back:
+        return await call_backs(args)
 
     sessions = kept()
     tmp = Path(tempfile.mkdtemp(prefix="ringback-phone-check-"))
@@ -448,6 +474,261 @@ async def main() -> int:
             print(f"  {kind:9} {', '.join(f'{v:.2f}' for v in values)}")
     if closing:
         print(f"no Haiku left {min(closing):.1f}–{max(closing):.1f} s after hanging up")
+    if args.keep:
+        shutil.copytree(tmp, args.keep, dirs_exist_ok=True, ignore=shutil.ignore_patterns("*.sock"))
+    shutil.rmtree(tmp, ignore_errors=True)
+    return 1 if fails else 0
+
+
+# Call backs (--back): the session's later call, a session that isn't listening, a permission,
+# and a call called back before it's forgotten.
+LATER_SUBJECT = "Pull request 42 opened"
+LATER = """\
+Since the parser fix, the developer said yes in the terminal, so I pushed it to the branch
+fix-parser and opened pull request 42. Its checks pass. Nothing needs the developer now,
+apart from reviewing the pull request when they have time."""
+GONE_SESSION = "phone-check-gone"  # no mod collects for it: it isn't listening
+GONE_SUBJECT = "Docs site rebuilt"
+GONE = """\
+I rebuilt the documentation site and fixed three broken links in the setup guide. It's all
+committed. Nothing needs the developer."""
+ASK_AGAIN = "Please ask the session to rebuild the docs once more."
+PERMISSION = {
+    "tool": "Bash",
+    "description": "Delete the build folder",
+    "input": "rm -rf build",
+    "context": "I'm cleaning up before the release build.",
+    "project": "demo",
+    "subject": "Delete the build folder?",
+}
+YES = "Yes, go ahead."
+# A voice that introduces itself, or says it's calling, on a call you made.
+INTRODUCES = re.compile(r"this is claude|claude here|i'm claude|i'm calling|i am calling|calling (you )?(about|from)", re.I)
+WINDOW_SUBJECT = "Release notes drafted"
+WINDOW = """\
+I drafted the release notes for version 2.4: the parser fix and the new config warnings.
+They're in the notes folder, not committed yet. Should I commit them?"""
+
+
+async def call_backs(args) -> int:
+    """Calls back calls you didn't answer, as the app does from its call history."""
+    tmp = Path(tempfile.mkdtemp(prefix="ringback-phone-check-"))
+    sock, voice_log, project, own = tmp / "voice.sock", tmp / "voice.log", tmp / "demo", tmp / "tmp"
+    project.mkdir()
+    own.mkdir()
+    # With a report, an offer for a call the server didn't place is a call rung by hand; a
+    # call back for one must still be refused.
+    (tmp / "report.txt").write_text(BRIEFING)
+    rung: list[dict] = []
+
+    async def take_call(request: web.Request) -> web.Response:
+        rung.append(await request.json())
+        return web.json_response({"ok": True})
+
+    switchboard = web.AppRunner(web.Application())
+    switchboard.app.add_routes([web.post("/call", take_call)])
+    await switchboard.setup()
+    host, port = SWITCHBOARD.rsplit(":", 1)
+    await web.TCPSite(switchboard, host, int(port)).start()
+    voice = subprocess.Popen(
+        [sys.executable, "-m", "ringback_voice", "serve", "--listen", VOICE, "--switchboard", SWITCHBOARD,
+         "--socket", str(sock), "--report", str(tmp / "report.txt")],
+        stdout=voice_log.open("w"), stderr=subprocess.STDOUT,
+        # Its own temporary folder, so its sessions' folders tell from those of other voice
+        # servers on this Mac.
+        env=os.environ | {"RINGBACK_UNANSWERED": str(args.unanswered), "TMPDIR": str(own)},
+    )  # fmt: skip
+    socket_side = aiohttp.ClientSession(connector=aiohttp.UnixConnector(path=str(sock)))
+    got: list[dict] = []  # what the stand-in mod collected for SESSION
+
+    async def mod():
+        """The session's mod, while ringback is on: collects its messages once a second."""
+        while True:
+            try:
+                async with socket_side.get(f"http://voice/sessions/{SESSION}/messages") as r:
+                    got.extend((await r.json())["messages"])
+            except (aiohttp.ClientError, ValueError):
+                pass
+            await asyncio.sleep(1)
+
+    async def place(session: str, subject: str, briefing: str) -> str:
+        body = {"session_id": session, "project": "demo", "cwd": str(project), "subject": subject, "briefing": briefing}
+        async with socket_side.post("http://voice/calls", json=body) as r:
+            assert r.status == 200, await r.text()
+        return rung[-1]["call_id"]
+
+    async def forgotten(call_id: str) -> bool:
+        return await wait_for(voice_log, rf"call {re.escape(call_id[:8])}: not answered, forgotten", args.unanswered + 10) is not None
+
+    def outcomes(subject: str) -> list[str]:
+        return [m["text"] for m in got if m.get("kind") == "outcome" and f'"{subject}"' in m["text"]]
+
+    def haikus() -> int:
+        found = subprocess.run(["pgrep", "-P", str(voice.pid), "-f", "input-format stream-json"], capture_output=True)
+        return len(found.stdout.split())
+
+    fails = 0
+    lines: list[str] = []
+    timings: list[float] = []  # from each call back's offer to the voice's first audio
+    openings: list[str] = []  # what the voice said first on each call back
+    replies: list[str] = []
+
+    def check(name: str, ok: bool) -> None:
+        nonlocal fails
+        lines.append(f"{'ok  ' if ok else 'FAIL'}  {name}")
+        fails += not ok
+
+    async def call_back(call_id: str, name: str) -> tuple[Phone, Path | None, str]:
+        """Calls call_id back, and listens to the voice's opening: the phone, the call back's
+        transcript, and the opening as the voice said it."""
+        before = set(project.glob(".ringback/calls/*.md"))
+        phone = Phone()
+        t = time.monotonic()
+        status = await phone.offer(call_id, ringing=False, back=True)
+        heard = await phone.heard_after(t)
+        await phone.quiet_for(2.5, limit=60)
+        transcript = next(iter(set(project.glob(".ringback/calls/*.md")) - before), None)
+        found = transcript and await wait_for(transcript, r"\*\*Voice:\*\* (.+)", 30)
+        opening = found[1] if found else ""
+        if heard is not None:
+            timings.append(heard)
+        openings.append(f"{name}: {opening}")
+        check(f"{name}: the call back is answered (200), voice heard {heard or 0:.2f} s after the offer",
+              status == 200 and heard is not None)  # fmt: skip
+        return phone, transcript, opening
+
+    collecting = None
+    try:
+        from mlx_audio.tts.utils import load_model
+
+        kokoro = load_model(KOKORO)
+
+        def speech(text: str) -> np.ndarray:
+            audio = np.concatenate([np.array(r.audio) for r in kokoro.generate(text, voice=YOUR_VOICE, lang_code="a")])
+            return (np.clip(soxr.resample(audio, 24000, RATE), -1, 1) * 32767).astype(np.int16)
+
+        ask_again, yes = speech(ASK_AGAIN), speech(YES)
+        if not await wait_for(voice_log, r"voice listening", 180):
+            print(voice_log.read_text())
+            sys.exit("The voice server didn't start.")
+        collecting = asyncio.create_task(mod())
+
+        status = await Phone().offer("never-placed-call", ringing=False, back=True)
+        check(f"a call back for a call the server doesn't know is refused, though it takes calls rung by hand: {status}",
+              status == 403)  # fmt: skip
+
+        # A call you don't answer, called back once it's forgotten.
+        missed = await place(SESSION, SUBJECT, BRIEFING)
+        check("a call you don't answer is forgotten", await forgotten(missed))
+        await asyncio.sleep(1.5)
+        check(f"its session was told it wasn't answered: {outcomes(SUBJECT)}",
+              len(outcomes(SUBJECT)) == 1 and "wasn't answered" in outcomes(SUBJECT)[0])  # fmt: skip
+        phone, _, opening = await call_back(missed, "missed")
+        check("missed: the opening is about the missed call", re.search(r"parser|empty line|push", opening, re.I) is not None)
+        await phone.hang_up()
+        await asyncio.sleep(2.5)
+        told = outcomes(SUBJECT)[1:]
+        check(f"missed: its session was told you called back: {told}",
+              len(told) == 1 and told[0].startswith(f'The developer called back about "{SUBJECT}" and it lasted'))  # fmt: skip
+
+        # The session called again since: calling the missed call back again, the voice
+        # opens with what changed.
+        later = await place(SESSION, LATER_SUBJECT, LATER)
+        check("the session's later call isn't answered either", await forgotten(later))
+        phone, _, opening = await call_back(missed, "moved on")
+        first = " ".join(opening.split()[:30])
+        since = rf"call {re.escape(missed[:8])}: called back .*called again since"
+        check("moved on: a call called back before can be called back again, with the later briefing, "
+              "and its opening starts with what changed",
+              re.search(since, voice_log.read_text()) is not None
+              and re.search(r"pull request|42|pushed", first, re.I) is not None)  # fmt: skip
+        await phone.hang_up()
+
+        # A session that isn't listening any more: no mod collects for it.
+        gone = await place(GONE_SESSION, GONE_SUBJECT, GONE)
+        check("a call to a session that isn't listening is forgotten", await forgotten(gone))
+        phone, transcript, opening = await call_back(gone, "not listening")
+        check("not listening: the voice server says so, and the opening is about its call",
+              re.search(rf"call {re.escape(gone[:8])}: called back .*the session isn't listening", voice_log.read_text())
+              is not None and re.search(r"doc|link", opening, re.I) is not None)  # fmt: skip
+        phone.mic.say(ask_again)
+        replied = transcript and await wait_for(transcript, r"\*\*Voice:\*\* (.+)", 45, nth=2)
+        await phone.quiet_for(2.5, limit=30)
+        await phone.hang_up()
+        await asyncio.sleep(1)
+        async with socket_side.get(f"http://voice/sessions/{GONE_SESSION}/messages") as r:
+            left = [m["text"] for m in (await r.json())["messages"] if m.get("kind") == "message"]
+        reply = replied[1] if replied else ""
+        replies.append(f"not listening, asked to pass something on: {reply}")
+        check(f'not listening: asked "{ASK_AGAIN}", the voice passed nothing on, and said it can\'t: {left}',
+              not left and re.search(r"can't|cannot|can not|isn't listening|not listening|terminal", reply, re.I) is not None)  # fmt: skip
+
+        # A permission asked on a call you don't answer waits, and its call back answers it.
+        async with socket_side.post(f"http://voice/sessions/{SESSION}/permissions", json=PERMISSION | {"cwd": str(project)}) as r:
+            asked = await r.json()
+        pid, asking = asked.get("permission", ""), rung[-1]["call_id"]
+        check(f"a permission with no call places one: {asked}", asked.get("call") == "placed")
+        ok = await forgotten(asking)
+        async with socket_side.get(f"http://voice/sessions/{SESSION}/permissions/{pid}?wait=0") as r:
+            waiting = await r.json()
+        check(f"its call isn't answered and is forgotten, and the permission still waits: {waiting}",
+              ok and waiting.get("verdict") == "pending")  # fmt: skip
+        phone, _, opening = await call_back(asking, "permission")
+        check("permission: the opening asks it", re.search(r"delet|build|remov", opening, re.I) is not None)
+        phone.mic.say(yes)
+        verdict, end = {}, time.monotonic() + 45
+        while verdict.get("verdict") in (None, "pending") and time.monotonic() < end:
+            async with socket_side.get(f"http://voice/sessions/{SESSION}/permissions/{pid}?wait=5") as r:
+                verdict = await r.json()
+        check(f'permission: "{YES}" on the call back allows it: {verdict}', verdict.get("verdict") == "allow")
+        await phone.quiet_for(2.5, limit=30)
+        await phone.hang_up()
+
+        # Called back before it's forgotten: you decline, then call it back at once, and the
+        # call back outlasts the missed call's time.
+        placed = time.monotonic()
+        window = await place(SESSION, WINDOW_SUBJECT, WINDOW)
+        ringing = Phone()
+        await ringing.offer(window, ringing=True)
+        await asyncio.sleep(1)
+        await ringing.hang_up()
+        await asyncio.sleep(0.5)
+        phone, _, _ = await call_back(window, "inside the window")
+        await asyncio.sleep(max(0.0, placed + args.unanswered + 2 - time.monotonic()))
+        await phone.hang_up()
+        await asyncio.sleep(3)
+        told = outcomes(WINDOW_SUBJECT)
+        check(f"inside the window: after the missed call's time, its session was told only that you called back: {told}",
+              len(told) == 1 and told[0].startswith(f'The developer called back about "{WINDOW_SUBJECT}"'))  # fmt: skip
+
+        # You called, so the voice picks up: it doesn't introduce itself or say it's calling.
+        calling = [o for o in openings if INTRODUCES.search(o)]
+        check(f"no opening introduces the voice or says it's calling: {calling}", not calling)
+
+        end = time.monotonic() + 5
+        while haikus() and time.monotonic() < end:
+            await asyncio.sleep(0.1)
+        # A session's folder is deleted just after its process has ended.
+        await asyncio.sleep(1)
+        left = sorted(p.name for p in kept(own))
+        check(f"no Haiku left, and none of its sessions' folders in ~/.claude/projects: {left}",
+              not haikus() and not left)  # fmt: skip
+    finally:
+        if collecting:
+            collecting.cancel()
+        await socket_side.close()
+        voice.terminate()
+        voice.wait()
+        await switchboard.cleanup()
+
+    print("--- voice log")
+    print("".join(line for line in voice_log.open() if re.search(r"call |voice listening|models loaded|session ", line)))
+    print("\n".join(lines))
+    print("\nwhat the voice said first on each call back:")
+    print("\n".join(f"  {o}" for o in openings + replies))
+    if timings:
+        spread = f"median {statistics.median(timings):.2f}, {min(timings):.2f}–{max(timings):.2f}"
+        print(f"\nfrom the offer to the voice's first audio (s): {spread}: {', '.join(f'{v:.2f}' for v in timings)}")
     if args.keep:
         shutil.copytree(tmp, args.keep, dirs_exist_ok=True, ignore=shutil.ignore_patterns("*.sock"))
     shutil.rmtree(tmp, ignore_errors=True)

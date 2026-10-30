@@ -16,14 +16,20 @@ It checks:
   of four lowercase letters. Two sent at once, as from parallel tool calls, share that call.
   A long poll for a verdict waits the time asked for while it rings. A question for the
   same session goes to that call, without placing another, and is gone once withdrawn;
-- nobody answers that call. Once it's forgotten (`--unanswered` seconds), the permission's
-  verdict is `none`, which ends a long poll before its 25 s;
-- on a call you answer, a permission is `live` and the voice asks it. Your spoken "Yes, go
-  ahead." comes back as `allow`, with your words. A question with two options is answered
-  by your spoken "A new branch, please." with that option's label;
+- nobody answers that call. Once it's forgotten (`--unanswered` seconds), both
+  permissions are still `pending`, and a long poll waits on through it to its end: they
+  wait for the next call with the session you answer. One is then withdrawn, and is gone;
+- the next call you answer gets the other as a note once the voice has opened, the voice
+  asks it, and your spoken "Yes, go ahead." comes back as `allow`;
+- on that call, a permission is `live` and the voice asks it. Your spoken yes comes back
+  as `allow`, with your words. A question with two options is answered by your spoken "A
+  new branch, please." with that option's label;
 - a verdict a tool posts is final: a second gets 409. A withdrawn permission is gone, and
   one still waiting when you hang up gets `none`;
-- the call's transcript has both requests and both answers.
+- the call's transcript has the requests and the answers.
+
+A call back (`tools/phone-check --back`) answering a permission asked on a call you didn't
+answer is checked there.
 
 Run from the repo root. It uses your Claude subscription, two Haiku sessions:
 
@@ -35,8 +41,8 @@ Run from the repo root. It uses your Claude subscription, two Haiku sessions:
 
 It prints the call's transcript, the voice's log and the checks. What the voice says when it
 asks, and how it takes unclear answers, is for `tools/call-check` (`?` and `??` turns).
-The mod's side, holding the tool call and showing its own prompt on `none`, isn't part of
-it.
+The mod's side, holding the tool call, waiting on through `pending` and showing its own
+prompt on `none`, isn't part of it.
 
 Result on 2026-10-29, Claude Code 2.1.312, one run: all 22 checks passed, in about 1 min
 40 s after the models loaded. The unanswered call's two permissions got `none` 10.0 s after

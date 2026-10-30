@@ -3,7 +3,9 @@ when to put a better model on, what it can do for the session, how to put what t
 asks to the developer, then the session's briefing.
 
 On a call rung by hand there's no session: the briefing is the report file given to the
-server, or STAND_IN.
+server, or STAND_IN. On a call back, the briefing is the missed call's, with a lead that says
+the developer called (called_back); if the session isn't listening any more, the voice is
+told it can't act on it.
 """
 
 RULES = """\
@@ -85,11 +87,58 @@ If the developer asks you to, say that this isn't possible yet.
 The session's report:
 """
 
+NOT_LISTENING = """\
+The session isn't listening any more: ringback was switched off in it, or the session has
+ended. So you can't pass it messages, answer what it asked, or approve anything for it. If
+the developer asks you to, say so briefly: they can do it at the terminal.
+
+The session's briefing:
+"""
+
 STAND_IN = """\
 This is a test call of ringback's conversation. There's no real session behind it yet,
 so there's nothing to report. Say so briefly, then talk about whatever the developer
 wants."""
 
+# The lead of a call back's briefing.
+CALLED_BACK = """\
+This call is the developer calling back. The session called them {ago} ago about the
+briefing below, and they didn't answer then. Now they've called you and you've picked up.
+So don't introduce yourself, greet them at length, or say you're calling: open straight with
+what the missed call was about."""
+MOVED_ON = """\
+The session has called again since, {ago} ago, and its newer briefing follows the missed
+call's. Open with what changed since the missed call, then what needs the developer now.
+Where the two differ, the newer one is right."""
+SETTLED = """\
+The session no longer waits for an answer to {names}, which the missed call's briefing asks:
+don't ask it."""
 
-def instructions(report: str | None, session: bool = False) -> str:
-    return RULES + (SESSION if session else NO_SESSION) + (report or STAND_IN).strip() + "\n"
+
+def instructions(report: str | None, session: bool = False, listening: bool = True) -> str:
+    rules = (SESSION if listening else NOT_LISTENING) if session else NO_SESSION
+    return RULES + rules + (report or STAND_IN).strip() + "\n"
+
+
+def called_back(briefing: str, ago: float, since: tuple[str, float] | None = None, settled: list[str] = ()) -> str:
+    """The briefing of a call back: the missed call's, placed ago seconds before, with a lead.
+    since is the briefing of the session's latest call and how long ago it was placed, if
+    that came after; settled names what the missed call asks and no longer waits for."""
+    lead = CALLED_BACK.format(ago=while_ago(ago))
+    if since:
+        lead += "\n" + MOVED_ON.format(ago=while_ago(since[1]))
+    if settled:
+        lead += "\n" + SETTLED.format(names=" or ".join(settled))
+    text = f"{lead}\n\nThe missed call's briefing:\n{briefing.strip()}"
+    return text + (f"\n\nSince then, the session's latest briefing:\n{since[0].strip()}" if since else "")
+
+
+def while_ago(seconds: float) -> str:
+    """Seconds as said in "... ago": "less than a minute", "12 minutes", "about 3 hours"."""
+    minutes = round(seconds / 60)
+    if minutes < 1:
+        return "less than a minute"
+    if minutes < 60:
+        return "a minute" if minutes == 1 else f"{minutes} minutes"
+    hours = round(seconds / 3600)
+    return "about an hour" if hours == 1 else f"about {hours} hours"

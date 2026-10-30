@@ -13,6 +13,7 @@ struct SettingsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(ConnectionCheck.lastWarnedKey) private var lastConnectionWarning = 0.0
     @State private var microphoneOff = false
+    @State private var showsCallBackProblem = false
 
     var body: some View {
         NavigationStack {
@@ -75,7 +76,7 @@ struct SettingsView: View {
                     if state.calls.isEmpty {
                         Text("No calls yet").foregroundStyle(.secondary)
                     }
-                    ForEach(state.calls) { CallRow(call: $0) }
+                    ForEach(state.calls) { CallRow(call: $0, calls: calls) }
                 }
             }
             .navigationTitle("Ringback")
@@ -83,8 +84,13 @@ struct SettingsView: View {
         }
         // Once, for both screens: only checks you started, never the automatic one on opening.
         .sensoryFeedback(.success, trigger: state.confirmations)
-        .fullScreenCover(isPresented: .constant(state.activeCall != nil)) {
+        .fullScreenCover(isPresented: .constant(state.activeCall != nil), onDismiss: showCallBackProblem) {
             InCallView(state: state, calls: calls)
+        }
+        // Why a call back ended by itself, or couldn't start: once the in-call screen is gone.
+        .onChange(of: state.callBackProblem) { if state.activeCall == nil { showCallBackProblem() } }
+        .alert(state.callBackProblem ?? "", isPresented: $showsCallBackProblem) {
+            Button("OK") { state.callBackProblem = nil }
         }
         .onChange(of: scenePhase, initial: true) { _, phase in
             guard phase == .active else { return }
@@ -102,6 +108,10 @@ struct SettingsView: View {
 
     private func checkMicrophone() {
         microphoneOff = AVAudioApplication.shared.recordPermission == .denied
+    }
+
+    private func showCallBackProblem() {
+        showsCallBackProblem = state.callBackProblem != nil
     }
 }
 
@@ -283,10 +293,22 @@ private struct StatusRow: View {
     }
 }
 
+/// One call in the history. Tapping a red one calls it back, as in the Phone app; a call back
+/// shows as an outgoing call.
 private struct CallRow: View {
     let call: CallRecord
+    let calls: CallService
 
     var body: some View {
+        if call.canCallBack {
+            Button { calls.callBack(call) } label: { row.foregroundStyle(.primary) }
+                .accessibilityHint("Calls back")
+        } else {
+            row
+        }
+    }
+
+    private var row: some View {
         HStack {
             Image(systemName: icon).foregroundStyle(color).frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
@@ -308,9 +330,10 @@ private struct CallRow: View {
     }
 
     private var icon: String {
+        if call.callsBack != nil { return "phone.arrow.up.right.fill" }
         switch call.outcome {
-        case .answered, .onCall, .ringing: "phone.fill"
-        case .declined, .missed, .busy, .failed: "phone.down.fill"
+        case .answered, .onCall, .ringing: return "phone.fill"
+        case .declined, .missed, .busy, .failed: return "phone.down.fill"
         }
     }
 
@@ -328,7 +351,15 @@ private struct CallRow: View {
     }
 
     private var outcomeText: String {
-        switch call.outcome {
+        if call.callsBack != nil {
+            switch call.outcome {
+            case .onCall, .ringing: return "On call"
+            case .failed: return "Called back · didn't connect"
+            default:
+                return "Called back · " + Duration.seconds(call.duration ?? 0).formatted(.time(pattern: .minuteSecond))
+            }
+        }
+        return switch call.outcome {
         case .ringing: "Ringing…"
         case .onCall: "On call"
         case .answered:

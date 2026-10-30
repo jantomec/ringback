@@ -7,7 +7,8 @@ over Nebula (on mobile data only the phone can open a tunnel), with the call's I
 rings, marked "ringing", and then it posts to /answered when you answer; or, from an older
 app, once you've answered. The voice opens when you've answered and audio is connected. A
 new offer for the same call replaces the earlier one, as when an offer made while ringing
-didn't connect.
+didn't connect. An offer marked "back" calls back a call you didn't answer, from the phone's
+call history: it's answered at once, and the voice picks up.
 
 The call is a conversation: Parakeet v2 hears you, Haiku answers in a Claude Code session
 that stays open for the call (Opus takes it over if you ask for a better model), and Kokoro
@@ -142,7 +143,10 @@ def call_task(
         transport.input(),
         ParakeetSTTService(say),
         user,
-        ClaudeCodeLLMService(instructions(report, session=link is not None), timeline, say, link, haiku, tell),
+        ClaudeCodeLLMService(
+            instructions(report, session=link is not None, listening=link is None or link.listening),
+            timeline, say, link, haiku, tell,
+        ),
         Pieces(timeline, say),
         KokoroTTSService(timeline, say),
         transport.output(),
@@ -303,19 +307,25 @@ def main() -> None:
         body = await request.json()
         t0 = time.monotonic()
         call_id = str(body.get("call_id", ""))
+        # You called a call back from the phone's call history; it's answered at once.
+        back = body.get("back") is True
         # Made while the phone rings; an offer without it comes once you've answered.
-        ringing = body.get("ringing") is True
-        call = calls.offer(call_id)
+        ringing = body.get("ringing") is True and not back
+        call = await calls.back(call_id) if back else calls.offer(call_id)
         link = haiku = None
         if call:
             text, link = call.briefing, call.link
-        elif args.report:
+        elif args.report and not back:
             # A call rung by hand, to try the voice: it can't reach any session.
             try:
                 text = args.report.read_text()
             except OSError as e:
                 log(f"call {call_id[:8]}: no report ({e}), using the stand-in")
                 text = None
+        elif back:
+            # Never placed here, forgotten over a day ago, or before a restart.
+            log(f"call {call_id[:8]}: call back refused, not a call this server remembers")
+            return web.json_response({"error": "unknown call"}, status=403)
         else:
             log(f"call {call_id[:8]}: refused, not a call this server placed")
             return web.json_response({"error": "unknown call"}, status=403)
@@ -357,7 +367,8 @@ def main() -> None:
                 this.ended.set()
 
         asyncio.create_task(talk())
-        log(f"call {call_id[:8]}: offer answered in {time.monotonic() - t0:.2f} s{', ringing' if ringing else ''}")
+        how = ", ringing" if ringing else ", called back" if back else ""
+        log(f"call {call_id[:8]}: offer answered in {time.monotonic() - t0:.2f} s{how}")
         return web.json_response(conn.get_answer())
 
     async def answer(request: web.Request) -> web.Response:

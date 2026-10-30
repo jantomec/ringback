@@ -75,12 +75,14 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      in the terminal at the same time, and whichever you answer first decides; answered
      in the terminal, the call's question is withdrawn. Your clear yes or no on the call
      decides it; on a no, the session reads your words, and a yes is shown to you as a
-     dim line. With no answer, if ringback is switched off, or after 15 min, the request is
-     withdrawn and the prompt stays.
+     dim line. If you hang up without answering, switch ringback off, or after 15 min, the
+     request is withdrawn and the prompt stays. If you don't answer the call, the request
+     waits on for a call back or the session's next call, within those 15 min.
    - **The session's questions.** When it asks you something with options
      (AskUserQuestion), the mod holds the question (`tool.call`), puts it to you on a call,
      and gives your answer back as the dialog's own, so the dialog doesn't show. Without
-     an answer, it does.
+     an answer, it does, as for permissions. So after a call you didn't answer, the dialog
+     shows only after 15 min, or once you switch ringback off.
 2. **Voice server's session side** (`voice/ringback_voice/sessions.py`). The voice server
    also listens on a Unix socket that only you can open
    (`~/.local/state/ringback/voice.sock`), for the mods of the sessions on its Mac:
@@ -99,14 +101,36 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      the switchboard's log can. It holds a sleep assertion while a call is placed or in
      progress.
    - It keeps what the voice passes on for each session until that session's mod
-     collects it, and takes the session's answers back as news for the call.
+     collects it, and takes the session's answers back as news for the call. When a mod
+     last collected tells whether its session is listening: within 30 s, as the mod
+     collects once a second while ringback is on.
    - **What a session asks you** (`/sessions/{id}/permissions` and `/questions`): a
      permission or questions go to the call you're on with that session as a note, to its
      call that's still ringing once you answer, or else to a new call whose briefing asks
      it. The mod waits for the answer with long-polls (25 s at most each). The answer is
-     allow or deny with your words, or each question's answer, or none if the call ended
-     without one; the mod can withdraw it. Each has a 4-letter id, kept 10 min after it's
-     answered (`tools/ask-check`).
+     allow or deny with your words, or each question's answer, or none if you hung up
+     without one; the mod can withdraw it. If you don't answer the call, it stays
+     pending, kept for the session: the next call with it you answer, a call back or the
+     session's next call, gets it as a note, while the mod waits up to its 15 min. Each
+     has a 4-letter id, kept 10 min after it's answered (`tools/ask-check`).
+   - **Calling back** (`"back": true` in the phone's offer). The voice server remembers
+     each call it placed (session, project, folder, subject, briefing, and when it was
+     placed) for a day after it's forgotten, in memory only, so a restart forgets them. An
+     offer marked `back` for such a call makes a new call for its session under the same
+     ID: a fresh Haiku, answered at once. It talks with the session as an answered call
+     does: messages, news, what the session asks, a transcript, and a call outcome ("The
+     developer called back about "…" and it lasted 2 min."). An ID it doesn't remember
+     gets 403, also when it takes calls rung by hand (`--report`).
+     - The voice gets the missed call's briefing with a lead that says you called, how
+       long ago the missed call was, and to open with what it was about, with no
+       introduction (`called_back` in `voice/ringback_voice/instructions.py`). If the
+       session placed a call after it, that call's briefing follows, "since then", and
+       the voice opens with what changed.
+     - If the session isn't listening, ringback off or the session ended, the call back
+       still works, but the voice can't pass it anything or answer what it asked, and is
+       told why.
+     - Called back within its 90 s, a call still placed is replaced by the call back, so
+       its session isn't told it wasn't answered.
    - **Call transcripts.** It writes each call's transcript into the calling
      session's project, under `.ringback/calls/`: the briefing, your words as recognised,
      what the voice said and where you cut it off, and what went to the session. The
@@ -314,7 +338,7 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
      end it by itself. `CXCallObserver` only records that you were on another call.
      (Apps can't add buttons to that screen.)
    - It reports each call's events to the switchboard: ringing, answered, ended (with
-     its duration), declined and missed. Each report is stamped with when it
+     its duration), declined, missed and called back. Each report is stamped with when it
      happened on the phone, and retried for about a minute. After the phone changes
      network, Nebula can take a while to reach the Mac again. The "ringing" report also
      brings the tunnel up while the phone rings.
@@ -346,12 +370,29 @@ Parts marked (Stage 3) or (Stage 4) are planned and not built yet; the rest is b
    - **Calls:** the whole call history.
      - Each call shows its caller ("Claude from \<project\>") and a 3–8 word subject.
        The session writes it with its briefing, and the push carries it.
-     - A green phone and the duration mean answered. A red one means declined, missed
-       or busy.
+     - A green phone and the duration mean answered. A red one means declined, missed,
+       busy or failed. A call back shows as an outgoing call, with the subject of the call
+       it returns.
      - The history is stored on the phone for now and will move to iCloud later.
-   - **Call back** (Stage 3). Tapping a declined or missed call starts a call to that
-     session straight away, without ringing. The voice has the same context the missed
-     call had. If the session has moved on since, it says what changed first.
+   - **Call back.** Tapping a red call (declined, missed or failed) calls that session back
+     straight away, without ringing, as in the iPhone's Phone app. The voice has the same
+     context the missed call had. If the session has moved on since, it says what changed
+     first (calling back, in the voice server's session side).
+     - Only calls whose push named their voice server can be called back: the app keeps
+       it with the call from now on, so older calls stay plain rows.
+     - It's an outgoing CallKit call (`CXStartCallAction`), with the same caller name as a
+       call that rings, the in-call screen, Mute and End. CallKit shows it connecting, then
+       connected once its audio connects.
+     - Its audio goes as a call's does: the app reaches the voice server (`/ping`), then
+       offers with the missed call's ID and `"back": true`, not ringing. The voice server
+       answers it at once.
+     - It's a new record in the history, with its own ID, and keeps the ID of the call it
+       calls back. Its events go to the switchboard under its own ID: called back (with the
+       missed call's ID in a note), then ended with its duration, or audio failed.
+     - If the voice server no longer knows the call (forgotten after a day, or restarted),
+       the call ends and an alert says "Claude can't take this call back any more." A call
+       back whose audio never connected is red, and tapping it calls the same call back
+       again.
    - **Held calls** (Stage 4). While all calls are held after a final decline, the app
      says so and shows which call to call back. Calling it back releases them.
    - **Settings:**
@@ -515,6 +556,17 @@ Each entry says why it lost and what would make it worth retrying.
   so (`tools/briefing-check`), and scoping the question to the session's work didn't
   stop it. Without the question, 1 of 14 did. The session is now told afterwards how the
   call went (call outcomes). Retry if briefings prove too thin on what wasn't verified.
+- **Handing what a missed call asked to the terminal at once.** Until Stage 3 step 5, a call
+  you didn't answer settled its permissions and questions as none, so a question showed in
+  the terminal as soon as the call was forgotten, and a call back couldn't answer it. They
+  now wait for the next call with the session you answer, within the mod's 15 min.
+  Permission prompts show in the terminal meanwhile anyway. Retry if questions waiting
+  15 min hold sessions up while you're at the terminal with ringback still on.
+- **A call back within the missed call's 90 s as that call itself**, with the Haiku that
+  wrote its opening while it rang. That opening was written for a call the session placed,
+  not one you made, and its session would be told the call was answered rather than
+  called back. The call back replaces it with a fresh Haiku instead, which costs about 2 s
+  more before the voice starts.
 - **Unsigned call-outcome notes.** Claude Code adds a note to the next prompt's message,
   so Haiku took the note for your words and said it had been told nothing (2 of 2
   sessions). Notes now say they're from ringback.
@@ -797,7 +849,19 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         "Okay." at once then (acting on the call).
    4. A better model on the line. Built, and tried offline (see "A better model"), not
       yet on the phone.
-   5. Call back from the app's call history.
+   5. Call back from the app's call history (calling back, in the voice server's session
+      side and the iPhone app). Built, and tried offline, not yet on the phone:
+      - The voice server (`tools/phone-check --back`, three runs, about 2.5–3 min each,
+        unanswered calls forgotten after 8 s): from the offer to the voice's first audio,
+        a median 2.75 s (2.13–3.34 s, 15 call backs).
+      - What a missed call asked (`tools/ask-check`): its permissions stayed pending after
+        the call was forgotten, and the next call you answered asked them.
+      - The mod (32 tests): a question stays held through 10 min of `pending`, and an answer
+        that comes then is the dialog's.
+      - The app builds, but nothing of it is tried: tapping a row, the outgoing CallKit call,
+        its in-call screen, the alert, and what the switchboard logs. Nor is the time from
+        tapping to the voice's first words on the phone, which adds reaching the Mac and
+        connecting over Nebula to the 2.5–3 s above.
 4. **Several sessions + retries.** A second session waits for the first call to end.
    "Not now" retries on schedule while the queue waits. A final decline holds all calls
    until a call back releases them.

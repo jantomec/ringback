@@ -107,8 +107,10 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     /// offer also carries your interruption sensitivity and background filter, and whether the
     /// phone still rings (`ringing` as the offer goes). Returns whether it did. On the main
     /// actor, as `stop` is, so once the link is stopped no offer goes and no answer is applied.
+    /// `back` calls back the call `callID`, which the voice server answers at once; it throws
+    /// `RefusedCall` if the server doesn't know the call.
     @MainActor
-    func start(voiceURL: URL, callID: String) async throws -> Bool {
+    func start(voiceURL: URL, callID: String, back: Bool = false) async throws -> Bool {
         var local = try await gather(nebulaOnly: true)
         guard !stopped else { throw CancellationError() }
         var found = Self.candidates(local)
@@ -129,12 +131,14 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
             "background_filter": Self.backgroundFilter,
         ]
         if ringing { body["ringing"] = true }
+        if back { body["back"] = true }
         var request = URLRequest(url: voiceURL.appending(path: "offer"), timeoutInterval: 15)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
         guard !stopped else { throw CancellationError() }
+        if (response as? HTTPURLResponse)?.statusCode == 403 { throw RefusedCall() }
         guard let answer = try JSONSerialization.jsonObject(with: data) as? [String: Any],
             let sdp = answer["sdp"] as? String
         else { throw URLError(.badServerResponse) }
@@ -261,5 +265,11 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
 
 /// The voice server answered `answered` with 404: it wasn't offered this call.
 private struct UnknownCall: LocalizedError {
+    var errorDescription: String? { "The voice server doesn't know this call" }
+}
+
+/// The voice server refused an offer (403): it didn't place the call, or for a call back, no
+/// longer remembers it. It forgets calls a day after they end, and all of them when it restarts.
+struct RefusedCall: LocalizedError {
     var errorDescription: String? { "The voice server doesn't know this call" }
 }

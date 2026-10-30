@@ -45,6 +45,8 @@ BETTER_MODEL = "better_model"
 # The first turn. A call for a session asks for it while the phone rings, but its reply is
 # spoken only once you've answered, so it says what's true when the reply is heard.
 OPENING = "[The developer has answered the call.]"
+# The first turn of a call back: you called, so the voice picks up.
+PICKED_UP = "[The developer has called you, and you've picked up.]"
 NOTHING_YET = (
     "Nothing passed or answered: the developer hasn't said anything yet, so there's nothing from them "
     "for the session. Just open the call."
@@ -52,10 +54,11 @@ NOTHING_YET = (
 
 
 class Haiku:
-    def __init__(self, instructions: str, log: Callable[[str], None], tools: bool = False):
+    def __init__(self, instructions: str, log: Callable[[str], None], tools: bool = False, opening: str = OPENING):
         self._instructions = instructions
         self._log = log
         self._with_tools = tools  # the session's tools, on a call for a session
+        self._opening = opening  # the first turn, which asks for the opening
         self.id = str(uuid.uuid4())  # of its Claude Code session, which Opus resumes
         self.model = "haiku"  # "opus" once Opus has taken the call over
         self.events: asyncio.Queue[dict | None] = asyncio.Queue()  # what it writes; None once it has ended
@@ -80,7 +83,7 @@ class Haiku:
         # Haiku's tools reach this call over a socket in its private folder.
         self._tools = await asyncio.start_unix_server(self._serve_tool, path=self._socket())
         await self._run("--session-id")
-        self.opening = await self.send(OPENING)
+        self.opening = await self.send(self._opening)
 
     async def hand_over(self) -> None:
         """Puts Opus on the call in Haiku's place, between turns: closes Haiku's process and

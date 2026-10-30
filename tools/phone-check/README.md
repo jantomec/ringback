@@ -85,3 +85,38 @@ session folder was left.
 In an earlier version, a tool call Haiku made in its opening waited for the call's voice.
 Once, the opening stalled 8.7 s on it, and a message nobody had said reached the session.
 Now a tool call in the opening passes nothing and is answered at once (`haiku.py`).
+
+## Call backs (`--back`)
+
+    uv run --project voice tools/phone-check/phone_check.py --back [--unanswered S] [--keep DIR]
+
+Calls back calls you didn't answer, as the app does from its call history: an offer with
+the missed call's ID and `"back": true`, answered at once. The voice server waits `S`
+seconds (8 by default, instead of 90) before it forgets a call you don't answer. A
+stand-in for the session's mod collects the session's messages and call outcomes once a
+second, so the session listens. It runs with `--report`, so it also takes calls rung by
+hand. It checks:
+- a call back for a call the server doesn't know is refused (403), though it takes calls
+  rung by hand;
+- **missed:** a call you don't answer is forgotten, and its session told so. Called back,
+  the voice is heard, its opening is about the missed call, and the session is told "The
+  developer called back about "…" and it lasted …";
+- **moved on:** the session places a later call, which isn't answered either. The first
+  call, called back once already, is called back again, and the opening starts with what
+  the later briefing says changed (the pull request), within its first 30 words;
+- **not listening:** a call for a session no mod collects for. Called back, the voice
+  server says the session isn't listening, and the opening is about that call. Asked
+  "Please ask the session to rebuild the docs once more.", the voice passes nothing on and
+  says it can't;
+- **permission:** a permission with no call places one, which isn't answered. Once that
+  call is forgotten, the permission is still `pending`. Called back, the opening asks it,
+  and "Yes, go ahead." allows it;
+- **inside the window:** a call declined after 1 s and called back at once, while it's
+  still placed. The call back lasts past the missed call's `S` seconds, and the session is
+  told only that you called back, not that the call wasn't answered;
+- no opening introduces the voice or says it's calling (you called);
+- no Haiku is left, and no session folder in `~/.claude/projects`.
+
+It prints the voice's log, the checks, what the voice said first on each call back, and
+the time from each offer to the voice's first audio. It uses your Claude subscription, 10
+Haiku sessions.

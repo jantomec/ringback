@@ -54,7 +54,8 @@ const onCall = (what: string, said?: string | null) =>
 const PERSON_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
 
 // How long a permission or a question waits for your answer from a call before the terminal
-// asks instead.
+// asks instead. If you don't answer the call, it waits on for you to call back from the phone,
+// or for the session's next call.
 const HOLD_MS = 15 * 60_000
 
 let isOn = false
@@ -130,7 +131,9 @@ export const register: Register = on => {
   })
 
   // So is a question the session asks you: your answers come back as the dialog's would, so
-  // the dialog never shows. Without them, it shows in the terminal as usual.
+  // the dialog never shows. Without them, it shows in the terminal as usual: when you hang up
+  // without answering, switch ringback off, or after 15 min. A call you don't answer leaves the
+  // question waiting for a call back, so the dialog shows only after those 15 min.
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
     if (!isOn) return next(e)
     const answer = await hold($, 'questions', await questions($, e.questions), next.signal)
@@ -256,11 +259,12 @@ const projectOf = (cwd: string) => cwd.split('/').filter(Boolean).pop() ?? 'Clau
 type Answer = { verdict?: string; status?: string; answers?: Record<string, string> | null; said?: string | null }
 
 // Puts a permission or a question to you on a call, and waits for your answer: long-polls the
-// voice server until it has one, ringback is switched off, the tool call is abandoned or
-// 15 min pass. Unanswered, it's withdrawn, and it's left to the terminal (undefined). A
-// long-poll is a call on `$`, so its wait doesn't count against the hook's 10 s; a
-// `$.clock.sleep` would, so there's none. Each poll waits 25 s at most, inside the 30 s
-// that one `$.http.fetch` may take.
+// voice server until it has one, you hang up without one (`none`), ringback is switched off,
+// the tool call is abandoned or 15 min pass. A call you don't answer leaves it `pending`, so
+// the wait goes on, for a call back or the session's next call. Unanswered, it's withdrawn,
+// and it's left to the terminal (undefined). A long-poll is a call on `$`, so its wait doesn't
+// count against the hook's 10 s; a `$.clock.sleep` would, so there's none. Each poll waits
+// 25 s at most, inside the 30 s that one `$.http.fetch` may take.
 async function hold(
   $: EngineInterface,
   kind: 'permissions' | 'questions',

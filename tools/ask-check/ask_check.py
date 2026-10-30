@@ -11,10 +11,12 @@ sends them, and a stand-in switchboard takes the calls they place, so nothing ri
   without a tool or questions gets 400;
 - with no call, a permission places one with its subject and is "placed"; a long poll waits
   while it rings; a question then goes to that call; a withdrawn question is gone;
-- the call isn't answered, so after S seconds it's forgotten and the permission's verdict is
-  "none", which ends the long poll before its 25 s;
-- on a call answered with aiortc, a permission is "live": the voice asks it, and your spoken
-  yes (Kokoro) comes back as "allow"; a question is answered with your spoken choice;
+- the call isn't answered, so after S seconds it's forgotten, and both permissions stay
+  "pending": a long poll waits on through it. One is withdrawn and gone;
+- the next call you answer, answered with aiortc, gets the other: the voice asks it, and
+  your spoken yes (Kokoro) comes back as "allow";
+- on that call, a permission is "live": the voice asks it, and your spoken yes comes back as
+  "allow"; a question is answered with your spoken choice;
 - one answered by a tool's POST is final (a second gets 409), one withdrawn is gone, and one
   still waiting when you hang up gets "none";
 - the call's transcript has the requests and the answers.
@@ -190,13 +192,19 @@ async def main() -> int:
         status_after, _ = await api("GET", of("question", qid))
         check("a withdrawn question is gone (200, then 404)", status == 200 and status_after == 404)
 
-        # Nobody answers: once the call is forgotten, the permission has no verdict.
-        status, body, took = await waited("permission", pid, 25)
-        since = time.monotonic() - placed
+        # Nobody answers: once the call is forgotten, both permissions still wait, for the next
+        # call with the session you answer, and a long poll waits on through it.
+        wait = max(1.0, placed + args.unanswered + 5 - time.monotonic())
+        status, body, took = await waited("permission", pid, wait)
+        forgotten = re.search(rf"call {re.escape(rung[0]['call_id'][:8])}: not answered, forgotten", voice_log.read_text())
         _, body2, _ = await waited("permission", pid2, 0)
-        check(f"unanswered: verdict none {since:.1f} s after placing, before the poll's 25 s: {body}, {body2}",
-              status == 200 and body == body2 == {"verdict": "none", "said": None} and took < 24
-              and args.unanswered - 1 <= since <= args.unanswered + 3)  # fmt: skip
+        check(f"unanswered: forgotten, and both still pending, a poll of {wait:.1f} s waiting {took:.1f} s: {body}, {body2}",
+              forgotten is not None and status == 200 and body == body2 == {"verdict": "pending", "said": None}
+              and took >= wait - 0.5)  # fmt: skip
+        status, _ = await api("DELETE", of("permission", pid2))
+        status_after, _ = await api("GET", of("permission", pid2))
+        check("one withdrawn after its call is forgotten is gone (200, then 404)", status == 200 and status_after == 404)
+        pooled = pid
 
         # A call you answer, as a session's briefing places it.
         call = {"session_id": SESSION, "project": "demo", "cwd": str(project), "subject": "Parser fix", "briefing": BRIEFING}
@@ -208,6 +216,16 @@ async def main() -> int:
         await answered(call_id, phone)
         check("the voice opens the call you answered", await spoke_after(phone, 0))
         calls_before = len(rung)
+
+        # The permission still waiting from the call you didn't answer goes to this one, as a
+        # note once the voice has opened; Haiku's second reply asks it.
+        asked = await wait_for(voice_log, rf"call {re.escape(call_id[:8])}: Haiku: first words after", 45, nth=2)
+        await phone.quiet_for(2.5, limit=45)
+        phone.mic.say(yes)
+        body = await answer("permission", pooled, 45)
+        check(f'the permission from the call you didn\'t answer is asked on this one, and "{YES}" allows it: {body}',
+              asked is not None and body.get("verdict") == "allow")  # fmt: skip
+        await phone.quiet_for(2.5, limit=30)
 
         t = time.monotonic()
         status, body = await api("POST", of("permission"), PERMISSION)
@@ -258,8 +276,9 @@ async def main() -> int:
 
         transcripts = sorted(project.glob(".ringback/calls/*.md"))
         text = transcripts[-1].read_text() if transcripts else ""
-        check("the transcript has the permission and its answer",
-              f"Permission {pid}:" in text and f"**Answered the session:** permission {pid}: allow" in text)  # fmt: skip
+        check("the transcript has both permissions and their answers",
+              all(f"Permission {p}:" in text and f"**Answered the session:** permission {p}: allow" in text
+                  for p in (pooled, pid)))  # fmt: skip
         check("the transcript has the question and its answer",
               f"Question {qid}," in text and f"**Answered the session:** question {qid}:" in text)  # fmt: skip
         if text:

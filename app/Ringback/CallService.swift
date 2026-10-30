@@ -4,6 +4,7 @@ import Foundation
 import UIKit
 
 /// Rings through CallKit for each call the switchboard places, and reports back what happened.
+/// Calls you didn't answer can be called back from the call history, as outgoing calls.
 final class CallService: NSObject, CXProviderDelegate {
     /// How long the phone rings before the call counts as missed.
     static let ringTimeout: TimeInterval = 30
@@ -33,6 +34,12 @@ final class CallService: NSObject, CXProviderDelegate {
     private var connecting: [UUID: Task<(at: Date, tries: Int)?, Never>] = [:]
     /// How each call's audio fared while the phone rang, for when you answer.
     private var ringingAudio: [UUID: RingingAudio] = [:]
+    /// Each call back's record, from tapping it until CallKit starts it.
+    private var startingCallBacks: [UUID: CallRecord] = [:]
+    /// The call each live call back calls back, by its ID.
+    private var callingBack: [UUID: String] = [:]
+    /// Calls whose audio connected, so a call back that never did ends as not connected.
+    private var connected: Set<UUID> = []
     private var heartbeatTimer: Timer?
 
     private struct RingingAudio {
@@ -67,9 +74,10 @@ final class CallService: NSObject, CXProviderDelegate {
         let subject = payload["subject"] as? String
         let onAnotherCall = observer.calls.contains { !$0.hasEnded }
         let uuid = UUID()
+        let voiceURL = (payload["voice"] as? String).flatMap { URL(string: $0) }
         let record = CallRecord(
             id: callID, project: project, subject: subject, ringAt: .now, outcome: .ringing,
-            onAnotherCall: onAnotherCall)
+            onAnotherCall: onAnotherCall, voice: voiceURL)
 
         // The lock screen shows who's calling, so the voice doesn't have to say it.
         let update = CXCallUpdate()
@@ -82,7 +90,7 @@ final class CallService: NSObject, CXProviderDelegate {
         update.supportsDTMF = false
 
         callIDs[uuid] = callID
-        if let voice = (payload["voice"] as? String).flatMap({ URL(string: $0) }) {
+        if let voice = voiceURL {
             voiceURLs[uuid] = voice
             // Brings the Nebula tunnel to the Mac up while the phone rings, then connects the
             // call's audio, so the voice can start as soon as you answer.
@@ -115,14 +123,44 @@ final class CallService: NSObject, CXProviderDelegate {
         }
     }
 
+    /// Calls back a call you didn't answer, straight away, as an outgoing call without ringing:
+    /// its audio goes to the voice server that placed it, with that call's ID, and the voice
+    /// picks up. It's a new record of its own, which keeps the ID of the call it calls back.
+    func callBack(_ call: CallRecord) {
+        guard let voice = call.voice, state.activeCall == nil, startingCallBacks.isEmpty else { return }
+        let uuid = UUID()
+        let record = CallRecord(
+            id: UUID().uuidString.lowercased(), project: call.project, subject: call.subject, ringAt: .now,
+            outcome: .onCall, voice: voice, callsBack: call.callsBack ?? call.id)
+        startingCallBacks[uuid] = record
+        let start = CXStartCallAction(call: uuid, handle: CXHandle(type: .generic, value: record.callerName))
+        controller.request(CXTransaction(action: start)) { [self] error in
+            guard let error else { return }
+            DispatchQueue.main.async { [self] in
+                startingCallBacks[uuid] = nil
+                state.callBackProblem = "Can't call back: \(error.localizedDescription)"
+            }
+        }
+    }
+
     // MARK: The in-call screen's buttons, through CallKit so iOS and AirPods stay in step
 
     func endActiveCall() {
         guard let uuid = state.activeCall?.uuid else { return }
+        end(uuid)
+    }
+
+    private func end(_ uuid: UUID) {
         controller.request(CXTransaction(action: CXEndCallAction(call: uuid))) { [self] error in
             // If CallKit no longer knows the call, end our side anyway.
-            if error != nil { DispatchQueue.main.async { [self] in finish(uuid, .answered, event: "ended") } }
+            if error != nil { DispatchQueue.main.async { [self] in finish(uuid, endedOutcome(uuid), event: "ended") } }
         }
+    }
+
+    /// How a call you were on ended: answered, or for a call back whose audio never
+    /// connected, failed.
+    private func endedOutcome(_ uuid: UUID) -> CallRecord.Outcome {
+        callingBack[uuid] != nil && !connected.contains(uuid) ? .failed : .answered
     }
 
     func setMuted(_ muted: Bool) {
@@ -143,6 +181,8 @@ final class CallService: NSObject, CXProviderDelegate {
         connecting.removeValue(forKey: uuid)?.cancel()
         ringingAudio[uuid] = nil
         voiceURLs[uuid] = nil
+        callingBack[uuid] = nil
+        connected.remove(uuid)
         if state.activeCall?.uuid == uuid { endHeartbeat() }
         guard let callID = callIDs.removeValue(forKey: uuid) else { return }
         var extra = extra
@@ -251,6 +291,36 @@ final class CallService: NSObject, CXProviderDelegate {
         }
     }
 
+    /// A call back's audio: reaches the voice server, then offers with the ID of the call it
+    /// calls back. If the voice server no longer knows that call, the call ends and the app
+    /// says why.
+    private func callBackAudio(_ uuid: UUID, _ callID: String, _ original: String, _ voiceURL: URL) {
+        let deadline = Date.now + Self.reachTimeout
+        connecting[uuid] = Task { @MainActor [self] in
+            let task = UIApplication.shared.beginBackgroundTask(withName: "call back")
+            defer { UIApplication.shared.endBackgroundTask(task) }
+            let reached = await AudioLink.reach(voiceURL, until: deadline)
+            guard callIDs[uuid] != nil else { return reached }
+            guard let reached else {
+                audioFailed(uuid, callID, ReachError().localizedDescription, note: offerNote(uuid))
+                return nil
+            }
+            reportReached(callID, reached)
+            let link = makeLink(uuid, callID)
+            do {
+                _ = try await link.start(voiceURL: voiceURL, callID: original, back: true)
+            } catch is RefusedCall {
+                guard links[uuid] === link else { return reached }
+                audioFailed(uuid, callID, RefusedCall().localizedDescription, note: offerNote(uuid))
+                state.callBackProblem = "Claude can't take this call back any more."
+                end(uuid)
+            } catch {
+                if links[uuid] === link { audioFailed(uuid, callID, error.localizedDescription, note: offerNote(uuid)) }
+            }
+            return reached
+        }
+    }
+
     /// A new link for the call, which tells the in-call screen and the switchboard when its
     /// audio connects or fails. While the phone rings, a failure only drops it.
     private func makeLink(_ uuid: UUID, _ callID: String) -> AudioLink {
@@ -297,17 +367,22 @@ final class CallService: NSObject, CXProviderDelegate {
         let answered = call.answeredAt.map {
             String(format: "%.1f s after answering", max(0, reached.at.timeIntervalSince($0)))
         }
-        let note = String(format: "%.1f s after ringing, ", reached.at.timeIntervalSince(call.ringAt))
-            + (answered ?? "before answering") + ", \(reached.tries) tries"
+        let note = call.callsBack != nil
+            ? String(format: "%.1f s after calling back, \(reached.tries) tries", reached.at.timeIntervalSince(call.ringAt))
+            : String(format: "%.1f s after ringing, ", reached.at.timeIntervalSince(call.ringAt))
+                + (answered ?? "before answering") + ", \(reached.tries) tries"
         Switchboard.report(callID: callID, event: "voice reached", extra: ["note": note])
     }
 
     /// The call's audio connected. `since_answer_s` is how long after you answered it could
-    /// flow: 0 if it was ready when you did.
+    /// flow: 0 if it was ready when you did. A call back connects as an outgoing call does.
     private func audioConnected(_ uuid: UUID, _ callID: String, at: Date) {
+        connected.insert(uuid)
         if state.activeCall?.uuid == uuid { state.activeCall?.audio = .connected }
+        if callingBack[uuid] != nil { provider.reportOutgoingCall(with: uuid, connectedAt: at) }
         guard let call = state.calls.first(where: { $0.id == callID }), let answeredAt = call.answeredAt else { return }
-        var note = offerNote(uuid) + String(format: ", connected %.1f s after ringing", at.timeIntervalSince(call.ringAt))
+        let start = call.callsBack != nil ? "calling back" : "ringing"
+        var note = offerNote(uuid) + String(format: ", connected %.1f s after \(start)", at.timeIntervalSince(call.ringAt))
         if let link = links[uuid] { note += ", addresses: \(link.addresses)" }
         if at < answeredAt { note += String(format: ", %.1f s before answering", answeredAt.timeIntervalSince(at)) }
         Switchboard.report(
@@ -324,6 +399,7 @@ final class CallService: NSObject, CXProviderDelegate {
 
     /// When the call's offer went, for the switchboard's log.
     private func offerNote(_ uuid: UUID) -> String {
+        if let original = callingBack[uuid] { return "a call back of \(original.prefix(8))" }
         guard let ringing = ringingAudio[uuid] else { return "offered after answering" }
         if let failure = ringing.failure { return "offered after answering, as connecting while ringing failed (\(failure))" }
         return ringing.offered ? "offered while ringing" : "offered after answering"
@@ -332,6 +408,7 @@ final class CallService: NSObject, CXProviderDelegate {
     // MARK: CXProviderDelegate
 
     func providerDidReset(_ provider: CXProvider) {
+        startingCallBacks.removeAll()
         for uuid in callIDs.keys { finish(uuid, .failed, event: "failed", extra: ["error": "CallKit reset"]) }
     }
 
@@ -358,10 +435,44 @@ final class CallService: NSObject, CXProviderDelegate {
         action.fulfill()
     }
 
+    /// A call back you tapped in the call history: it's on at once, connecting, and the voice
+    /// picks up once its audio connects. It's reported to the switchboard under its own ID.
+    func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
+        let uuid = action.callUUID
+        guard var record = startingCallBacks.removeValue(forKey: uuid), let voiceURL = record.voice,
+            let original = record.callsBack
+        else { return action.fail() }
+        AudioLink.prepareAudioSession()
+        record.answeredAt = .now
+        state.add(record)
+        callIDs[uuid] = record.id
+        voiceURLs[uuid] = voiceURL
+        callingBack[uuid] = original
+        state.activeCall = ActiveCall(
+            uuid: uuid, id: record.id, callerName: record.callerName, subject: record.subject,
+            answeredAt: record.answeredAt ?? .now, audio: .connecting)
+        startHeartbeat(record.id)
+        Switchboard.report(callID: record.id, event: "called back", extra: ["note": "calls back \(original.prefix(8))"])
+        action.fulfill()
+        provider.reportOutgoingCall(with: uuid, startedConnectingAt: .now)
+        // The same caller name as the calls that ring.
+        let update = CXCallUpdate()
+        update.remoteHandle = action.handle
+        update.localizedCallerName = record.callerName
+        update.hasVideo = false
+        update.supportsHolding = false
+        update.supportsGrouping = false
+        update.supportsUngrouping = false
+        update.supportsDTMF = false
+        provider.reportCall(with: uuid, updated: update)
+        callBackAudio(uuid, record.id, original, voiceURL)
+    }
+
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
         if let callID = callIDs[action.callUUID] {
             let answered = state.calls.first(where: { $0.id == callID })?.answeredAt != nil
-            finish(action.callUUID, answered ? .answered : .declined, event: answered ? "ended" : "declined")
+            let outcome = answered ? endedOutcome(action.callUUID) : .declined
+            finish(action.callUUID, outcome, event: answered ? "ended" : "declined")
         }
         action.fulfill()
     }
