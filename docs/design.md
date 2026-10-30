@@ -1306,7 +1306,9 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         question and from long polls reached the switchboard at once; then the question's
         and the permission's waiting long polls got `terminal` 0.01 s after the request,
         the call was never asked about again, an offer for it and a second try got 403,
-        its session was told, and the Mac could sleep again.
+        its session was told, and the Mac could sleep again. With the state file keeping
+        which sessions have Remote Control on, `tools/restart-check` still passed all 19
+        checks (one run, 2 min 13 s); it doesn't check that state itself.
       - The switchboard (`switchboard/smoke-test.sh`, 17 new checks, 92 in all): a held call
         with a question tells the phone with a notification token once (logged, without an
         APNs key), and not one without a token; asked again, and after a restart, it isn't
