@@ -3,14 +3,9 @@ import UIKit
 
 /// Sends a waiting call's question to the Claude app instead of the call. The calling Mac's
 /// voice server releases the question to the session's own dialog, which Remote Control shows
-/// in the Claude app, and forgets the call, so it never rings. It goes over Nebula, as a
-/// call's audio does, with the call's ID.
+/// in the Claude app (ringback turns it on in the session), and forgets the call, so it never
+/// rings. It goes over Nebula, as a call's audio does, with the call's ID.
 enum ClaudeApp {
-    /// While its session last said Remote Control is off, the action only says why it can't.
-    static let remoteControlOff = """
-        Ringback last heard that Remote Control is off in this session, so the Claude app \
-        can't show its question. The call rings when your work hours start.
-        """
     private static let unreachable = "Can't reach the Mac that's calling over Nebula. Check that Nebula is on."
     /// Why the voice server didn't take it, as it says.
     private static let refusals = [

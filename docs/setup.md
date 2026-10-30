@@ -73,11 +73,13 @@ The app has two tabs, as the Phone app has. **Recents** lists every call: tap on
 its session at once, answered or not, and its ⓘ for its details. A call from an app older
 than calling back calls its session from Contacts, if it's there. Calls that wait for your
 work hours show at the top in orange, with when they ring; tap one to call it now, without
-waiting. **Contacts** lists your sessions with ringback on, on every Mac, by project: tap one
-to call it, and the voice picks up with what's new since the session last reported. One whose session asks you a question says so, and the phone gets one notification
+waiting. One whose session asks you a question says so, and the phone gets one notification
 for it. Swipe it left for **Claude App** to send the question to the session's own dialog
-instead, which Remote Control shows in the Claude app; the call then never rings. It's grey,
-and only says why, while the session has Remote Control off.
+instead, which Remote Control shows in the Claude app (ringback turns Remote Control on in
+the session); the call then never rings.
+
+**Contacts** lists your sessions with ringback on, on every Mac, by project: tap one to call
+it, and the voice picks up with what's new since the session last reported.
 
 ## 3. The switchboard (one always-on Mac)
 
@@ -250,8 +252,9 @@ answer the call, both wait for you to call it back from the app, or for the sess
 call, for up to 15 min: a question then shows in the terminal only after those 15 min, or
 once you run `/ringback` to switch calling off. Outside your work hours they wait for the
 call, which rings when your hours start, and the 15 min count from then; a question can go
-to the Claude app from the phone instead, while Remote Control is on in the session. The
-dim line under the prompt ends with "· Remote Control" while ringback sees it on.
+to the Claude app from the phone instead. `/ringback` turns on Remote Control for that
+(`/remote-control`); if it's on already, Claude Code shows its Remote Control menu, and Enter
+or Esc leaves it on. Remote Control needs a claude.ai subscription.
 
 `tools/session-check` tries a session's call without the phone.
 

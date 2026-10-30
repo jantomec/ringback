@@ -24,8 +24,8 @@ and on mobile data.
 4. **Understanding you.** Recognition copes with non-native accents. When a reply is
    unclear, the call asks instead of guessing, and a permission is only granted on a
    clear yes.
-5. **Only while you're away.** You switch calling on in a session with `/ringback`, as
-   `/rc` switches on Remote Control, and off again when you're back. While it's on, the
+5. **Only while you're away.** You switch calling on in a session with `/ringback`, which
+   switches on Remote Control too, and off again when you're back. While it's on, the
    session shows it under the prompt.
 6. **A better model on request.** If Haiku can't keep up, you ask for a better model on
    the line, and the call carries on with Opus, with everything said so far.
@@ -52,10 +52,14 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
    https://code.claude.com/docs/en/plugins/mods/overview.md. It does nothing until you
    switch it on:
    - `/ringback` switches calling on or off for its session, at once and without a
-     Claude turn. While it's on, the dim line under the prompt ends with "☎ ringback on",
-     where Remote Control shows too (a placeholder until ringback has an icon), and then
-     "· Remote Control" while ringback sees Remote Control on in the session (Stage 3,
-     step 7).
+     Claude turn. While it's on, the dim line under the prompt ends with "☎ ringback on"
+     (a placeholder until ringback has an icon). Switching it on also runs
+     `/remote-control`, so a question held outside your work hours can go to the Claude app
+     (Stage 3, step 7). If Remote Control is on already, Claude Code shows its menu instead,
+     with Continue chosen: Enter or Esc leaves it on (tried 2026-10-30). A session resumed
+     with ringback on runs it too; a reload of the mod doesn't. Run from `/ringback`'s own
+     hook, Claude Code refuses it ("it would wait on the turn this hook is holding"), so
+     it's run from a timer just after.
      **Remembered** (Stage 4; built, not yet tried on the phone): it stays on through a
      reload of the mod, and when you resume the session after Claude Code restarts
      (`claude --resume`), until you switch it off. Through a reload it's kept in `$.state`;
@@ -123,21 +127,12 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        forgotten and never rings. Permissions are unchanged: their terminal prompt shows
        anyway, and with Remote Control in the Claude app too; sent with a question to the
        Claude app, they're left to that prompt.
-     - **Remote Control.** The app offers that only while Remote Control is on in the
-       session, and no mod API says whether it is. Claude Code's docs say that from 2.1.199
-       `CLAUDE_CODE_BRIDGE_SESSION_ID` is set in the Bash tool's and hooks' commands while
-       the session has an active Remote Control connection, but a mod doesn't get it: in a
-       session started from an ordinary terminal, its `$.env` and the commands it runs saw
-       none of the variables the docs describe that way, such as `CLAUDE_EFFORT`, which the
-       Bash tool had (`tools/env-check`, 2026-10-30, Claude Code 2.1.314). Claude Code keeps
-       a file for each running session, `~/.claude/sessions/<process>.json`, and while
-       Remote Control was on, this Mac's session that had it was the only one whose file had
-       a `bridgeSessionId` (2026-10-30). The mod reads the file whose `sessionId` is its
-       session's, and takes a `bridgeSessionId` as Remote Control on. The file isn't
-       documented: a Claude Code update can change it, and then the mod says off. Not yet
-       seen: that the field goes when Remote Control ends, and that the mod's session ID is
-       the file's. It looks with each ask and each long poll, and every 10 s while ringback
-       is on, for the line under the prompt; the debug log says when it changed.
+     - **Remote Control.** Ringback turns it on when it's switched on (the ringback mod),
+       and everything else takes it as on: no mod API says whether it is, and the variable
+       Claude Code gives the Bash tool and hooks while it is (`CLAUDE_CODE_BRIDGE_SESSION_ID`)
+       doesn't reach a mod (`tools/env-check`, 2026-10-30, Claude Code 2.1.314). If it's off
+       after all (switched off since, or no claude.ai subscription), a question sent to the
+       Claude app still waits in the terminal's dialog.
 2. **Voice server's session side** (`voice/ringback_voice/sessions.py`). The voice server
    also listens on a Unix socket that only you can open
    (`~/.local/state/ringback/voice.sock`), for the mods of the sessions on its Mac:
@@ -170,12 +165,9 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        notes, since the new one doesn't mention it;
      - what the session asks goes to the held call (`"call": "held"`, with `held_until`),
        and the mod's long polls answer `"held": true`. A question that joins it has the
-       switchboard asked again at once, so the phone is told of it (Stage 3 step 7), and
-       so does a change in Remote Control, so the app soon knows;
+       switchboard asked again at once, so the phone is told of it (Stage 3 step 7);
      - each time the switchboard is asked about a call, it hears whether the call has a
-       question and whether Remote Control is on in its session, as its mod last said: with
-       each ask, and each long poll (`remote_control`). That can be up to 25 s old, or as
-       old as the mod's last ask; good enough for a rough version;
+       question;
      - from the app's waiting calls, you can send a held call's question to the Claude app
        (`POST /claude-app` with the call's ID, over Nebula as an offer is; Stage 3 step 7).
        Everything the call asks is settled as `terminal`, so the mod lets the session's
@@ -184,7 +176,7 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        session is told "The call about "…" won't ring: the developer chose on the phone to
        answer its question in the Claude app instead, with Remote Control." A call that
        doesn't wait here gets 403; one whose session isn't listening, or that has no
-       question, 409. It doesn't check Remote Control: the app does;
+       question, 409;
      - an offer for it is refused, as for an unknown call: the phone knows its ID only
        from the switchboard's waiting calls (Stage 5; built, not yet tried on the phone).
        An offer for it with `"now": true` calls it at once, without ringing, as a call back
@@ -306,9 +298,8 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      rings, is called from the app (the phone's event "called now"), or whose question the
      app sent to the Claude app ("claude app"), leaves the list. A new briefing for a held
      call reaches the list with the voice server's next asking, so its subject can be up to
-     10 min old. Each listed call also says whether it has a question (`question`) and
-     whether Remote Control is on in its session (`remote_control`), as its voice server
-     last said; a voice server from before says neither, which lists as false;
+     10 min old. Each listed call also says whether it has a question (`question`), as its
+     voice server last said; a voice server from before doesn't, which lists as false;
    - **a held call's question** (Stage 3 step 7; built, not yet tried on the phone): the
      first time a held call has a question, the switchboard sends each phone that gave a
      notification token one ordinary notification (an APNs alert push: `apns-push-type:
@@ -735,18 +726,18 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      red, and tapping it calls it back (`back`), which the voice server refuses while it
      still holds the call.
      - **With a question** (Stage 3 step 7; built, not yet tried on the phone), a waiting
-       call says "Waiting with a question · rings at 08:00", and has a trailing swipe action,
-       "Claude App" (SF Symbol `arrow.up.forward.app`, no full swipe), as Mail's and
-       Messages' rows have theirs. While its session last said Remote Control is on, it's
-       indigo, and a tap sends the question to the Claude app: the app reaches the voice
+       call says "Question · rings at 08:00 · …", and has a trailing swipe action, "Claude
+       App" (SF Symbol `arrow.up.forward.app`, no full swipe), as Mail's and Messages' rows
+       have theirs, in indigo; its details have a "Claude App" button too. A tap sends the question to the Claude app,
+       where Remote Control (on with ringback) shows it: the app reaches the voice
        server (`/ping`, as a call does, for up to 20 s), then posts `/claude-app` with the
        call's ID. Taken, the call leaves the list and the app reports "claude app" to the
        switchboard; refused, an alert says why ("This call isn't waiting any more.", "The
        session isn't listening any more…", or that the Mac can't be reached), and the list
-       is fetched again. While Remote Control is off, the action is grey and its tap only
-       explains, in an alert. Not `.disabled`: on a swipe action it blocks the tap but
-       doesn't grey the action out, which looks ready and does nothing (`tools/swipe-check`,
-       iOS 26.5 and 27.1 simulators). Waiting calls without a question have no swipe action.
+       is fetched again. Waiting calls without a question have no swipe action. (Until
+       ringback turned Remote Control on itself, the action was grey while the session said
+       it was off. Not `.disabled`: on a swipe action that blocks the tap but doesn't grey
+       it out, `tools/swipe-check`, iOS 26.5 and 27.1 simulators.)
        While the app is open, iOS shows no banner for the switchboard's notification (the
        app has no notification delegate); the list is fetched when you open the app.
    - **Held calls** (Stage 7). While all calls are held after a final decline, the app
@@ -1060,10 +1051,10 @@ Each entry says why it lost and what would make it worth retrying.
 - Where Claude Code's built-in guard mod loads (managed settings, or a Team or Enterprise
   login), an installed mod's classic-event hooks don't run, so permissions wouldn't reach
   the phone; the terminal prompt still works.
-- Whether Remote Control is on reaches the app only as the mod sees it, from Claude Code's
-  undocumented file for the session (Stage 3 step 7): if an update changes it, the "Claude
-  App" action stays grey. The state is as last said, up to 25 s old at
-  the voice server, and as old as the app's last fetch of the list.
+- The app takes Remote Control as on in every session with ringback on, because ringback
+  turns it on (Stage 3 step 7). Switched off since, or without a claude.ai subscription, the
+  "Claude App" action still sends the question to the terminal's dialog, but the Claude app
+  doesn't show it.
 - The held call's question notification is an APNs alert push the switchboard hasn't sent
   before; only the phone shows whether APNs takes its headers and how iOS shows it.
 - Calls are protected only by Nebula and the call's secret: any device with a
@@ -1399,49 +1390,42 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
       voice asks it. The first time a held call has a question, the switchboard sends the
       phone one notification, and the app lists the call as waiting with a question. Its
       swipe action, "Claude App", sends the question to the session's own dialog instead,
-      which Remote Control shows in the Claude app, and the held call is forgotten; the app
-      offers it only while the session last said Remote Control is on. See "The session's
+      which Remote Control shows in the Claude app (ringback turns it on), and the held call
+      is forgotten. See "The session's
       questions", the voice server's held calls, the switchboard's "a held call's question"
       and the app's waiting calls. Built, and tried offline, not yet on the phone:
-      - The mod (54 tests: 4 new, and the old step 7 test rewritten; all 5 fail on the mod
-        before the change): a question on a held call waits past the 15 min, and the call's
+      - The mod (54 tests): a question on a held call waits past the 15 min, and the call's
         answer when it rings is the dialog's; a `terminal` answer shows the dialog at once,
         with "You sent it to the Claude app from the phone, so it's asked here.", and leaves
-        a permission to its prompt; the ask and each long poll say whether Remote Control
-        is on, as Claude Code's file for the session says, and switching on and off; the line
-        under the prompt shows "· Remote Control" within 10 s, and isn't looked at while
-        ringback is off. Against stand-ins: what the session files really hold was seen only
-        on this Mac.
+        a permission to its prompt; switching ringback on runs `/remote-control` (again each
+        time it's switched on, and for a resumed session, not for a reload), and ringback is
+        on all the same if that fails.
       - The voice server (`tools/ask-check`, two runs, 61 checks each, 11 of them new, all
         passed, 3 min 58 s and 3 min 15 s with the models loading): a question that joins a
         held call has the switchboard asked again 0.00 s later, with `"question": true`, and
         waits for the call; answered when it rang, the voice took the permission first ("You
         have two things to decide, and I'll take them one at a time."), and hung up, both
         were `none`. To the Claude app: refused for a call that doesn't wait (403), a
-        session not listening and a call without a question (409); Remote Control from a
-        question and from long polls reached the switchboard at once; then the question's
+        session not listening and a call without a question (409); then the question's
         and the permission's waiting long polls got `terminal` 0.01 s after the request,
         the call was never asked about again, an offer for it and a second try got 403,
-        its session was told, and the Mac could sleep again. With the state file keeping
-        which sessions have Remote Control on, `tools/restart-check` still passed all 19
-        checks (one run, 2 min 13 s); it doesn't check that state itself.
+        its session was told, and the Mac could sleep again. `tools/restart-check` still
+        passed all 19 checks (one run, 2 min 13 s).
       - The switchboard (`switchboard/smoke-test.sh`, 17 new checks, 92 in all): a held call
         with a question tells the phone with a notification token once (logged, without an
         APNs key), and not one without a token; asked again, and after a restart, it isn't
         told again; `waiting.json` keeps `notified`; a held call without a question isn't
-        told until a question joins it; the list says whether each has a question and
-        Remote Control on, as last said; the "claude app" event takes a call off the list.
-      - The app builds with no Swift warnings. `.disabled` on a swipe action blocks the tap
-        but doesn't grey it out (`tools/swipe-check`), so the app greys it and explains. The
-        list, the swipe action, its alerts and the notification are untried: they need the
-        phone. The alert push's headers are as Apple documents them; APNs hasn't been seen
+        told until a question joins it; the list says whether each has a question; the
+        "claude app" event takes a call off the list.
+      - The app builds with no Swift warnings. The list, the swipe action, its alerts and the
+        notification are untried: they need the phone. The alert push's headers are as Apple documents them; APNs hasn't been seen
         to take one.
-      - Remote Control: a mod sees none of the variables Claude Code gives the Bash tool and
-        hooks (`tools/env-check`), so the mod reads Claude Code's file for the session
-        instead (above). The phone test settles it: with `/rc` on, the line under the prompt
-        should end "· Remote Control" within 10 s, and lose it when Remote Control ends.
-      - Left for the phone: the notification (shown, its sound, Focus), the listing and the
-        swipe action, Remote Control detection, the question reaching the Claude app and
+      - First tried as the mod telling whether Remote Control is on and the app greying the
+        action while it's off. A mod doesn't get the documented variable (`tools/env-check`),
+        so it read Claude Code's undocumented file for the session instead; you chose to have
+        ringback turn Remote Control on and assume it, rather than rely on that.
+      - Left for the phone: `/ringback` turning Remote Control on, the notification (shown,
+        its sound, Focus), the listing and the swipe action, the question reaching the Claude app and
         being answered there, the call never ringing after, and a held question answered on
         the morning call.
    8. On the phone, in one sitting (done 2026-10-30, three calls and a call back, results

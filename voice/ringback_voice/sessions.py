@@ -21,10 +21,9 @@ and says when the hours start. The call is kept here meanwhile, without Haiku, a
 switchboard is asked again then, or within REASK s, so hours you widen apply soon. A new
 briefing from its session replaces the held call's, and what the session asks goes to it, a
 question too: it waits for the call, and the switchboard is asked again at once, so the phone
-gets a notification. The switchboard also hears whether Remote Control is on in the session,
-as its mod last said. From the app's waiting calls, you can send a held call's question to
-the session's own dialog instead, which Remote Control shows in the Claude app: the call is
-then forgotten.
+gets a notification. From the app's waiting calls, you can send a held call's question to
+the session's own dialog instead, which Remote Control (turned on with ringback) shows in the
+Claude app: the call is then forgotten.
 
 When the session needs your permission, or asks you questions, its mod holds the tool call
 and asks here (an Ask). The call you're on with that session gets it as a note; otherwise a
@@ -352,8 +351,7 @@ class Call:
     # offset), until it rings.
     held_until: str | None = None
     holding: asyncio.Task | None = field(default=None, repr=False)  # asks the switchboard again
-    # Set while held, to ask the switchboard again at once: a question joined the call, or
-    # Remote Control changed in its session.
+    # Set while held, to ask the switchboard again at once: a question joined the call.
     reask: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     # When it was placed, or its briefing replaced while it was held, by the clock (time.time()),
     # for how long ago.
@@ -396,8 +394,6 @@ class Calls:
         # says them when it collects: the phone's Contacts.
         self._since: dict[str, float] = {}
         self._named: dict[str, tuple[str, str]] = {}
-        # The sessions whose mod last said Remote Control is on in them.
-        self._remote: set[str] = set()
         self._keeping: set[asyncio.Task] = set()  # each waits for an answer, then forgets it
         self._asking = asyncio.Lock()
         self._awake: asyncio.subprocess.Process | None = None
@@ -446,14 +442,12 @@ class Calls:
         """Asks the switchboard to ring the phone for a call: None if it rings, or when it
         can ring if it holds the call outside your work hours. Raises RuntimeError if it can't
         be reached or refuses. It hears whether the call has a question, so it can tell the
-        phone of a held one, and whether Remote Control is on in its session, as last said, so
-        the app knows whether the question can go to the Claude app; a switchboard from before
-        ignores both. It hears the session's ID too, which the push takes to the phone, so the
-        app can call the session from Contacts once the voice server has forgotten the call."""
+        phone of a held one; a switchboard from before ignores that. It hears the session's ID
+        too, which the push takes to the phone, so the app can call the session from Contacts once
+        the voice server has forgotten the call."""
         body = {
             "project": call.project, "subject": call.subject, "voice": f"http://{self._voice}", "call_id": call.id,
-            "question": bool(call.link and call.link.has_question), "remote_control": call.session in self._remote,
-            "session_id": call.session,
+            "question": bool(call.link and call.link.has_question), "session_id": call.session,
         }  # fmt: skip
         try:
             async with ClientSession(timeout=ClientTimeout(total=10)) as http:
@@ -719,22 +713,6 @@ class Calls:
         on in it, and it hasn't ended."""
         return time.monotonic() - self._seen.get(session, float("-inf")) < LISTENING
 
-    def remote_control(self, session: str, on: bool) -> None:
-        """What a session's mod says about Remote Control in it, with what it asks. When that
-        changes, a held call of the session asks the switchboard again at once, so the app soon
-        knows whether its question can go to the Claude app."""
-        if (session in self._remote) == on:
-            return
-        if on:
-            self._remote.add(session)
-        else:
-            self._remote.discard(session)
-        self._log(f"session {session[:8]}: Remote Control {'on' if on else 'off'}")
-        for call in self._calls.values():
-            if call.session == session and call.held_until:
-                call.reask.set()
-        self._save()
-
     async def _pick_up(self, call: Call) -> None:
         """A call you made, answered at once: Haiku writes the opening of a call you made, and
         it's forgotten if its audio doesn't come within UNANSWERED s."""
@@ -972,7 +950,6 @@ class Calls:
             "pool": {session: [ref(a) for a in pool.values()] for session, pool in self._pool.items() if pool},
             "kept": [ref(a) for a in self._asks.values()],
             "waiting": {session: messages for session, messages in self._waiting.items() if messages},
-            "remote_control": sorted(self._remote),
             "asks": [
                 {"id": a.id, "kind": a.kind, "session": a.session, "request": a.request, "outcome": a.outcome,
                  "said": a.said, "answers": a.answers}
@@ -1001,7 +978,6 @@ class Calls:
             pool = {session: {asks[i].id: asks[i] for i in refs} for session, refs in data["pool"].items()}
             kept = {asks[i].id: asks[i] for i in data["kept"]}
             waiting = {session: list(messages) for session, messages in data["waiting"].items()}
-            remote = {str(session) for session in data.get("remote_control", [])}  # not in older files
         except FileNotFoundError:
             return
         except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError) as e:
@@ -1009,7 +985,7 @@ class Calls:
             self._log(f"can't read {self._state} ({type(e).__name__}: {e}); set aside as {aside.name}, starting afresh")
             self._state.replace(aside)
             return
-        self._past, self._pool, self._asks, self._waiting, self._remote = past, pool, kept, waiting, remote
+        self._past, self._pool, self._asks, self._waiting = past, pool, kept, waiting
         for call in calls:
             if call.held_until:
                 self._calls[call.id] = call
@@ -1177,15 +1153,14 @@ def session_side(calls: Calls) -> web.Application:
       `POST /sessions/{id}/questions` asks you questions, each with their options. Either is
       put to the call you're on with the session (`"call": "live"`) or to one placed to ask
       it (`"placed"`), or held outside your work hours (`"held"`, with `held_until`), and
-      answered with its id; 502 if no call can be placed. `remote_control` (true or false)
-      says whether Remote Control is on in the session;
+      answered with its id; 502 if no call can be placed;
     - `GET .../{ask}?wait=S` waits up to S seconds (at most 25) for the answer: a permission's
       `verdict` (allow, deny, none, terminal or pending), or the questions' `status`
       (answered, none, terminal or pending) and `answers`, with your `said`, and
       `"held": true` while its call is held. None: you hung up without answering it.
       Terminal: you sent the held call's question to the Claude app, so the session asks in
       its own dialog. A call you didn't answer leaves it pending, for the next call with the
-      session you answer. `&remote_control=1` (or 0) says again whether Remote Control is on;
+      session you answer;
     - `POST .../{ask}` records an answer, as the voice does (for tools);
     - `DELETE .../{ask}` withdraws it: the session no longer waits for an answer.
     """
@@ -1238,9 +1213,6 @@ def session_side(calls: Calls) -> web.Application:
             except ValueError:
                 needs = "tool" if kind == "permission" else "questions, each with a question and options with labels"
                 return web.json_response({"error": f"needs {needs}"}, status=400)
-            if isinstance(body.get("remote_control"), bool):
-                # Before the switchboard hears of the call, so it hears this too.
-                calls.remote_control(request.match_info["id"], body["remote_control"])
             try:
                 asked, how, held_until = await calls.ask(request.match_info["id"], kind, checked)
             except RuntimeError as e:
@@ -1260,8 +1232,6 @@ def session_side(calls: Calls) -> web.Application:
 
         async def wait(request: web.Request) -> web.Response:
             a = asked(request)
-            if (on := request.query.get("remote_control")) in ("0", "1"):
-                calls.remote_control(request.match_info["id"], on == "1")
             try:
                 seconds = float(request.query.get("wait", 0))
             except ValueError:

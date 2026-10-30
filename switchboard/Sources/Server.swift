@@ -104,12 +104,10 @@ private func register(_ body: [String: Any]) throws -> [String: Any] {
 /// Outside the work hours of every phone nothing rings: the answer says when the first of
 /// them start (`held_until`), and the voice server asks again by then, with the same call ID.
 /// Meanwhile the call waits, and the app shows it (Waiting). The voice server says whether the
-/// call has a question (`question`), and whether Remote Control is on in its session
-/// (`remote_control`), as the session last said. The first time a held call has a question,
-/// the phone gets a notification, once for that call. The voice server also names the
-/// calling session (`session_id`), which goes to the phone with the call, so the app can call
-/// that session from Contacts once the voice server has forgotten the call; one from before
-/// Contacts doesn't.
+/// call has a question (`question`). The first time a held call has a question, the phone gets
+/// a notification, once for that call. The voice server also names the calling session
+/// (`session_id`), which goes to the phone with the call, so the app can call that session from
+/// Contacts once the voice server has forgotten the call; one from before Contacts doesn't.
 private func call(_ body: [String: Any]) throws -> [String: Any] {
     guard let project = body["project"] as? String, !project.isEmpty,
         let voice = body["voice"] as? String, voice.hasPrefix("http://") || voice.hasPrefix("https://"),
@@ -120,12 +118,10 @@ private func call(_ body: [String: Any]) throws -> [String: Any] {
     log("call \(callID.prefix(8)): asked by \(voice) for \(project)\(subject.map { ": \($0)" } ?? "")")
     if let held = heldUntil(Date()) {
         let question = body["question"] as? Bool ?? false
-        let remoteControl = body["remote_control"] as? Bool ?? false
-        let with = (question ? ", with a question" : "") + (remoteControl ? ", Remote Control on" : "")
-        log("call \(callID.prefix(8)): held until \(held), outside the work hours of every phone\(with)")
+        log("call \(callID.prefix(8)): held until \(held), outside the work hours of every phone\(question ? ", with a question" : "")")
         let notify = try Waiting.hold(
             callID: callID, project: project, subject: subject, voice: voice, heldUntil: held, question: question,
-            remoteControl: remoteControl, session: session)
+            session: session)
         if notify {
             Task.detached {
                 for line in await notifyQuestion(callID: callID, project: project, subject: subject, until: parseISO8601(held)) {
@@ -177,7 +173,7 @@ private func event(_ body: [String: Any]) throws -> [String: Any] {
 
 /// The calls that wait, for the app to show, soonest first: `{"calls": [...]}`, each with its
 /// call ID, project, subject, voice server, when it rings (`held_until`), whether it has a
-/// question (`question`) and whether Remote Control is on in its session (`remote_control`).
+/// question (`question`).
 /// Only a phone that registered gets them, by its push token: a call's ID lets whoever has it
 /// take the call.
 private func waiting(_ body: [String: Any]) throws -> [String: Any] {

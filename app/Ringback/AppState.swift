@@ -63,9 +63,6 @@ struct WaitingCall: Identifiable, Equatable {
     let heldUntil: Date
     /// The session asks you a question on it, and waits for the answer.
     var question = false
-    /// Remote Control is on in its session, as the session last said, so the Claude app can
-    /// show the question.
-    var remoteControl = false
     /// The session that placed it, if the switchboard says.
     var session: String?
 

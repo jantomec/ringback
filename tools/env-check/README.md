@@ -44,7 +44,7 @@ its `$.env` and `printenv`, though the `claude -p` session had no Remote Control
 leaves an inherited value alone. A session started inside another's Bash tool would seem
 to have Remote Control.
 
-So ringback's mod doesn't use the variable. It reads Claude Code's file for the session,
-`~/.claude/sessions/<process>.json`, instead: on 2026-10-30, with Remote Control on in one
-of this Mac's sessions, only that session's file had a `bridgeSessionId` (`docs/design.md`,
-Stage 3 step 7).
+So ringback's mod doesn't use the variable. Claude Code's undocumented file for each
+session, `~/.claude/sessions/<process>.json`, has a `bridgeSessionId` while Remote Control
+is on (seen 2026-10-30), but the developer chose not to rely on it: `/ringback` turns Remote
+Control on itself, and the rest takes it as on (`docs/design.md`, Stage 3 step 7).

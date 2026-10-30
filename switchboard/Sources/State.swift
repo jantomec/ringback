@@ -55,8 +55,8 @@ enum Devices {
 /// The calls that wait: held outside the work hours of every phone, until they ring. Kept in
 /// `waiting.json` in the state folder, keyed by call ID, so they survive a restart, with their
 /// project, subject, voice server, when they ring ("held_until") and when their voice server
-/// last asked about them ("refreshed"); "question" and "remote_control" ("yes" or missing) as
-/// the voice server last said, and when the phone was told of its question ("notified"). The
+/// last asked about them ("refreshed"); "question" ("yes" or missing) as the voice server last
+/// said, and when the phone was told of its question ("notified"). The
 /// app lists them (`/waiting`), and can call one now, or send its question to the Claude app.
 /// A voice server asks again about each held call every 10 min, which refreshes it; one not
 /// refreshed for 25 min is dropped, so a call from a Mac that's gone doesn't wait forever.
@@ -71,14 +71,13 @@ enum Waiting {
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: [String: String]] ?? [:]
     }
 
-    /// A call held until `heldUntil`, new or asked about again: whether it has a question, and
-    /// whether Remote Control is on in its session, as its voice server last said. True the
-    /// first time it has a question, when the phone is to be told: "notified" keeps when, so a
-    /// restart or asking again doesn't tell it twice.
+    /// A call held until `heldUntil`, new or asked about again: whether it has a question, as its
+    /// voice server last said. True the first time it has a question, when the phone is to be
+    /// told: "notified" keeps when, so a restart or asking again doesn't tell it twice.
     @discardableResult
     static func hold(
         callID: String, project: String, subject: String?, voice: String, heldUntil: String, question: Bool = false,
-        remoteControl: Bool = false, session: String? = nil
+        session: String? = nil
     ) throws -> Bool {
         var calls = fresh()
         let notified = calls[callID]?["notified"]
@@ -86,7 +85,6 @@ enum Waiting {
         call["subject"] = subject
         call["refreshed"] = Date().ISO8601Format()
         call["question"] = question ? "yes" : nil
-        call["remote_control"] = remoteControl ? "yes" : nil
         call["session_id"] = session
         let notify = question && notified == nil
         call["notified"] = notify ? Date().ISO8601Format() : notified
@@ -105,8 +103,8 @@ enum Waiting {
         return true
     }
 
-    /// The calls that wait, soonest first, each with its call ID, and whether it has a question
-    /// and Remote Control is on in its session; stale ones are dropped.
+    /// The calls that wait, soonest first, each with its call ID, and whether it has a question;
+    /// stale ones are dropped.
     static func list() throws -> [[String: Any]] {
         let calls = fresh()
         if calls.count != load().count { try save(calls) }
@@ -119,7 +117,6 @@ enum Waiting {
             var listed: [String: Any] = call.filter { kept.contains($0.key) }
             listed["call_id"] = id
             listed["question"] = call["question"] != nil
-            listed["remote_control"] = call["remote_control"] != nil
             return listed
         }
     }

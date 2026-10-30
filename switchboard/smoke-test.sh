@@ -144,7 +144,7 @@ check "another, held until sooner" "$(held_until 13:15)" "$(call_about wait0002-
 check "both are listed, soonest first" "wait0002 wait0001" "$(listed)"
 waiting=$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting")
 check "with project, subject, voice server and when it rings, and no question" yes "$(yes_if has_text "$waiting" \
-    "\"call_id\":\"wait0002-000000000000\",\"held_until\":\"${today}T13:15:00$offset\",\"project\":\"demo\",\"question\":false,\"remote_control\":false,\"subject\":\"Parser fixed\",\"voice\":\"http:")"
+    "\"call_id\":\"wait0002-000000000000\",\"held_until\":\"${today}T13:15:00$offset\",\"project\":\"demo\",\"question\":false,\"subject\":\"Parser fixed\",\"voice\":\"http:")"
 kill $server
 wait $server 2> /dev/null || true
 serve_waiting
@@ -162,37 +162,35 @@ check "not asked about again in time, it's dropped" "" "$(listed)"
 
 # A held call with a question: the phone that gave a notification token gets one ordinary
 # notification for it (without an APNs key, the log says so instead), however often the call
-# is asked about, and after a restart. The list says whether a call has a question, and whether
-# Remote Control is on in its session, as its voice server last said.
-ask_held() {  # call ID, subject, question, Remote Control
-    body -d "{\"project\": \"demo\", \"subject\": \"$2\", \"voice\": \"http://127.0.0.1:1\", \"call_id\": \"$1\", \"question\": $3, \"remote_control\": $4}" "$url/call"
+# is asked about, and after a restart. The list says whether a call has a question.
+ask_held() {  # call ID, subject, question
+    body -d "{\"project\": \"demo\", \"subject\": \"$2\", \"voice\": \"http://127.0.0.1:1\", \"call_id\": \"$1\", \"question\": $3}" "$url/call"
 }
-fields() {  # call ID: its question and Remote Control, as listed
+fields() {  # call ID: its question, as listed
     body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting" | grep -oE "\"call_id\":\"$1[^}]*" \
-        | grep -oE '"(question|remote_control)":(true|false)' | tr '\n' ' ' | sed 's/ $//'
+        | grep -oE '"question":(true|false)'
 }
 told() {  # call ID: how many times the phone was told of its question (the push goes after the answer)
     sleep 0.5
     grep -c "call $1: question → Test phone: no \[apns.sandbox\] key in the config" "$home/log"
 }
 claude_app='{"call_id": "wait0004-000000000000", "event": "claude app", "at": "2026-10-30T09:00:00Z"}'
-check "a held call with a question" "$(held_until 13:15)" "$(ask_held wait0004-000000000000 "Which branch?" true true)"
+check "a held call with a question" "$(held_until 13:15)" "$(ask_held wait0004-000000000000 "Which branch?" true)"
 check "the phone is told, once" 1 "$(told wait0004)"
 check "a phone without a notification token isn't" yes "$(yes_if grep -qF 'call wait0004: question → Second phone: no notification token' "$home/log")"
-check "listed with its question, and Remote Control on" '"question":true "remote_control":true' "$(fields wait0004)"
-check "asked about again, Remote Control now off" "$(held_until 13:15)" "$(ask_held wait0004-000000000000 "Which branch?" true false)"
+check "listed with its question" '"question":true' "$(fields wait0004)"
+check "asked about again" "$(held_until 13:15)" "$(ask_held wait0004-000000000000 "Which branch?" true)"
 check "it isn't told again" 1 "$(told wait0004)"
-check "Remote Control as last said" '"question":true "remote_control":false' "$(fields wait0004)"
 check "waiting.json keeps when it was told" yes "$(yes_if grep -qE '"notified" : "20' "$state/waiting.json")"
-ask_held wait0004-000000000000 "Which branch?" true true > /dev/null  # fresh before the restart
+ask_held wait0004-000000000000 "Which branch?" true > /dev/null  # fresh before the restart
 kill $server
 wait $server 2> /dev/null || true
 serve_waiting
-check "after a restart, asked about again, it isn't told again" 1 "$(ask_held wait0004-000000000000 "Which branch?" true true > /dev/null; told wait0004)"
-check "a held call without a question" "$(held_until 13:15)" "$(ask_held wait0005-000000000000 "Docs updated" false false)"
+check "after a restart, asked about again, it isn't told again" 1 "$(ask_held wait0004-000000000000 "Which branch?" true > /dev/null; told wait0004)"
+check "a held call without a question" "$(held_until 13:15)" "$(ask_held wait0005-000000000000 "Docs updated" false)"
 check "isn't told" 0 "$(told wait0005)"
-check "and is listed without one" '"question":false "remote_control":false' "$(fields wait0005)"
-check "a question joins it: the phone is told" 1 "$(ask_held wait0005-000000000000 "Docs updated" true false > /dev/null; told wait0005)"
+check "and is listed without one" '"question":false' "$(fields wait0005)"
+check "a question joins it: the phone is told" 1 "$(ask_held wait0005-000000000000 "Docs updated" true > /dev/null; told wait0005)"
 check "the phone reports it sent a question to the Claude app" 200 "$(status -d "$claude_app" "$url/events")"
 check "that call no longer waits" "wait0005" "$(listed)"
 sleep 1
@@ -201,7 +199,7 @@ wait $server 2> /dev/null || true
 check "a waiting call that rings is logged" yes "$(yes_if grep -qF 'call wait0001: no longer waiting, it rings' "$home/log")"
 check "one called from the app is logged" yes "$(yes_if grep -qF 'call wait0002: no longer waiting, called from the app' "$home/log")"
 check "a dropped one is logged" yes "$(yes_if grep -qE 'call wait0003: no longer waiting, its voice server hasn.t asked about it since [0-9:]{8}' "$home/log")"
-check "a held call's question and Remote Control are logged" yes "$(yes_if grep -qF "call wait0004: held until ${today}T13:15:00$offset, outside the work hours of every phone, with a question, Remote Control on" "$home/log")"
+check "a held call's question is logged" yes "$(yes_if grep -qF "call wait0004: held until ${today}T13:15:00$offset, outside the work hours of every phone, with a question" "$home/log")"
 check "one whose question went to the Claude app is logged" yes "$(yes_if grep -qF 'call wait0004: no longer waiting, its question went to the Claude app' "$home/log")"
 
 # Contacts: each voice server says which of its sessions listen, and the app lists them all,

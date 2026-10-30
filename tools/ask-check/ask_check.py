@@ -46,8 +46,8 @@ answered as any offer is.
 
 Sending a held call's question to the Claude app (`POST /claude-app`, as the app's swipe
 action does): refused for a call that doesn't wait here (403), while its session isn't
-listening or it has no question (409); Remote Control reported with a question, and with a
-long poll, reaches the switchboard at once; then it goes: the question's and a permission's
+listening or it has no question (409); a question that joins it reaches the switchboard at
+once; then it goes: the question's and a permission's
 long polls get `terminal` at once, the call is forgotten (never asked about again, an offer
 and a second try refused), its session is told, and the Mac can sleep again.
 """
@@ -371,7 +371,7 @@ async def main() -> int:
         check(f"a permission with no call places a held one, with no question: {status} {body}",
               status == 200 and body.get("call") == "held" and len(rung) == n + 1
               and body.get("held_until") == held_until.get(first)
-              and rung[n].get("question") is False and rung[n].get("remote_control") is False)  # fmt: skip
+              and rung[n].get("question") is False)  # fmt: skip
         await asyncio.sleep(1)
         check(f"a held call starts no Haiku ({children(haiku)}, {haikus} before) and keeps the Mac awake "
               f"({children('caffeinate')} caffeinate, {awake} before)",
@@ -543,7 +543,7 @@ async def main() -> int:
         await until(lambda: children(haiku) == 0, 10)
 
         # Sending a held call's question to the Claude app, as the app's swipe action does: over
-        # Nebula, with the call's ID. Remote Control as the session's mod says it is.
+        # Nebula, with the call's ID.
         async def claude_app(call_id: str) -> tuple[int, dict]:
             async with aiohttp.ClientSession() as http:
                 async with http.post(f"http://{VOICE}/claude-app", json={"call_id": call_id}) as r:
@@ -559,34 +559,26 @@ async def main() -> int:
         status, body = await api("POST", "/calls", briefed)
         first = rung[n] if len(rung) > n else {}
         app_id = first.get("call_id", "")
-        check(f"a held call from a briefing has no question, and no Remote Control: {status} {body}",
-              "held_until" in body and first.get("question") is False and first.get("remote_control") is False)  # fmt: skip
+        check(f"a held call from a briefing has no question: {status} {body}",
+              "held_until" in body and first.get("question") is False)  # fmt: skip
         status, body = await claude_app(app_id)
         check(f"while its session isn't listening: {status} {body}", status == 409 and body.get("error") == "not listening")
         await api("GET", f"/sessions/{APP}/messages")  # its mod collects, so it listens
         status, body = await claude_app(app_id)
         check(f"while it has no question: {status} {body}", status == 409 and body.get("error") == "no question")
-        status, body = await api("POST", of("permission", session=APP), PERMISSION | {"remote_control": False})
+        status, body = await api("POST", of("permission", session=APP), PERMISSION)
         app_pid = body.get("permission", "")
         asked_at = time.time()
-        status, body = await api("POST", of("question", session=APP), QUESTION | {"remote_control": True})
+        status, body = await api("POST", of("question", session=APP), QUESTION)
         app_qid = body.get("question", "")
         await until(lambda: len(rung) >= n + 2, 2)
         await asyncio.sleep(0.3)
         last = rung[-1] if len(rung) > n + 1 else {}
         took = taken[n + 1] - asked_at if len(rung) > n + 1 else 0.0
-        check(f"a question with Remote Control on joins it, and the switchboard hears both {took:.2f} s later "
+        check(f"a question joins it, and the switchboard hears of it {took:.2f} s later "
               f"({len(rung) - n - 1} asked): {status} {body}",
               status == 200 and body.get("call") == "held" and last.get("call_id") == app_id
-              and last.get("question") is True and last.get("remote_control") is True and 0 <= took <= 1)  # fmt: skip
-        reported = []
-        for on in ("0", "1"):
-            k = len(rung)
-            await api("GET", of("question", app_qid, APP) + f"?wait=0&remote_control={on}")
-            await until(lambda: len(rung) > k, 2)
-            reported.append(rung[-1].get("remote_control") if len(rung) > k else None)
-        check(f"Remote Control said off, then on again, with a long poll, reaches the switchboard at once: {reported}",
-              reported == [False, True])  # fmt: skip
+              and last.get("question") is True and 0 <= took <= 1)  # fmt: skip
 
         await api("GET", f"/sessions/{APP}/messages")  # it still listens
         polling = asyncio.ensure_future(

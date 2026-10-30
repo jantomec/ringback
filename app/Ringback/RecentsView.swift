@@ -85,7 +85,8 @@ private struct CallRow: View {
 /// A call that waits for your work hours, at the top of the history, in orange, with when it
 /// rings, and whether it has a question. Tapping it calls it now. One with a question has a
 /// swipe action, "Claude App", that sends the question to the session's own dialog, which Remote
-/// Control shows in the Claude app; the call then never rings.
+/// Control shows in the Claude app (ringback turns it on in the session); the call then never
+/// rings.
 private struct WaitingRow: View {
     let call: WaitingCall
     let state: AppState
