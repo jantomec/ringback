@@ -126,17 +126,18 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      - **Remote Control.** The app offers that only while Remote Control is on in the
        session, and no mod API says whether it is. Claude Code's docs say that from 2.1.199
        `CLAUDE_CODE_BRIDGE_SESSION_ID` is set in the Bash tool's and hooks' commands while
-       the session has an active Remote Control connection, and removed when it ends. The
-       mod reads it with `$.env.get`, and if that has nothing, runs `printenv` for it
-       (`$.process.run`); either answering counts. It looks with each ask and each long poll,
-       and every 10 s while ringback is on, for the line under the prompt; the debug log says
-       when it changed and which of the two saw it. Likely neither sees it: in a session
-       started from an ordinary terminal, neither saw the other variables the docs describe
-       the same way, such as `CLAUDE_EFFORT`, which the Bash tool had (`tools/env-check`,
-       2026-10-30, Claude Code 2.1.314). Not tried with Remote Control on. And a session
-       started inside another session's Bash tool inherits that session's
-       `CLAUDE_CODE_BRIDGE_SESSION_ID`, which Claude Code leaves alone, so ringback would
-       see Remote Control on there.
+       the session has an active Remote Control connection, but a mod doesn't get it: in a
+       session started from an ordinary terminal, its `$.env` and the commands it runs saw
+       none of the variables the docs describe that way, such as `CLAUDE_EFFORT`, which the
+       Bash tool had (`tools/env-check`, 2026-10-30, Claude Code 2.1.314). Claude Code keeps
+       a file for each running session, `~/.claude/sessions/<process>.json`, and while
+       Remote Control was on, this Mac's session that had it was the only one whose file had
+       a `bridgeSessionId` (2026-10-30). The mod reads the file whose `sessionId` is its
+       session's, and takes a `bridgeSessionId` as Remote Control on. The file isn't
+       documented: a Claude Code update can change it, and then the mod says off. Not yet
+       seen: that the field goes when Remote Control ends, and that the mod's session ID is
+       the file's. It looks with each ask and each long poll, and every 10 s while ringback
+       is on, for the line under the prompt; the debug log says when it changed.
 2. **Voice server's session side** (`voice/ringback_voice/sessions.py`). The voice server
    also listens on a Unix socket that only you can open
    (`~/.local/state/ringback/voice.sock`), for the mods of the sessions on its Mac:
@@ -954,10 +955,9 @@ Each entry says why it lost and what would make it worth retrying.
 - Where Claude Code's built-in guard mod loads (managed settings, or a Team or Enterprise
   login), an installed mod's classic-event hooks don't run, so permissions wouldn't reach
   the phone; the terminal prompt still works.
-- Whether Remote Control is on reaches the app only as the mod sees it, from the session's
-  environment, which a mod likely doesn't see (Stage 3 step 7, `tools/env-check`): the
-  "Claude App" action may stay grey, and a session started inside another session's Bash
-  tool may look as if it had Remote Control. The state is as last said, up to 25 s old at
+- Whether Remote Control is on reaches the app only as the mod sees it, from Claude Code's
+  undocumented file for the session (Stage 3 step 7): if an update changes it, the "Claude
+  App" action stays grey. The state is as last said, up to 25 s old at
   the voice server, and as old as the app's last fetch of the list.
 - The held call's question notification is an APNs alert push the switchboard hasn't sent
   before; only the phone shows whether APNs takes its headers and how iOS shows it.
@@ -1293,10 +1293,10 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         answer when it rings is the dialog's; a `terminal` answer shows the dialog at once,
         with "You sent it to the Claude app from the phone, so it's asked here.", and leaves
         a permission to its prompt; the ask and each long poll say whether Remote Control
-        is on, seen by `$.env` or only by `printenv`, and switching on and off; the line
+        is on, as Claude Code's file for the session says, and switching on and off; the line
         under the prompt shows "· Remote Control" within 10 s, and isn't looked at while
-        ringback is off. Against stand-ins: what Claude Code really gives the mod is
-        `tools/env-check`'s.
+        ringback is off. Against stand-ins: what the session files really hold was seen only
+        on this Mac.
       - The voice server (`tools/ask-check`, two runs, 61 checks each, 11 of them new, all
         passed, 3 min 58 s and 3 min 15 s with the models loading): a question that joins a
         held call has the switchboard asked again 0.00 s later, with `"question": true`, and
@@ -1321,13 +1321,10 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         list, the swipe action, its alerts and the notification are untried: they need the
         phone. The alert push's headers are as Apple documents them; APNs hasn't been seen
         to take one.
-      - Remote Control: in sessions started from an ordinary terminal, a mod saw none of the
-        variables Claude Code gives the Bash tool and hooks (`tools/env-check`), so the mod
-        likely never sees `CLAUDE_CODE_BRIDGE_SESSION_ID`, and the action would stay grey.
-        The phone test settles it: with `/rc` on, the line under the prompt should end
-        "· Remote Control" within 10 s. If it doesn't, not decided: take a prompt that comes
-        from the Claude app (`origin.kind` `bridge` at `prompt.submit`, which a mod does
-        see) as Remote Control on, or offer the action whatever the state.
+      - Remote Control: a mod sees none of the variables Claude Code gives the Bash tool and
+        hooks (`tools/env-check`), so the mod reads Claude Code's file for the session
+        instead (above). The phone test settles it: with `/rc` on, the line under the prompt
+        should end "· Remote Control" within 10 s, and lose it when Remote Control ends.
       - Left for the phone: the notification (shown, its sound, Focus), the listing and the
         swipe action, Remote Control detection, the question reaching the Claude app and
         being answered there, the call never ringing after, and a held question answered on

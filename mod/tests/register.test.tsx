@@ -26,15 +26,14 @@ type Voice = {
   isDown?: boolean
   // What the mod's store holds at the start.
   stored?: Record<string, unknown>
-  // Remote Control is on in the session, and where the mod can see it: in its own `$.env`, or
-  // only in a command's environment (`printenv`). Off while unset.
-  remote?: 'env' | 'printenv'
+  // Remote Control is on in the session: Claude Code's file for it has a bridgeSessionId.
+  remote?: boolean
 }
 
 // What the engine beneath the mod is asked, and what the tests answer it. `logs` are the dim
 // lines shown in the transcript, `debug` those in the debug log, `toasts` the toasts, `stored`
 // the mod's store, `slept` each wait the mod asked of a host `sleep`, which takes that long on
-// `voice.clock`, and `printenvs` how often it ran `printenv`.
+// `voice.clock`, and `looks` how often it looked for Claude Code's session files.
 function engine(on: On, voice: Voice = {}) {
   const asked = {
     prompts: [] as string[],
@@ -44,7 +43,7 @@ function engine(on: On, voice: Voice = {}) {
     toasts: [] as string[],
     stored: new Map<string, unknown>(Object.entries(voice.stored ?? {})),
     slept: [] as string[],
-    printenvs: 0,
+    looks: 0,
   }
   on('store.get', (_, e) => ({ value: asked.stored.get(e.key) }))
   on('store.set', (_, e) => (asked.stored.set(e.key, e.value), { value: undefined }))
@@ -52,11 +51,6 @@ function engine(on: On, voice: Voice = {}) {
   on('store.keys', () => ({ value: [...asked.stored.keys()] }))
   on('ui.toast', (_, e) => (asked.toasts.push(e.text), { value: undefined }))
   on('process.run', async (_, e) => {
-    if (e.argv[0] === '/usr/bin/printenv') {
-      asked.printenvs++
-      const isSet = voice.remote !== undefined && e.argv[1] === 'CLAUDE_CODE_BRIDGE_SESSION_ID'
-      return { value: { exitCode: isSet ? 0 : 1, stdout: isSet ? 'cse_remote\n' : '', stderr: '' } } as any
-    }
     asked.slept.push(e.argv.join(' '))
     await voice.clock?.sleep(Number(e.argv[1]) * 1000)
     return { value: { exitCode: 0, stdout: '', stderr: '' } } as any
@@ -77,8 +71,26 @@ function engine(on: On, voice: Voice = {}) {
   }))
   on('env.get', (_, e) => {
     if (e.name === 'HOME') return { value: '/home/someone' }
-    const isSet = voice.remote === 'env' && e.name === 'CLAUDE_CODE_BRIDGE_SESSION_ID'
-    return { value: isSet ? 'cse_remote' : undefined }
+    return { value: undefined }
+  })
+  // Claude Code's file for each running session: another session's, with Remote Control on,
+  // a key file, and this one's.
+  on('fs.list', (_, e) => {
+    asked.looks++
+    if (e.path !== '/home/someone/.claude/sessions') throw new Error('ENOENT')
+    const files = ['4001.json', '4001.abcdef.key', '4002.json']
+    return { value: files.map(name => ({ name, kind: 'file' as const, size: 1 })) } as any
+  })
+  on('fs.read', (_, e) => {
+    const sessions: Record<string, object> = {
+      '/home/someone/.claude/sessions/4001.json': { sessionId: 'session-9999', bridgeSessionId: 'cse_other' },
+      '/home/someone/.claude/sessions/4002.json': {
+        sessionId: 'session-1234',
+        ...(voice.remote ? { bridgeSessionId: 'cse_remote' } : {}),
+      },
+    }
+    if (!(e.path in sessions)) throw new Error('ENOENT')
+    return { value: JSON.stringify(sessions[e.path]) }
   })
   on('prompt.submit', (_, e) => (asked.prompts.push(e.text), { text: e.text }))
   on('ui.invalidate', () => ({ value: undefined }))
@@ -1091,7 +1103,7 @@ test('outside your work hours, a question waits for the call, and is answered wh
 test('a held question you send to the Claude app shows the dialog at once', async ($, on) => {
   const clock = mock.clock(on, { now: at(30, 2).getTime() })
   const later: object[] = []
-  const asked = engine(on, { clock, held: true, answers: later, created: heldQuestion, remote: 'env' })
+  const asked = engine(on, { clock, held: true, answers: later, created: heldQuestion, remote: true })
   const core = tools(on)
   await start($)
   const ran = $.tool.call(asking)
@@ -1128,7 +1140,7 @@ test('a permission on that call is left to its prompt, which shows anyway', abov
 
 test('the ask and each poll say whether Remote Control is on', async ($, on) => {
   const clock = mock.clock(on, { now: at(30, 2).getTime() })
-  const voice: Voice = { clock, held: true, created: heldQuestion, remote: 'env' }
+  const voice: Voice = { clock, held: true, created: heldQuestion, remote: true }
   const asked = engine(on, voice)
   const core = tools(on)
   await start($)
@@ -1136,17 +1148,17 @@ test('the ask and each poll say whether Remote Control is on', async ($, on) => 
   await clock.settle()
   expect(JSON.parse(created(asked.fetches, 'questions')[0].init.body).remote_control).toBe(true)
   await clock.advance(50_000)
-  // Remote Control ends, then comes back, seen only by a command this time.
-  voice.remote = undefined
+  // Remote Control ends, then comes back.
+  voice.remote = false
   await clock.advance(50_000)
-  voice.remote = 'printenv'
+  voice.remote = true
   await clock.advance(50_000)
   const said = polls(asked.fetches).map(f => new URL(f.url).searchParams.get('remote_control'))
   expect(said.filter((v, i) => v !== said[i - 1])).toEqual(['1', '0', '1'])
   expect(asked.debug.filter(l => l.startsWith('Remote Control'))).toEqual([
-    'Remote Control is on (seen by $.env)',
+    'Remote Control is on',
     'Remote Control is off',
-    'Remote Control is on (seen by printenv)',
+    'Remote Control is on',
   ])
   // Switched off, the dialog shows.
   await $.command.run({ command: 'ringback', args: '' })
@@ -1163,21 +1175,21 @@ test('while on, the line under the prompt says when it sees Remote Control', asy
   await clock.settle()
   expect(await line()).toBe('? for shortcuts · ☎ ringback on')
   // Looked at every 10 s.
-  voice.remote = 'printenv'
+  voice.remote = true
   await clock.advance(10_000)
   expect(await line()).toBe('? for shortcuts · ☎ ringback on · Remote Control')
-  voice.remote = undefined
+  voice.remote = false
   await clock.advance(10_000)
   expect(await line()).toBe('? for shortcuts · ☎ ringback on')
-  voice.remote = 'env'
+  voice.remote = true
   await clock.advance(10_000)
   expect(await line()).toBe('? for shortcuts · ☎ ringback on · Remote Control')
   // Off, it's no longer looked at.
   await $.command.run({ command: 'ringback', args: '' })
-  const looked = asked.printenvs
-  voice.remote = 'printenv'
+  const looked = asked.looks
+  voice.remote = true
   await clock.advance(60_000)
-  expect(asked.printenvs).toBe(looked)
+  expect(asked.looks).toBe(looked)
   expect(await line()).toBe('? for shortcuts')
 })
 

@@ -195,28 +195,36 @@ function tail(): string {
   return `${isCalling ? '☎ calling your phone…' : '☎ ringback on'}${remote}`
 }
 
-// Whether Remote Control is on in this session. No mod API says so. Claude Code sets
-// CLAUDE_CODE_BRIDGE_SESSION_ID in the Bash tool's and hooks' commands while the session has an
-// active Remote Control connection, and removes it when that ends (from 2.1.199). Whether a
-// mod's `$.env` has it isn't documented, so when it doesn't, a command run here is asked too;
-// either answering counts. Likely neither does: neither saw the other variables documented
-// that way, such as CLAUDE_EFFORT (tools/env-check); not tried with Remote Control on. The
-// line under the prompt shows what it found, and the debug log says when it changed and which
-// answered.
+// Whether Remote Control is on in this session. No mod API says so, and the variable Claude
+// Code gives the Bash tool's and hooks' commands while it's on (CLAUDE_CODE_BRIDGE_SESSION_ID)
+// doesn't reach a mod (tools/env-check). Claude Code keeps a file for each running session in
+// ~/.claude/sessions, named by its process, and while Remote Control is connected the file has
+// a bridgeSessionId: this reads the one whose sessionId is this session's. That file isn't
+// documented, so a Claude Code update can change it; then this says off. The line under the
+// prompt shows what it found, and the debug log says when it changed.
 async function remoteControl($: EngineInterface): Promise<boolean> {
-  let seen: string | undefined
+  let seen = false
   try {
-    if (await $.env.get('CLAUDE_CODE_BRIDGE_SESSION_ID')) seen = '$.env'
-    else {
-      const { exitCode, stdout } = await $.process.run(['/usr/bin/printenv', 'CLAUDE_CODE_BRIDGE_SESSION_ID'])
-      if (exitCode === 0 && stdout.trim()) seen = 'printenv'
+    const dir = `${(await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`}/sessions`
+    const id = await $.session.id()
+    for (const entry of await $.fs.list(dir)) {
+      if (entry.kind !== 'file' || !entry.name.endsWith('.json')) continue
+      let file: { sessionId?: unknown; bridgeSessionId?: unknown }
+      try {
+        file = JSON.parse(String(await $.fs.read(`${dir}/${entry.name}`)))
+      } catch {
+        continue // gone, or being written
+      }
+      if (file?.sessionId !== id) continue
+      seen = typeof file.bridgeSessionId === 'string' && file.bridgeSessionId !== ''
+      break
     }
   } catch (e) {
     $.ui.log(`couldn't tell whether Remote Control is on: ${e}`, { to: 'debug' })
   }
-  if ((seen !== undefined) !== isRemote) {
-    isRemote = seen !== undefined
-    $.ui.log(isRemote ? `Remote Control is on (seen by ${seen})` : 'Remote Control is off', { to: 'debug' })
+  if (seen !== isRemote) {
+    isRemote = seen
+    $.ui.log(isRemote ? 'Remote Control is on' : 'Remote Control is off', { to: 'debug' })
     $.ui.invalidate('ui.render')
   }
   return isRemote

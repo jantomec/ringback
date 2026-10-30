@@ -41,5 +41,10 @@ mod most likely doesn't see Remote Control either; not checked with Remote Contr
 With `--inherited`, run from inside a Claude Code session that had Remote Control on, the mod
 saw that session's `CLAUDE_CODE_BRIDGE_SESSION_ID` (and `CLAUDE_EFFORT` and the rest) in both
 its `$.env` and `printenv`, though the `claude -p` session had no Remote Control: Claude Code
-leaves an inherited value alone. A session started inside another's Bash tool would make
-ringback think Remote Control is on.
+leaves an inherited value alone. A session started inside another's Bash tool would seem
+to have Remote Control.
+
+So ringback's mod doesn't use the variable. It reads Claude Code's file for the session,
+`~/.claude/sessions/<process>.json`, instead: on 2026-10-30, with Remote Control on in one
+of this Mac's sessions, only that session's file had a `bridgeSessionId` (`docs/design.md`,
+Stage 3 step 7).
