@@ -275,7 +275,11 @@ class Ask:
                 f"about that. {where} Open the call by saying it waits there, then talk it through if "
                 f"they want.\n\n{self.details()}\n{self.context()}"
             )
-        return f"The session has a question for the developer. {where} Tell them, and talk it through if they want.\n{self.details()}{self.context()}"
+        return (
+            f"The session has a question for the developer. {where} Tell them in your next turn, in a "
+            "sentence, even while you ask them other things: it's news, not one of the things to ask "
+            f"one at a time. Talk it through if they want.\n{self.details()}{self.context()}"
+        )
 
     def briefing(self) -> str:
         """The briefing of a call placed to ask it."""

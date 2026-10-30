@@ -357,6 +357,9 @@ yet; the rest is built. The plan for them is under Stages.
      garbled to be sure;
    - act on a permission prompt only after a clear yes or no, otherwise ask again; never
      choose an option for you, and take your own words when no option fits;
+   - when several things need your answer, say how many, then ask them one at a time,
+     and pass the answers on together once they're all in (or when you want to stop);
+     nothing the voice says after passing something on is spoken;
    - the session writes its call briefing (a subject, what's new, what needs you) in a
      form that can be spoken, and its answers to what the voice passes on go back to the
      call, where the voice puts them in spoken words.
@@ -971,8 +974,13 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         sentence after the "Okay.", went only with the next note, 40 s later. Now only words
         after the "Okay." count, and it's said once per reply (`tools/reply-check`, 5/5; 4/5
         before the fix).
-   4. A better model on the line. Built, and tried offline (see "A better model"), not
-      yet on the phone.
+   4. A better model on the line. Built, tried offline (see "A better model"), and on the
+      phone (2026-10-30, one call, the phone on mobile data, AirPods): "Can I get a better
+      better model mo can I get a better model on the line?" (as recognised) got "Sure,
+      I'll put Opus on.", Haiku closed and Opus started on its session in 0.49 s, and Opus
+      said "Hi, it's Opus now." 5.3 s after Haiku's line, with a correct recap of the
+      task. It answered your next turn 1.7 s after you stopped. Not tried on the phone:
+      asking Opus about something said only before it took over.
    5. Call back from the app's call history (calling back, in the voice server's session
       side and the iPhone app). Built, and tried offline, not yet on the phone:
       - The voice server (`tools/phone-check --back`, five runs, 22 checks each, about
@@ -1001,10 +1009,17 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         hours; the run before had the "Okay." problem under step 3.
       - The mod (34 tests with work hours): a question stays held through 10 min of
         `pending`, and an answer that comes then is the dialog's.
-      - The app builds, but nothing of it is tried: tapping a row, the outgoing CallKit call,
-        its in-call screen, the alert, and what the switchboard logs. Nor is the time from
-        tapping to the voice's first words on the phone, which adds reaching the Mac and
-        connecting over Nebula to the 2.5–3 s above.
+      - On the phone (2026-10-30, one call): you declined a call, and tapped it in the
+        history 18 s later, while the voice server still had it placed. The phone reached
+        the Mac 0.4 s after the tap, audio connected 1.4 s after it, and the voice started
+        1.8 s after the Mac had the call, with "I called about the header file…" and that
+        call's briefing. The session's note: "The developer called back about "Header
+        added for hello world function" and it lasted 30 s." Not tried on the phone: a call
+        back after the 90 s, after the session called again, to a session not listening,
+        and the "can't take this call back" alert.
+      - The voice once told you to "call back whenever you've decided" at the end of an
+        answered call, which can't be called back: only unanswered calls can. Either its
+        instructions say so, or calling back answered calls becomes possible; not decided.
    6. Work hours: Claude calls only between the times you set in the app, and a call
       outside them waits until they start (the app's Settings, the switchboard, held calls
       on the voice server). Built, and tried offline, not yet on the phone:
@@ -1025,9 +1040,14 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
       - The mod (two new tests, 33 in all): the dim line, today and another day; a
         permission held 20 min isn't given up, and its 15 min count from when the call
         rings.
-      - Not tried: the setting on the phone, the app re-registering as you change it, a
-        call held overnight on a Mac that sleeps or a laptop with its lid closed, and a
-        time zone change while travelling.
+      - On the phone (2026-10-30): changing the hours in Settings re-registered the app
+        each time (08:00, 09:00, then 09:40 to 20:00, with the phone's time zone). A
+        session that finished at 09:37:16 got "held until 09:40" from the switchboard; the
+        voice server asked again and the call rang at 09:40:00.08. You answered, and the
+        voice started 0.43 s later. You expected to see the waiting call in the app,
+        which is Stage 5.
+      - Not tried: a call held overnight on a Mac that sleeps or a laptop with its lid
+        closed, and a time zone change while travelling.
       - Left: when the hours start, every session's held call rings at once, until Stage
         7's queue lets them wait their turn. Days of the week aren't covered: the same
         hours hold every day. If a phone is inside its hours, every phone rings, including
@@ -1048,10 +1068,24 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         parser fix is waiting in the terminal." The briefing's case, where the call was
         placed to ask the question, was checked once in the voice server's own process,
         not on a call.
-   8. On the phone, in one sitting: a better model on the line (step 4); work hours (set
-      From a few minutes ahead, let a session finish, and the call rings then); a question
-      outside the hours reaching the terminal (step 7); calling back a declined call
-      (step 5), also after the session called again since.
+   8. On the phone, in one sitting (done 2026-10-30, three calls and a call back, results
+      under each step): a better model on the line (step 4), calling back a declined call
+      (step 5) and work hours (step 6) worked. Not tried on the phone: a question outside
+      the hours reaching the terminal (step 7; the last call's three questions came from
+      its briefing, not from AskUserQuestion). Found:
+      - The voice put all three of a briefing's open choices in one turn; you want them one
+        at a time, each answered before the next. Its instructions now say so, for a
+        briefing's choices and for the session's questions. In three scripted calls
+        (`tools/call-check --session`, the phone call's briefing) the voice then said there
+        were three and asked only the first, but passed each answer on as it came and
+        wrote the next question after the tool, where it isn't spoken: six questions were
+        lost. So it now keeps the answers and passes them on together once it has them
+        all, or when you want to stop. In three more runs it asked each in turn, confirmed
+        each answer, and passed all three in one message; one opening asked the first
+        question and then "Shall I go on to the first question?".
+      - At the start of a held call, Haiku tried to pass the session a message before you'd
+        said anything ("The developer answered the call but has not yet given a choice…").
+        Nothing passed in the opening goes, so nothing reached the session.
 4. **Staying up.** Restarts lose nothing that matters:
    - The voice server keeps its state in a file and reads it at start (see "Staying up"
      under the voice server's session side), and runs as a launchd agent (`docs/setup.md`;

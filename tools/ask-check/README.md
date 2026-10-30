@@ -95,3 +95,9 @@ Result on 2026-10-30, after the "Okay." fix: all 43 passed. After questions outs
 hours started going to the terminal (Stage 3 step 7), all 45 passed, about 3 min with the
 models loading: answered, the held call's voice asked the permission, then said "Separately,
 a question about where to push the parser fix is waiting in the terminal."
+
+Result on 2026-10-30, after the voice started asking several things one at a time: 44 of 45
+once. The held call's voice left the question waiting in the terminal for later, which on a
+real call comes after its answer, where nothing is spoken. With its note saying to tell it at
+once, all 45 passed twice: the voice asked the permission and, in the same turn, said the
+question waits in the terminal.
