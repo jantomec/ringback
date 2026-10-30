@@ -204,6 +204,53 @@ check "a dropped one is logged" yes "$(yes_if grep -qE 'call wait0003: no longer
 check "a held call's question and Remote Control are logged" yes "$(yes_if grep -qF "call wait0004: held until ${today}T13:15:00$offset, outside the work hours of every phone, with a question, Remote Control on" "$home/log")"
 check "one whose question went to the Claude app is logged" yes "$(yes_if grep -qF 'call wait0004: no longer waiting, its question went to the Claude app' "$home/log")"
 
+# Contacts: each voice server says which of its sessions listen, and the app lists them all,
+# by project, each with its voice server. A voice server's list replaces the one before, and
+# one not heard from for RINGBACK_CONTACTS_STALE s (here 3, instead of 90) is dropped. A held
+# call keeps the session that placed it.
+serve_contacts() {
+    HOME="$home" RINGBACK_CONTACTS_STALE=3 "$bin" serve >> "$home/log" 2>&1 &
+    server=$!
+}
+contact_ids() { body -d '{"token": "aaaa1111bbbb2222"}' "$url/contacts" | grep -oE 'sess[0-9]{4}' | tr '\n' ' ' | sed 's/ $//'; }
+mac_a='"voice": "http://127.0.0.1:2"'
+mac_b='"voice": "http://127.0.0.1:3"'
+two="{$mac_a, \"sessions\": [{\"session_id\": \"sess0001-aaaa\", \"project\": \"zeta\", \"since\": \"2026-10-30T09:00:00+01:00\"}, {\"session_id\": \"sess0002-aaaa\", \"project\": \"Alpha\", \"since\": \"2026-10-30T10:00:00+01:00\", \"subject\": \"Parser fixed\", \"briefed_at\": \"2026-10-30T10:30:00+01:00\"}]}"
+one_b="{$mac_b, \"sessions\": [{\"session_id\": \"sess0003-bbbb\", \"project\": \"alpha\", \"since\": \"2026-10-30T08:00:00+01:00\"}]}"
+one_a="{$mac_a, \"sessions\": [{\"session_id\": \"sess0002-aaaa\", \"project\": \"Alpha\", \"since\": \"2026-10-30T10:00:00+01:00\"}]}"
+no_voice='{"sessions": []}'
+no_project="{$mac_a, \"sessions\": [{\"session_id\": \"sess0009-aaaa\"}]}"
+held_with_session='{"project": "demo", "subject": "Docs", "voice": "http://127.0.0.1:1", "call_id": "wait0006-000000000000", "session_id": "sess0004-cccc"}'
+serve_contacts
+check "contacts for a token that isn't registered: 403" 403 "$(status -d '{"token": "ffff9999"}' "$url/contacts")"
+check "contacts without a token: 403" 403 "$(status -d '{}' "$url/contacts")"
+check "no contacts yet" '{"contacts":[]}' "$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/contacts")"
+check "sessions without a voice server: 400" 400 "$(status -d "$no_voice" "$url/sessions")"
+check "a session without a project: 400" 400 "$(status -d "$no_project" "$url/sessions")"
+check "a voice server says two sessions listen" 200 "$(status -d "$two" "$url/sessions")"
+check "another voice server, one" 200 "$(status -d "$one_b" "$url/sessions")"
+check "all three are listed, by project, then since when" "sess0003 sess0002 sess0001" "$(contact_ids)"
+listed=$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/contacts")
+check "with project, latest subject and when, since when, and voice server" yes "$(yes_if has_text "$listed" \
+    '{"briefed_at":"2026-10-30T10:30:00+01:00","project":"Alpha","session_id":"sess0002-aaaa","since":"2026-10-30T10:00:00+01:00","subject":"Parser fixed","voice":"http:')"
+check "the first voice server again, now with one: it replaces its two" 200 "$(status -d "$one_a" "$url/sessions")"
+check "listed: that one and the other server's" "sess0003 sess0002" "$(contact_ids)"
+kill $server
+wait $server 2> /dev/null || true
+serve_contacts
+check "after a restart, both still listed" "sess0003 sess0002" "$(contact_ids)"
+sleep 2
+check "the second voice server says again" 200 "$(status -d "$one_b" "$url/sessions")"
+sleep 2
+check "the first, not heard from in time, is dropped" "sess0003" "$(contact_ids)"
+check "a held call names its session" "$(held_until 13:15)" "$(body -d "$held_with_session" "$url/call")"
+check "listed as waiting with it" yes "$(yes_if has_text "$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting")" '"session_id":"sess0004-cccc"')"
+kill $server
+wait $server 2> /dev/null || true
+check "a voice server's sessions are logged" yes "$(yes_if grep -qF 'sessions listening on http://127.0.0.1:2: zeta (sess0001), Alpha (sess0002)' "$home/log")"
+check "said again unchanged, they aren't logged again" 1 "$(grep -cF 'sessions listening on http://127.0.0.1:3: alpha (sess0003)' "$home/log")"
+check "a dropped voice server is logged" yes "$(yes_if grep -qE 'sessions listening on http://127.0.0.1:2: dropped, not heard from since [0-9:]{8}' "$home/log")"
+
 if [ "${1:-}" = --apns ]; then
     cp ~/.config/ringback/switchboard.toml ~/.config/ringback/AuthKey_*.p8 "$home/.config/ringback/"
     printf '{"%s": {"environment": "sandbox", "device": "made-up phone"}}' \

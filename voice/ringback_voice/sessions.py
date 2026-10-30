@@ -32,13 +32,19 @@ call is placed to ask it. The mod waits for the answer the voice gives, and show
 prompt if you hang up without one. If you don't answer the call, what it asked waits for
 the next call with that session you answer: a call back, or its next call.
 
-A call you didn't answer can be called back from the phone's call history. Each call is
+Any call can be called back from the phone's call history, answered or not. Each call is
 remembered for a day after it's forgotten. The call back is a new call for the same
-session, with a fresh Haiku, answered at once: its voice has the missed call's briefing, and
-the session's latest one if it wrote a newer one since, for a later call or a held one. Work
-hours don't apply to it: you called. A held call can be called from the app too, where it
-shows as waiting: it's released at once, without ringing, and its voice picks up as a call
-back's does.
+session, with a fresh Haiku, answered at once: its voice has the earlier call's briefing,
+with a lead that says whether you talked then, and the session's latest one if it wrote a
+newer one since, for a later call or a held one. Work hours don't apply to it: you called. A
+held call can be called from the app too, where it shows as waiting: it's released at once,
+without ringing, and its voice picks up as a call back's does.
+
+The sessions that listen (ringback on) are the phone's Contacts: the switchboard hears which
+they are, with each one's project and latest briefing, whenever that changes and every
+PUBLISH s. You can call one from the app at any time: a new call under the ID the phone made,
+answered at once, whose voice has the session's latest briefing, if it has one, with a lead
+that says you called.
 
 What it keeps is written to a file beside its socket on every change, and read again at
 start, so a restart loses nothing that matters: held calls are held again, calls are still
@@ -63,7 +69,7 @@ from pathlib import Path
 from aiohttp import ClientError, ClientSession, ClientTimeout, web
 
 from ringback_voice.haiku import PICKED_UP, Haiku
-from ringback_voice.instructions import called_back, called_now, instructions
+from ringback_voice.instructions import called_back, called_contact, called_now, instructions
 from ringback_voice.transcript import Transcript
 
 SOCKET = Path("~/.local/state/ringback/voice.sock").expanduser()
@@ -94,7 +100,13 @@ LONGEST_WAIT = 25
 REMEMBER = 24 * 3600
 # A session whose mod hasn't collected its messages for this many seconds isn't listening:
 # ringback is off in it, or it has ended. While it's on, the mod collects once a second.
-LISTENING = 30
+# RINGBACK_LISTENING overrides it, for checks.
+LISTENING = float(os.environ.get("RINGBACK_LISTENING", "30"))
+# Seconds between telling the switchboard which sessions listen, for the phone's Contacts,
+# when nothing changed; the switchboard drops a Mac's sessions it hasn't heard of in 90 s. A
+# change goes at once, or CHANGED s after a try that failed. RINGBACK_PUBLISH overrides it.
+PUBLISH = float(os.environ.get("RINGBACK_PUBLISH", "30"))
+CHANGED = 5.0
 
 
 class Link:
@@ -348,10 +360,16 @@ class Call:
     at: float = field(default_factory=time.time)
     # Once it's forgotten and remembered: what its briefing asks, by name ("permission abcd").
     asked: tuple[str, ...] = ()
-    # On a call you made: the call you called, as it was placed. A call back calls back a call
-    # you didn't answer; with `now`, you called a held call from the app while it waited.
+    # On a call you made: the call you called, as it was placed. A call back calls back an
+    # earlier call; with `now`, you called a held call from the app while it waited; with
+    # `contact`, you called the session from the app's Contacts, and it's the session's latest
+    # briefing, as the call will be remembered.
     back: "Call | None" = field(default=None, repr=False)
     now: bool = False
+    contact: bool = False
+    # Once it's forgotten and remembered: when you last talked on it, a call back of it
+    # included (time.time()); None if you never answered it.
+    talked: float | None = None
 
 
 class Calls:
@@ -374,6 +392,10 @@ class Calls:
         self._pool: dict[str, dict[str, Ask]] = {}
         self._past: dict[str, tuple[Call, float]] = {}  # forgotten calls, and when, for a day
         self._seen: dict[str, float] = {}  # when each session's mod last collected (time.monotonic())
+        # Since when each session listens (time.time()), and its project and folder, as its mod
+        # says them when it collects: the phone's Contacts.
+        self._since: dict[str, float] = {}
+        self._named: dict[str, tuple[str, str]] = {}
         # The sessions whose mod last said Remote Control is on in them.
         self._remote: set[str] = set()
         self._keeping: set[asyncio.Task] = set()  # each waits for an answer, then forgets it
@@ -426,10 +448,12 @@ class Calls:
         be reached or refuses. It hears whether the call has a question, so it can tell the
         phone of a held one, and whether Remote Control is on in its session, as last said, so
         the app knows whether the question can go to the Claude app; a switchboard from before
-        ignores both."""
+        ignores both. It hears the session's ID too, which the push takes to the phone, so the
+        app can call the session from Contacts once the voice server has forgotten the call."""
         body = {
             "project": call.project, "subject": call.subject, "voice": f"http://{self._voice}", "call_id": call.id,
             "question": bool(call.link and call.link.has_question), "remote_control": call.session in self._remote,
+            "session_id": call.session,
         }  # fmt: skip
         try:
             async with ClientSession(timeout=ClientTimeout(total=10)) as http:
@@ -499,9 +523,10 @@ class Calls:
 
     async def back(self, call_id: str) -> Call | None:
         """The call you make by calling call_id back from the phone, which it answers at once:
-        a call this server placed and you didn't answer, remembered for a day after it was
-        forgotten, or still placed. None if there's no such call. A call back already on is
-        given as it is, so a new offer replaces the earlier one, as for any call."""
+        a call this server placed or you made, answered or not, remembered for a day after it
+        was forgotten, or a call you didn't answer that's still placed. None if there's no such
+        call. A call back already on is given as it is, so a new offer replaces the earlier
+        one, as for any call."""
         self._expire()
         if call := self._calls.get(call_id):
             if call.held_until:
@@ -523,25 +548,24 @@ class Calls:
         else:
             return None
         listening = self.listening(missed.session)
-        # The session's latest call, if it placed one after this.
-        later = max(
-            [c for c in self._calls.values() if c.session == missed.session and not c.back]
-            + [c for c, _ in self._past.values() if c.session == missed.session],
-            key=lambda c: c.at, default=None,
-        )  # fmt: skip
+        # The session's latest briefing, if it wrote one after this call's.
+        later = self._latest(missed.session)
         since = (later.briefing, time.time() - later.at) if later and later.at > missed.at else None
-        # What the missed call's briefing asks and no longer waits for an answer; a session
+        # What the earlier call's briefing asks and no longer waits for an answer; a session
         # that isn't listening waits for none.
         waiting = {ask.name for ask in self._pool.get(missed.session, {}).values()} if listening else set()
         settled = [name for name in missed.asked if name not in waiting]
-        briefing = called_back(missed.briefing, time.time() - missed.at, since, settled)
-        call = dataclasses.replace(missed, briefing=briefing, placed=time.monotonic(), back=missed)
+        # You talked on it, or on a call back of it: the lead says so, rather than that you
+        # didn't answer.
+        talked = time.time() - missed.talked if missed.talked is not None else None
+        briefing = called_back(missed.briefing, time.time() - missed.at, since, settled, talked)
+        call = dataclasses.replace(missed, briefing=briefing, placed=time.monotonic(), back=missed, contact=False)
         call.link = self._link(call)
         call.link.listening = listening
         self._calls[call.id] = call
         how = ("the session listens" if listening else "the session isn't listening") + (
-            ", with a newer briefing since" if since else ""
-        )
+            f", answered {talked / 60:.0f} min ago" if talked is not None else ""
+        ) + (", with a newer briefing since" if since else "")
         self._log(f"call {call.id[:8]}: called back about {call.subject!r}, {how}")
         await self._pick_up(call)
         return call
@@ -566,6 +590,94 @@ class Calls:
         self._log(f"call {call.id[:8]}: called now from the app, held until {held.held_until}: {call.subject!r}")
         await self._pick_up(call)
         return call
+
+    async def contact(self, session: str, call_id: str) -> Call | None:
+        """The call you make by calling a session from the phone's Contacts, which it answers
+        at once, under the ID the phone made for it. Its voice has the session's latest
+        briefing, if it has one, with a lead that says you called; it talks with the session as
+        an answered call does. None if the session isn't listening: the phone lists only
+        sessions that do, but its list can be a little old. A contact call already on is given
+        as it is, so a new offer replaces the earlier one."""
+        self._expire()
+        if call := self._calls.get(call_id):
+            return call if call.contact and call.session == session else None
+        if call_id in self._past or not self.listening(session):
+            return None
+        latest = self._latest(session)
+        project, cwd = self._named.get(session, ("", ""))
+        if latest:
+            project, cwd = project or latest.project, cwd or latest.cwd
+        # What the call will be remembered as, for a call back: the latest briefing, as of now.
+        plain = Call(
+            call_id, session, project or "Claude", cwd, latest.subject if latest else "",
+            latest.briefing if latest else "", time.monotonic(), at=latest.at if latest else time.time(),
+            asked=latest.asked if latest else (), contact=True,
+        )  # fmt: skip
+        heard = time.time() - latest.talked if latest and latest.talked is not None else None
+        briefing = called_contact(latest.briefing if latest else None, time.time() - plain.at, heard)
+        call = dataclasses.replace(plain, briefing=briefing, back=plain)
+        call.link = self._link(call)
+        self._calls[call.id] = call
+        about = f"its latest briefing {latest.subject!r}" if latest else "no briefing yet"
+        self._log(f"call {call.id[:8]}: called from Contacts, {call.project} ({session[:8]}), with {about}")
+        await self._pick_up(call)
+        return call
+
+    def _latest(self, session: str) -> Call | None:
+        """The call with a session's latest briefing: placed, held or remembered. A call you made
+        counts as the call it calls; a call from Contacts has no briefing of its own."""
+        mine = [c.back or c for c in self._calls.values() if c.session == session]
+        mine += [c for c, _ in self._past.values() if c.session == session]
+        return max((c for c in mine if not c.contact), key=lambda c: c.at, default=None)
+
+    def contacts(self) -> list[dict]:
+        """The sessions that listen now, as the phone's Contacts list them: each one's ID,
+        project, since when it listens here, and the subject of its latest briefing and when
+        the session wrote it, if it has one. A session whose mod didn't say its project (a mod
+        from before Contacts) goes by its latest call's, or isn't listed."""
+        listed = []
+        for session in self._seen:
+            if not self.listening(session):
+                continue
+            latest = self._latest(session)
+            project = self._named.get(session, ("", ""))[0] or (latest.project if latest else "")
+            if not project:
+                continue
+            entry = {"session_id": session, "project": project, "since": stamp(self._since.get(session, time.time()))}
+            if latest:
+                entry |= {"subject": latest.subject, "briefed_at": stamp(latest.at)}
+            listed.append(entry)
+        return sorted(listed, key=lambda e: (e["project"].lower(), e["since"]))
+
+    async def publish(self) -> None:
+        """Tells the switchboard which of this Mac's sessions listen, for the phone's Contacts:
+        when that changes, and every PUBLISH s, so the switchboard can drop a Mac's sessions
+        once it stops hearing from it. Runs as long as the server does. A switchboard from
+        before Contacts answers 404, which is logged once."""
+        sent: list[dict] | None = None
+        tried = again = float("-inf")
+        failing = False
+        while True:
+            listed = self.contacts()
+            now = time.monotonic()
+            if (listed != sent and now >= again) or now - tried >= PUBLISH:
+                tried = now
+                try:
+                    async with ClientSession(timeout=ClientTimeout(total=10)) as http:
+                        body = {"voice": f"http://{self._voice}", "sessions": listed}
+                        async with http.post(f"http://{self._switchboard}/sessions", json=body) as response:
+                            if response.status != 200:
+                                raise RuntimeError(f"the switchboard answered {response.status}")
+                    if listed != sent:
+                        names = ", ".join(f"{e['project']} ({e['session_id'][:8]})" for e in listed) or "none"
+                        self._log(f"sessions listening, told the switchboard: {names}")
+                    sent, failing = listed, False
+                except (ClientError, TimeoutError, RuntimeError) as e:
+                    again = now + CHANGED
+                    if not failing:
+                        self._log(f"can't tell the switchboard which sessions listen: {e or type(e).__name__}")
+                    failing = True
+            await asyncio.sleep(1)
 
     async def to_claude_app(self, call_id: str) -> str | None:
         """Sends a held call's question to the session's own dialog, which Remote Control
@@ -671,8 +783,14 @@ class Calls:
         self._log(f"{kind} for session {session[:8]}: {text!r}")
         self._save()
 
-    def collect(self, session: str) -> list[dict]:
-        self._seen[session] = time.monotonic()  # it's listening
+    def collect(self, session: str, project: str | None = None, cwd: str | None = None) -> list[dict]:
+        """What waits for a session, which its mod collects while ringback is on in it: so it
+        listens. The mod says its project and folder, for the phone's Contacts."""
+        if not self.listening(session):
+            self._since[session] = time.time()
+        self._seen[session] = time.monotonic()
+        if project:
+            self._named[session] = (project, cwd or "")
         if messages := self._waiting.pop(session, []):
             self._save()
         return messages
@@ -786,8 +904,9 @@ class Calls:
         call.link.asks.clear()
         transcript = call.link.transcript.relative if call.link.transcript else None
         self.send(call.session, outcome(call, transcript), transcript, kind="outcome")
-        # What's remembered is the call as it was placed, also after a call back.
-        self._past[call.id] = (call.back or remembered(call), time.time())
+        # What's remembered is the call as it was placed, also after a call back, with when you
+        # last talked on it.
+        self._past[call.id] = (talked(call), time.time())
         self._expire()
         self._save()
         await self._stay_awake()
@@ -904,7 +1023,7 @@ class Calls:
             self._waiting.setdefault(call.session, []).append(
                 {"kind": "outcome", "text": restarted(call), "transcript": call.link.transcript_path}
             )
-            self._past[call.id] = (call.back or remembered(call), time.time())
+            self._past[call.id] = (talked(call), time.time())
         for ask in self._asks.values():
             self._keep_until_read(ask)
         self._expire()
@@ -921,7 +1040,8 @@ class Calls:
             data["id"], data["session"], data["project"], data["cwd"], data["subject"], data["briefing"],
             time.monotonic(), at=data["at"], held_until=data["held_until"], asked=tuple(data["asked"]),
             back=self._loaded(data["back"], asks) if data["back"] else None, now=data.get("now", False),
-            answered_at=time.monotonic() if data["answered"] else None,
+            answered_at=time.monotonic() if data["answered"] else None, contact=data.get("contact", False),
+            talked=data.get("talked"),
         )  # fmt: skip
         if link := data["link"]:
             call.link = self._link(call)
@@ -940,7 +1060,7 @@ def saved(call: Call, ref: Callable[[Ask], int]) -> dict:
     return {
         "id": call.id, "session": call.session, "project": call.project, "cwd": call.cwd, "subject": call.subject,
         "briefing": call.briefing, "at": call.at, "held_until": call.held_until, "asked": list(call.asked),
-        "answered": call.answered_at is not None, "now": call.now,
+        "answered": call.answered_at is not None, "now": call.now, "contact": call.contact, "talked": call.talked,
         "back": saved(call.back, ref) if call.back else None,
         "link": link and {
             "listening": link.listening,
@@ -957,6 +1077,8 @@ def restarted(call: Call) -> str:
     ended = "ended when the voice server restarted"
     path = call.link.transcript_path
     transcript = f" Its transcript: {path}" if path else ""
+    if call.contact:
+        return f"The developer called the session from the app's Contacts, and the call {ended}.{transcript}"
     if call.back:
         what = f'"{call.subject}"' if call.subject else "an earlier call"
         how = f"called about {what} from the app while it waited" if call.now else f"called back about {what}"
@@ -965,6 +1087,13 @@ def restarted(call: Call) -> str:
     if call.answered_at is not None:
         return f"{about} was answered, and {ended}.{transcript}"
     return f"{about} {ended}, before it was answered."
+
+
+def talked(call: Call) -> Call:
+    """What's remembered of a call that has ended: the call as it was placed, also after a call
+    back, and when you last talked on it, if you answered."""
+    kept = call.back or remembered(call)
+    return dataclasses.replace(kept, talked=time.time()) if call.answered_at is not None else kept
 
 
 def remembered(call: Call) -> Call:
@@ -980,6 +1109,12 @@ def outcome(call: Call, transcript: str | None) -> str:
     """How a call went, for its session to read. If it wasn't answered, the voice server
     can't tell why; the switchboard's log can."""
     about = f'The call about "{call.subject}"' if call.subject else "The call"
+    if call.contact:
+        if call.answered_at is None:
+            return "The developer called the session from the app's Contacts, but the call didn't connect."
+        lasted = duration(time.monotonic() - call.answered_at)
+        text = f"The developer called the session from the app's Contacts and it lasted {lasted}."
+        return f"{text} Its transcript: {transcript}" if transcript else text
     if call.back:
         what = f'"{call.subject}"' if call.subject else "an earlier call"
         # From the app's call history, or a held call from the app's waiting calls.
@@ -1007,6 +1142,11 @@ def wake(held_until: str) -> float:
     return max(min(at, now + REASK), now + 1)
 
 
+def stamp(at: float) -> str:
+    """A time.time() as ISO 8601, with this Mac's offset from UTC."""
+    return datetime.fromtimestamp(at).astimezone().isoformat(timespec="seconds")
+
+
 def new_id(taken: dict) -> str:
     """Four random lowercase letters, not taken yet: short, and safe for Haiku to write."""
     while (id := "".join(secrets.choice(string.ascii_lowercase) for _ in range(4))) in taken:
@@ -1028,7 +1168,8 @@ def session_side(calls: Calls) -> web.Application:
       answer has `held_until`, when the call can ring (ISO 8601, with an offset);
     - `GET /sessions/{id}/messages` collects what waits for a session: each message has a
       `kind`, `message` for what the voice passed on and `outcome` for how a call went, its
-      `text`, and the call's `transcript` if there is one;
+      `text`, and the call's `transcript` if there is one. `?project=…&cwd=…` say the
+      session's project and folder, for the phone's Contacts;
     - `POST /sessions/{id}/messages` leaves one, as the voice does (for tools);
     - `POST /sessions/{id}/news` brings a session's answer: `{"live": true}` if the voice
       told the call you're on, false if the session should call you;
@@ -1069,7 +1210,8 @@ def session_side(calls: Calls) -> web.Application:
         return web.json_response({"ok": True} | ({"held_until": call.held_until} if call.held_until else {}))
 
     async def collect(request: web.Request) -> web.Response:
-        return web.json_response({"messages": calls.collect(request.match_info["id"])})
+        q = request.query
+        return web.json_response({"messages": calls.collect(request.match_info["id"], q.get("project"), q.get("cwd"))})
 
     async def leave(request: web.Request) -> web.Response:
         try:

@@ -108,7 +108,7 @@ function engine(on: On, voice: Voice = {}) {
       value: { status, ok: status < 300, headers: {}, text: JSON.stringify(answer) },
     })
     if (e.url.endsWith('/news')) return ok({ live: voice.live ?? false })
-    if (e.url.endsWith('/messages')) return ok({ messages: voice.waiting?.splice(0) ?? [] })
+    if (new URL(e.url).pathname.endsWith('/messages')) return ok({ messages: voice.waiting?.splice(0) ?? [] })
     if (e.url.endsWith('/calls')) return ok(voice.placed ?? { ok: true }, voice.placedStatus)
     if (/\/(permissions|questions)$/.test(e.url)) {
       const created = voice.created ?? { status: 200, body: { permission: 'p1', question: 'q1', call: 'placed' } }
@@ -253,6 +253,19 @@ test('what the voice passes on becomes a prompt, with the transcript', async ($,
   await clock.advance(1000)
   await settle()
   expect(asked.prompts.length).toBe(1)
+})
+
+test("collecting says the session's project and folder, for the phone's Contacts", async ($, on) => {
+  const asked = engine(on)
+  const clock = mock.clock(on)
+  await start($)
+  await clock.advance(1000)
+  await settle()
+  const collects = asked.fetches.filter(f => new URL(f.url).pathname === '/sessions/session-1234/messages')
+  expect(collects.length).toBeGreaterThan(0)
+  const where = new URL(collects[0].url).searchParams
+  expect(where.get('project')).toBe('demo')
+  expect(where.get('cwd')).toBe('/home/someone/Projects/demo')
 })
 
 const unanswered = `The call about "Tests pass" wasn't answered within 1 min 30 s: declined, missed, or its audio didn't connect.`

@@ -7,12 +7,14 @@ over Nebula (on mobile data only the phone can open a tunnel), with the call's I
 rings, marked "ringing", and then it posts to /answered when you answer; or, from an older
 app, once you've answered. The voice opens when you've answered and audio is connected. A
 new offer for the same call replaces the earlier one, as when an offer made while ringing
-didn't connect. An offer marked "back" calls back a call you didn't answer, from the phone's
-call history: it's answered at once, and the voice picks up. So is an offer marked "now",
-for a call held outside your work hours that you called from the app's waiting calls. From
-there you can also send a held call's question to the Claude app (/claude-app): the session
-asks it in its own dialog, which Remote Control shows there, and the call is forgotten. What
-it keeps for sessions and their calls is written beside the socket, and read again at start
+didn't connect. An offer marked "back" calls back a call from the phone's call history,
+answered or not: it's answered at once, and the voice picks up. So is an offer marked "now",
+for a call held outside your work hours that you called from the app's waiting calls, and
+one marked "contact", for a session you called from the app's Contacts, which the switchboard
+lists from what this server tells it (sessions.py). From the waiting calls you can also send
+a held call's question to the Claude app (/claude-app): the session asks it in its own
+dialog, which Remote Control shows there, and the call is forgotten. What it keeps for
+sessions and their calls is written beside the socket, and read again at start
 (sessions.py).
 
 The call is a conversation: Parakeet v2 hears you, Haiku answers in a Claude Code session
@@ -390,14 +392,26 @@ def main() -> None:
         body = await request.json()
         t0 = time.monotonic()
         call_id = str(body.get("call_id", ""))
+        # You called a session from the app's Contacts: a new call under the ID the phone made,
+        # answered at once. The app marks it "back" too, so a voice server from before Contacts
+        # refuses it as a call back it doesn't know, rather than take it for a call rung by hand.
+        contact = body.get("contact") if isinstance(body.get("contact"), str) and body.get("contact") else None
         # You called a call back from the phone's call history; it's answered at once.
-        back = body.get("back") is True
+        back = body.get("back") is True and not contact
         # You called a waiting call from the app: held outside your work hours, it's released
         # at once, without ringing; one that rang meanwhile is answered as any offer is.
-        now = body.get("now") is True and not back
+        now = body.get("now") is True and not back and not contact
         # Made while the phone rings; an offer without it comes once you've answered.
-        ringing = body.get("ringing") is True and not back and not now
-        call = await calls.back(call_id) if back else await calls.now(call_id) if now else calls.offer(call_id)
+        ringing = body.get("ringing") is True and not back and not now and not contact
+        if contact:
+            # The phone makes the call's ID, as for a call back's own record: it must be long
+            # enough not to be guessed.
+            call = await calls.contact(contact, call_id) if len(call_id) >= 16 else None
+            if not call:
+                log(f"call {call_id[:8]}: called session {contact[:8]} from Contacts, refused: it isn't listening")
+                return web.json_response({"error": "not listening"}, status=403)
+        else:
+            call = await calls.back(call_id) if back else await calls.now(call_id) if now else calls.offer(call_id)
         link = haiku = None
         if call and call.held_until:
             # Held outside your work hours, it hasn't rung, so the phone knows its ID only from
@@ -463,6 +477,7 @@ def main() -> None:
 
         asyncio.create_task(talk())
         how = ", ringing" if ringing else ", called back" if back else ", called now" if now else ""
+        how = ", from Contacts" if contact else how
         log(f"call {call_id[:8]}: offer answered in {time.monotonic() - t0:.2f} s{how}")
         return web.json_response(conn.get_answer())
 
@@ -499,6 +514,8 @@ def main() -> None:
 
         args.socket.parent.mkdir(parents=True, exist_ok=True)
         await calls.restore()
+        # The sessions that listen, for the phone's Contacts; the name keeps the task alive.
+        publishing = asyncio.create_task(calls.publish()) if args.switchboard else None
         app = web.Application()
         app.add_routes([
             web.post("/offer", offer), web.post("/answered", answer), web.post("/claude-app", claude_app),

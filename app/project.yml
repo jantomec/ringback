@@ -15,7 +15,11 @@ targets:
   Ringback:
     type: application
     platform: iOS
-    sources: [Ringback]
+    sources:
+      - Ringback
+      # The app's settings, in the Settings app (Settings → Apps → Ringback).
+      - path: Settings.bundle
+        buildPhase: resources
     dependencies:
       - package: WebRTC
     settings:

@@ -3,9 +3,9 @@
 How to run ringback as built so far (Stage 3 in progress: a session with `/ringback` on
 calls you when it finishes, what you tell the voice reaches the session, you can answer
 its permission prompts and questions on the call, and you can call back a call you missed
-from the app; built but not yet tried on the phone: staying up through restarts, and
-calling a call that waits for your work hours from the app). Replace the example addresses
-with your own.
+from the app; built but not yet tried on the phone: staying up through restarts, calling a
+call that waits for your work hours from the app, calling back any call, and calling your
+sessions from the app's Contacts). Replace the example addresses with your own.
 
 ## You need
 
@@ -47,20 +47,34 @@ xcrun devicectl device install app --device <UDID> build/Build/Products/Debug-ip
   without push, and the build fails on the push entitlement. Sign in again in Xcode →
   Settings → Accounts.
 
-Open the app, allow the microphone and notifications, and enter the switchboard's Nebula
-address, e.g. `10.0.0.1` (port 8787 is the default). The top row turns green: "Ready for
-calls". Notifications are for one warning: when the phone can't reach the switchboard over
-Nebula, so calls can't connect.
+Open the app and allow the microphone and notifications. Its settings are in the Settings
+app, under **Settings → Apps → Ringback** (the app's banner, "Set up Ringback", has a button
+that opens it): enter the switchboard's Nebula address under **Switchboard**, e.g.
+`10.0.0.1` (port 8787 is the default), then go back to the app. The banner goes once the
+switchboard has the phone. Notifications are for a warning when the phone can't reach the
+switchboard over Nebula, so calls can't connect, which also shows as a banner at the top of
+**Recents**, with **Try Again**, and for a waiting call's question.
 
-**Interruption Sensitivity** sets how easily your speech stops Claude, and **Ignore
-Background Noise** (on by default) keeps quieter voices and sounds than yours, such as
-people nearby, from stopping it. Changes apply from the next call. During your first call,
-turn on Voice Isolation in Control Center (Mic Mode), so background noise doesn't stop it.
+The same page has the rest:
+- **Work Hours**, off by default, with **From** and **To** in 15-minute steps: Claude calls
+  only between them. They reach the switchboard when the app next runs, or at the latest
+  with its next connection check, within half an hour; open the app after changing them, so
+  they apply from the next call.
+- **Interruption Sensitivity** sets how easily your speech stops Claude: less to the left,
+  more to the right.
+- **Ignore Background Noise** (on by default) keeps quieter voices and sounds than yours,
+  such as people nearby, from stopping it; its slider is gentle to the left and strong to the
+  right. These two apply from the next call.
 
-**Calls** lists every call. Tap a red one (declined, missed or failed) to call that session
-back at once. Calls from an app older than calling back can't be. Calls that wait for your
+During your first call, turn on Voice Isolation in Control Center (Mic Mode), so background
+noise doesn't stop it.
+
+The app has two tabs, as the Phone app has. **Recents** lists every call: tap one to call
+its session at once, answered or not, and its ⓘ for its details. A call from an app older
+than calling back calls its session from Contacts, if it's there. Calls that wait for your
 work hours show at the top in orange, with when they ring; tap one to call it now, without
-waiting. One whose session asks you a question says so, and the phone gets one notification
+waiting. **Contacts** lists your sessions with ringback on, on every Mac, by project: tap one
+to call it, and the voice picks up with what's new since the session last reported. One whose session asks you a question says so, and the phone gets one notification
 for it. Swipe it left for **Claude App** to send the question to the session's own dialog
 instead, which Remote Control shows in the Claude app; the call then never rings. It's grey,
 and only says why, while the session has Remote Control off.
@@ -103,7 +117,13 @@ voice server from before it refuses the call, and the app says it isn't waiting 
 Questions outside your work hours (their notification and **Claude App**) need all four
 updated, the mod with the voice server: a mod from before gives the question to the
 terminal at once, a switchboard from before sends no notification and lists no question,
-and an app from before shows no swipe action.
+and an app from before shows no swipe action. Contacts, and calling back answered calls,
+need all four updated too: a mod from before doesn't say its session's project, so a session
+shows in Contacts only once it has placed a call; a voice server from before tells the
+switchboard nothing, refuses a call from Contacts (the app says that Mac's voice server is
+from before Contacts) and takes the call back of an answered call as one you missed; a
+switchboard from before lists no contacts; and an app from before has no Contacts, and keeps
+its settings on its own screen (the values carry over).
 
 ## 4. The voice server (every Mac that runs sessions)
 

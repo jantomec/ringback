@@ -94,9 +94,9 @@ private func base64url(_ data: Data) -> String {
         .replacingOccurrences(of: "=", with: "")
 }
 
-/// Rings every registered phone once, as call `callID`, or a new call. Returns one line per
-/// phone.
-func ring(project: String, subject: String?, voice: String?, callID: String? = nil) async -> [String] {
+/// Rings every registered phone once, as call `callID`, or a new call, from `session` if a
+/// voice server named it. Returns one line per phone.
+func ring(project: String, subject: String?, voice: String?, callID: String? = nil, session: String? = nil) async -> [String] {
     let config = loadConfig()
     let callID = callID ?? UUID().uuidString.lowercased()
     var lines: [String] = []
@@ -107,6 +107,7 @@ func ring(project: String, subject: String?, voice: String?, callID: String? = n
         var payload = ["call_id": callID, "project": project]
         payload["subject"] = subject
         payload["voice"] = voice
+        payload["session_id"] = session
         do {
             if clients[environment] == nil {
                 clients[environment] = try APNs(environment: environment, config: config)

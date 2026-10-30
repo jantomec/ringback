@@ -225,7 +225,29 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
    - It keeps what the voice passes on for each session until that session's mod
      collects it, and takes the session's answers back as news for the call. When a mod
      last collected tells whether its session is listening: within 30 s, as the mod
-     collects once a second while ringback is on.
+     collects once a second while ringback is on. The mod says its session's project and
+     folder as it collects (`?project=…&cwd=…`), for Contacts.
+   - **The sessions that listen** (Stage 5, step 1; built, tried offline, not yet on the
+     phone) are the phone's Contacts. The voice server tells the switchboard which they are
+     (`POST /sessions` with its own address and, for each, the session's ID, project,
+     since when it listens, and its latest briefing's subject and when the session wrote
+     it, if it has one), whenever that changes and every 30 s; after a try that fails, a
+     change goes again 5 s later. A session whose mod didn't say its project (a mod from
+     before Contacts) goes by its latest call's project, or isn't listed. "Since when" is
+     when this voice server first saw it listen, so a restart sets it anew. A switchboard
+     from before Contacts answers 404, which is logged once.
+   - **Calling from Contacts** (`"contact": <session ID>` in the phone's offer, with a call
+     ID made on the phone, at least 16 characters). For a session that listens, it makes a
+     new call for that session under that ID, a fresh Haiku answered at once, as a call back
+     does: messages, news, what the session asks (what it asked on calls you didn't answer
+     comes to this one too), a transcript in its folder, and a call outcome ("The developer
+     called the session from the app's Contacts and it lasted 2 min."). The voice gets the
+     session's latest briefing with a lead that says you called it from your contacts and to
+     open with what's new, briefly; if you already talked that briefing through on a call,
+     that there may be nothing new; with no briefing yet, that it knows nothing of the
+     session's work and should ask what you want (`called_contact` in
+     `voice/ringback_voice/instructions.py`). A session that isn't listening gets 403
+     (`"not listening"`). It's remembered for calling back as a call with that briefing.
    - **What a session asks you** (`/sessions/{id}/permissions` and `/questions`): a
      permission or questions go to the call you're on with that session as a note, to its
      call that's still ringing once you answer, or else to a new call whose briefing asks
@@ -238,16 +260,20 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      Claude app from a held call, the answer is `terminal`: the session asks in its own
      dialog or prompt.
    - **Calling back** (`"back": true` in the phone's offer). The voice server remembers
-     each call it placed (session, project, folder, subject, briefing, and when it was
-     placed) for a day after it's forgotten, also across a restart (Staying up). An
-     offer marked `back` for such a call makes a new call for its session under the same
-     ID: a fresh Haiku, answered at once. It talks with the session as an answered call
-     does: messages, news, what the session asks, a transcript, and a call outcome ("The
-     developer called back about "…" and it lasted 2 min."). An ID it doesn't remember
-     gets 403, also when it takes calls rung by hand (`--report`).
-     - The voice gets the missed call's briefing with a lead that says you called, how
-       long ago the missed call was, and to open with what it was about, with no
-       introduction (`called_back` in `voice/ringback_voice/instructions.py`). If the
+     each call it placed or you made (session, project, folder, subject, briefing, when it
+     was placed, and when you last talked on it, if you did) for a day after it's
+     forgotten, also across a restart (Staying up). An offer marked `back` for such a call,
+     answered or not, makes a new call for its session under the same ID: a fresh Haiku,
+     answered at once. It talks with the session as an answered call does: messages, news,
+     what the session asks, a transcript, and a call outcome ("The developer called back
+     about "…" and it lasted 2 min."). An ID it doesn't remember gets 403, also when it
+     takes calls rung by hand (`--report`).
+     - For a call you missed, the voice gets its briefing with a lead that says you called,
+       how long ago the missed call was, and to open with what it was about, with no
+       introduction (`called_back` in `voice/ringback_voice/instructions.py`). For a call
+       you answered, or one you made, the lead says you talked about it so long ago, and to
+       open with what's changed since, briefly, if anything has, or else say so and ask what
+       you want (Stage 5, step 1; until then only missed calls could be called back). If the
        session wrote a newer briefing after it, for a later call or a held one, that
        briefing follows, "since then", and the voice opens with what changed.
      - If the session isn't listening, ringback off or the session ended, the call back
@@ -271,8 +297,8 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      (Stage 7; for now each `/call` rings at once, unless it's outside your work hours);
    - **waiting calls** (Stage 5; built, not yet tried on the phone): keeps the calls that
      wait (held outside your work hours, and from Stage 7 queued) in `waiting.json` in its
-     state folder, with their project, subject, voice server, when they ring and when they
-     were last refreshed, so they survive a restart, and gives them to the app, soonest
+     state folder, with their project, subject, voice server, session, when they ring and
+     when they were last refreshed, so they survive a restart, and gives them to the app, soonest
      first (`POST /waiting`, `{"calls": [...]}`). Only a phone that registered gets them,
      by its push token in the request: a call's ID lets whoever has it take the call. Each
      voice server's asking again every 10 min refreshes its calls; one not refreshed for
@@ -292,10 +318,20 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      the call would ring. `waiting.json` keeps when it was sent (`notified`), so asking
      again and restarts don't repeat it. Held calls without a question stay silent. Tapping
      it opens the app. Without an APNs key it logs that instead;
-   - starts a call with a VoIP push through APNs that names the Mac taking the call;
+   - **contacts** (Stage 5, step 1; built, tried offline, not yet on the phone): keeps the
+     sessions each voice server says listen (`POST /sessions`) in `contacts.json` in its
+     state folder, by voice server, each list replacing that voice server's last, and drops
+     a voice server not heard from in 90 s, as when its Mac sleeps or the voice server
+     stops. It gives them all to the app by project, each with its voice server (`POST
+     /contacts`, `{"contacts": [...]}`), only for a registered phone's push token, as the
+     waiting calls: a session's ID lets whoever has it call the session. It logs a voice
+     server's list when it changes, and when one is dropped;
+   - starts a call with a VoIP push through APNs that names the Mac taking the call, and
+     the session that calls (`session_id`, from Stage 5 step 1), so the app can call that
+     session from Contacts once the voice server has forgotten the call;
    - takes calls from the voice servers at `/call` over Nebula, with their project,
-     subject and call ID;
-   - **work hours:** outside the work hours of every phone (set in the app), `/call` pushes
+     subject, call ID and session;
+   - **work hours:** outside the work hours of every phone (set in the Settings app), `/call` pushes
      nothing. It answers when the first phone's hours start (`held_until`, ISO 8601 with
      that phone's offset from UTC) and logs it, and the voice server asks again by then. A
      phone without hours is always inside them. The app sends its hours and time zone with
@@ -609,6 +645,16 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
    - **If the app is closed during a call** (killed or crashed), the call is recorded as
      ended at the last heartbeat, which is saved every 2 s, and reported to the
      switchboard at the next launch.
+   - **Like the Phone app** (Stage 5, step 1; built, tried in a simulator, not yet on the
+     phone). The app has two tabs, as the iPhone's Phone app has in its classic layout:
+     **Recents** (`clock.fill`), the call history, and **Contacts**
+     (`person.crop.circle.fill`), the sessions you can call. Both are standard lists, in
+     light and dark. Its settings are in the Settings app (below). Above the calls, Recents
+     shows a banner only while something's wrong: microphone access is off, the app isn't
+     set up, or calls can't reach the phone (the connection check). `tools/app-screens`
+     screenshots both tabs, the details screens, the banners and the Settings page in a
+     simulator, with sample calls a debug build can show (`Seed.swift`; release builds have
+     none of it).
    - **Microphone access** is asked for when you open the app, because a locked phone in a
      call can't show the prompt. While access is off, a banner links to Ringback's page in
      Settings.
@@ -618,43 +664,66 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      back over Nebula, the way a call reaches the Mac. If three tries in about 25 s fail,
      the app shows a notification: "Claude can't call you: Ringback can't reach your
      switchboard over Nebula. Check that Nebula is on." It comes again after 3 h if the
-     problem stays. Until the switchboard is reachable again, a banner on the main screen
-     says the same, because tapping the notification removes it. Notifications are asked
-     for when you open the app.
+     problem stays. Until the switchboard is reachable again, a banner at the top of
+     Recents says the same, with Try Again, because tapping the notification removes it.
+     Notifications are asked for when you open the app.
      - On the phone (one test each): unlocked and locked, the app checked in within 2 s of
        the push. With Nebula off and the phone locked, the warning came, but later than
        35 s after the push; how much later wasn't timed.
-   - **Calls:** the whole call history.
-     - Each call shows its caller (the project's name; "Claude from \<project\>" until
-       2026-10-30) and a 3–8 word subject.
-       The session writes it with its briefing, and the push carries it.
-     - A green phone and the duration mean answered. A red one means declined, missed,
-       busy or failed. A call back shows as an outgoing call, with the subject of the call
-       it returns.
-     - The history is stored on the phone for now and will move to iCloud later.
-   - **Call back.** Tapping a red call (declined, missed or failed) calls that session back
-     straight away, without ringing, as in the iPhone's Phone app. The voice has the same
-     context the missed call had. If the session has moved on since, it says what changed
-     first (calling back, in the voice server's session side).
-     - Only calls whose push named their voice server can be called back: the app keeps
-       it with the call from now on, so older calls stay plain rows.
+   - **Recents:** the whole call history, most recent first, with the calls that wait at the
+     top. The history is stored on the phone for now and will move to iCloud later.
+     - Each row is two lines, as in the Phone app's Recents. The first is the caller, the
+       project's name ("Claude from \<project\>" until 2026-10-30): red for declined,
+       missed, busy or couldn't ring, and for a call you made that didn't connect; orange
+       for a waiting call; otherwise primary. A call you made (a call back, a call from
+       Contacts, a waiting call you called now) has a small `phone.arrow.up.right` in
+       secondary before the name, in a column of its own so every name starts in the same
+       place. The second line is the call's 3–8 word subject in secondary, cut to one line;
+       the session writes it with its briefing, and the push carries it. On the right: the
+       time today, "Yesterday", the weekday within a week, or the date; then ⓘ
+       (`info.circle`, in the accent colour).
+     - ⓘ opens the call's details, as the Phone app's call info: a monogram of the
+       project's name, the name, a "call" button, then the call under its day ("Today"):
+       when, what kind ("Incoming Call", "Missed Call", "Declined Call", "Called Back",
+       "Called from Contacts", "Called While Waiting", "Didn't Connect"…), how long, and
+       "While on another call"; then its whole subject.
+   - **Calling a call** (Stage 5, step 1; built, tried offline, not yet on the phone).
+     Tapping any call calls its session straight away, without ringing, as in the iPhone's
+     Phone app, answered calls too (until then only a red one, within a day). Its voice has
+     the call's briefing: for a call you missed, it opens with what it was about; for one you
+     took, with what's changed since, or says nothing has and asks what you want (calling
+     back, in the voice server's session side). If the session has moved on since, it says
+     what changed first. If the session isn't listening any more, the call still connects,
+     and the voice says it can't act on it.
      - It's an outgoing CallKit call (`CXStartCallAction`), with the same caller name as a
        call that rings, the in-call screen, Mute and End. CallKit shows it connecting, then
        connected once its audio connects.
      - Its audio goes as a call's does: the app reaches the voice server (`/ping`), then
-       offers with the missed call's ID and `"back": true`, not ringing. The voice server
+       offers with the call's ID and `"back": true`, not ringing. The voice server
        answers it at once.
      - It's a new record in the history, with its own ID, and keeps the ID of the call it
        calls back. Its events go to the switchboard under its own ID: called back (with the
-       missed call's ID in a note), then ended with its duration, or audio failed.
-     - If the voice server no longer knows the call (forgotten after a day), the call ends
-       and an alert says "Claude can't take this call back any more." A call
+       earlier call's ID in a note), then ended with its duration, or audio failed. A call
        back whose audio never connected is red, and tapping it calls the same call back
        again.
+     - If the voice server no longer knows the call (forgotten after a day, or after a
+       restart without its state), the app fetches Contacts, and if the call's session is
+       there, the call goes on as a call to it from Contacts, under the same ID ("called
+       contact" to the switchboard). The push and the waiting calls now carry the session's
+       ID for this; for a call from before, the app takes the only session of that project
+       on that Mac. Otherwise the call ends, and an alert says the Mac no longer remembers
+       the call and the session isn't in Contacts now.
+     - A call from before calling back, whose push didn't name its voice server, calls its
+       session from Contacts if it's there; otherwise its row can't be tapped.
+     - A voice server from before calling back answered calls takes their call back as
+       one you missed: its voice says you didn't answer then. Not refused, since that voice
+       server remembers answered calls too.
    - **Waiting calls** (Stage 5; built, not yet tried on the phone). The calls that wait,
      held outside your work hours (and from Stage 7 queued), show at the top of the call
-     history in orange, with a clock, the caller name and subject, and when they ring
-     ("Waiting · rings at 08:00", with the date if it isn't today). The app fetches them
+     history, the caller in orange, and on the second line when they ring and the subject
+     ("Rings tomorrow at 08:00 · Parser fix ready", "Question · rings at 08:00 · …" with a
+     question); ⓘ shows when it rings, whether it asks a question, the subject, and buttons
+     to call it now and, with a question, to send it to the Claude app. The app fetches them
      from the switchboard when you open it, after it registers, and with each connection
      check. Tapping one calls it now, as a call back does: an outgoing CallKit call, no
      ringing, and its offer carries the call's ID and `"now": true`, so the voice picks
@@ -682,32 +751,61 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        app has no notification delegate); the list is fetched when you open the app.
    - **Held calls** (Stage 7). While all calls are held after a final decline, the app
      says so and shows which call to call back. Calling it back releases them.
-   - **Settings:**
-     - **Switchboard:** the switchboard's Nebula address. The app registers its push
-       token there.
-     - **Work Hours:** a switch, off by default, and while it's on, From and To times below
-       it (08:00 and 20:00 to start), as with Downtime in iOS Settings. Claude calls only
-       between them; a call outside them waits until they start, so a session that finishes
-       at 2 am calls at 8 am. From later than To wraps past midnight (22:00–06:00), and equal
-       times mean any time. They're kept as times of day, read in the phone's time zone,
-       and sent to the switchboard as soon as you change them, so they apply from the next
-       call. Days of the week aren't covered.
-     - **Interruption Sensitivity:** a slider from "Less" to "More". More stops the voice
-       at shorter, less certain speech, which suits quiet places. Less needs clearer,
-       longer speech, which suits noisy ones. On the Mac it sets the confidence and length
-       thresholds of voice-activity detection (`voice/ringback_voice/hearing.py`). The
+   - **Contacts** (Stage 5, step 1; built, tried offline, not yet on the phone): your
+     sessions with ringback on, on every Mac, by project, as the switchboard lists them
+     (`/contacts`, the switchboard's contacts). Two sessions in the same project have a
+     second line: their latest subject, or since when ringback has been on. The app fetches
+     them each time the tab shows, and on pull to refresh; they can be up to 30 s old.
+     - Tapping one calls it at once: an outgoing CallKit call, as a call back is. Its offer
+       carries a new ID made on the phone and `"contact": <session ID>`, and `"back": true`
+       too, so a voice server from before Contacts refuses it as a call back it doesn't
+       know rather than taking it for a call rung by hand. The voice server answers with a
+       new call for that session, whose voice has the session's latest briefing (calling
+       from Contacts, in the voice server's session side). It talks with the session as any
+       call does, and shows in Recents as an outgoing call, caller the project. Its events
+       go to the switchboard as "called contact", then ended or audio failed.
+     - Refused because the session isn't listening any more (its list is a little old), the
+       call ends and an alert says so; refused by a voice server from before Contacts, an
+       alert says that Mac's voice server is older than Contacts. Contacts is fetched again.
+     - ⓘ opens the session's details: its project, a "call" button, its latest briefing's
+       subject and when, since when ringback has been on, its Mac and the start of its ID.
+   - **Settings** live in the Settings app (Settings → Apps → Ringback), from the app's
+     `Settings.bundle`; the app has no settings screen any more. Groups, each with a footer
+     that says what the app's sections said:
+     - **Switchboard:** its Nebula address, as you'd type it ("10.0.0.1", port 8787 unless
+       you add one). The app registers its push token there.
+     - **Work Hours:** a switch, off by default, and From and To below it (08:00 and 20:00
+       to start), each a list of times in 15-minute steps: the Settings app has no time
+       picker, and you chose lists (2026-10-30). The Settings app can't hide them while the
+       switch is off. Claude calls only between them; a call outside them waits until they
+       start, so a session that finishes at 2 am calls at 8 am. From later than To wraps past
+       midnight (22:00–06:00), and equal times mean any time. They're kept as times of day,
+       read in the phone's time zone. They go to the switchboard with `/register` and
+       `/check`, when the app becomes active, and when they change while it runs
+       (`UserDefaults.didChangeNotification`). Changed in Settings while the app isn't
+       running, they reach the switchboard when it next runs, at the latest with the next
+       connection check (every 30 min), so a call meanwhile can still be held or ring by the
+       old hours. Days of the week aren't covered.
+     - **Interruption Sensitivity:** a slider, less to the left and more to the right, as
+       its footer says: sliders in the Settings app have no words at their ends. More stops
+       the voice at shorter, less certain speech, which suits quiet places. Less needs
+       clearer, longer speech, which suits noisy ones. On the Mac it sets the confidence and
+       length thresholds of voice-activity detection (`voice/ringback_voice/hearing.py`). The
        middle is Pipecat's defaults, which all calls so far used. The ends need 0.35 s or
        0.1 s of speech, with confidence to match. Only the low end has been tried,
-       offline (Stage 2).
-     - **Ignore Background Noise:** the background filter, the level gate above. It's a
-       switch, on by default, and while it's on a slider from "Gentle" to "Strong" shows
-       below it, as with Reduce Loud Audio in iOS Settings. On the Mac it sets the volume
-       threshold of voice-activity detection, on Pipecat's scale: 0.6 when off (-50 LUFS,
-       Pipecat's default, which all phone calls so far used), and from 0.62 to 0.8
-       (-30 LUFS) when on, 0.7 in the middle (the default). The strongest would ignore
-       some of your own quieter speech.
-     - Like iOS's own Settings, the sliders show words, not numbers. The app sends both
-       settings with each call's offer, so a change applies from the next call.
+       offline (Stage 2). The Settings app's slider has no steps, so any value between goes.
+     - **Ignore Background Noise:** the background filter, the level gate above: a switch,
+       on by default, and a Strength slider, gentle to the left and strong to the right. On
+       the Mac it sets the volume threshold of voice-activity detection, on Pipecat's scale:
+       0.6 when off (-50 LUFS, Pipecat's default, which all phone calls so far used), and
+       from 0.62 to 0.8 (-30 LUFS) when on, 0.7 in the middle (the default). The strongest
+       would ignore some of your own quieter speech.
+     - The keys are those the app's own screen used, so values carry over. Once, at the
+       first launch of this version, work hours off the 15-minute steps move to the nearest
+       one (09:40 becomes 09:45), and a switchboard address kept as a URL becomes the
+       address alone. The app registers the same defaults the Settings app shows, at launch.
+       It reads the sensitivity and the filter when it makes each call's offer, so a change
+       applies from the next call.
 7. **Nebula** carries only the call; the push reaches the phone through Apple. The
    lighthouse must be a relay (`relay.am_relay: true`) and the Mac must list it in
    `relay.relays`. On mobile data the phone reaches the Mac only through that relay:
@@ -800,6 +898,13 @@ Each entry says why it lost and what would make it worth retrying.
 
   Retry if calls show other people's voices stopping the voice or heard as yours when
   they're too close or loud for a level gate to tell apart from you.
+- **Settings on the app's own screen** (until Stage 5 step 1). The app outgrew one screen,
+  and you chose the Settings app, as iOS apps keep theirs, with the app as the Phone app.
+  What the app's screen had that the Settings app lacks: time pickers (now lists in
+  15-minute steps), words at the ends of the sliders (now in the footers), hiding From and To
+  while work hours are off, and new hours reaching the switchboard at once (now when the app
+  next runs, within the 30 min of a connection check). Retry if testers find those a real
+  problem.
 - **Ending a call as "busy" during another call.** You want to choose, so it's replaced by
   call waiting and "not now" (requirement 3).
 - **The switchboard in Python** (aiohttp, run with uv). On an old Intel Mac it used
@@ -966,7 +1071,16 @@ Each entry says why it lost and what would make it worth retrying.
   running as you on the calling Mac can reach the voice server's session side. The
   switchboard also gives out the IDs of waiting calls (Stage 5), but only for a registered
   phone's push token, which travels only between the phone, Apple and the switchboard. The
-  voice server's state file holds call IDs too, readable only by you.
+  voice server's state file holds call IDs too, readable only by you. Since Contacts (Stage
+  5 step 1), a session's ID is a secret of the same kind: with it, any device on Nebula can
+  call a session that listens from its voice server, and pass the session messages, which it
+  takes as prompts. The switchboard keeps the IDs in `contacts.json` and gives them only to a
+  registered phone, and they go to the phone in the call's push too, through Apple; on the
+  Mac, Claude Code names files after them, readable only by you.
+- Contacts are as fresh as the voice servers' last word to the switchboard and the app's
+  last fetch: a session switched off can show for up to about a minute, and calling it then
+  gets "isn't listening any more"; a Mac that went to sleep shows its sessions for up to
+  90 s.
 - Development builds use the APNs sandbox, and provisioning profiles expire.
 - The connection check relies on background pushes, which iOS treats as low priority: it
   delivers at most a few an hour, sometimes late, and none after you swipe the app away,
@@ -1243,8 +1357,9 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         back after the 90 s, after the session called again, to a session not listening,
         and the "can't take this call back" alert.
       - The voice once told you to "call back whenever you've decided" at the end of an
-        answered call, which can't be called back: only unanswered calls can. Either its
-        instructions say so, or calling back answered calls becomes possible; not decided.
+        answered call, which couldn't be called back then: only unanswered calls could.
+        Decided 2026-10-30: any call can be called back, answered ones too (Stage 5,
+        step 1).
    6. Work hours: Claude calls only between the times you set in the app, and a call
       outside them waits until they start (the app's Settings, the switchboard, held calls
       on the voice server). Built, and tried offline, not yet on the phone:
@@ -1413,6 +1528,59 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
      meanwhile was answered as any offer is.
    - The app builds with no Swift warnings. Its list, the tap, the alerts and the events
      are untried: they need the phone.
+   1. **The app as a Phone app: Recents, Contacts, Settings app** (2026-10-30; built, tried
+      offline and in a simulator, not yet on the phone). The app outgrew one screen, so it's
+      now two tabs, as the Phone app's: Recents, the call history with the waiting calls on
+      top, in rows of two lines with ⓘ for a call's details; and Contacts, the sessions with
+      ringback on, on every Mac. Tapping any call calls its session, answered calls too
+      (calling back, in the voice server's session side), and tapping a contact calls that
+      session (calling from Contacts). Each voice server tells the switchboard which of its
+      sessions listen (the switchboard's contacts). The settings moved to the Settings app.
+      See the iPhone app's "Like the Phone app", "Recents", "Calling a call", "Contacts" and
+      "Settings". Checks:
+      - The switchboard (`switchboard/smoke-test.sh`, 19 new checks, 111 in all, about 15 s):
+        `/contacts` for an unregistered token or none gets 403; `/sessions` without a voice
+        server, or a session without a project, gets 400; two voice servers' sessions are
+        listed by project, then since when, each with its voice server, project, latest
+        subject and when; a voice server's new list replaces its old one; they survive a
+        restart; one not heard from in the stale time (3 s here, `RINGBACK_CONTACTS_STALE`)
+        is dropped; a held call keeps its session in the waiting list; each list is logged
+        once, when it changes, and so is a drop.
+      - The voice server (`tools/phone-check --contacts`, three runs, 23–24 checks, 2–3 min
+        each; see its README): the switchboard heard the session listen with its project,
+        its briefing's subject at once, the same again every 3 s (30 in use), and that it
+        stopped listening 3.6 s after its mod stopped (4 s here, 30 in use); a call from
+        Contacts to a session that isn't listening, or with a short ID, got 403; with no
+        briefing, the voice said so and asked what you want ("The session hasn't written a
+        briefing yet, so I don't know what it's working on. What would you like to ask or tell
+        it?"); called back, an answered call's voice never said you'd missed it ("Nothing new
+        has come in since we last spoke…", three runs of three); from Contacts, what you
+        asked reached the session as one message; a call from Contacts could be called back.
+        Called from Contacts with a briefing you'd already heard, the voice retold it in two
+        runs; with a firmer lead, the third said "Nothing new has come in since that call…".
+        In that run Haiku took 20–22 s for the first three openings, while another check ran
+        its own Haiku sessions, so the phone hung up before hearing them (3 of 24 failed); the
+        offers were answered in 0.14 s at most. From the offer to the voice: a median 3.4–3.9 s,
+        as a call back's.
+      - The voice server through a restart (`tools/restart-check`, one run, 19 checks, 2 min
+        26 s): all passed, with the state file now keeping each remembered call's `talked`
+        and `contact`; the call answered before the restart and called back after got the
+        lead for a call you answered.
+      - The mod (55 tests, one new): collecting says the session's project and folder; the
+        test fails on the mod before the change.
+      - The app builds with no Swift warnings, debug and release; the release binary has no
+        trace of the sample calls. `tools/app-screens` showed every screen in light and dark
+        (iPhone 17 Pro, iOS 26.5): Recents, its swipe action, the details, Contacts, the
+        banners and Ringback's page in the Settings app.
+      - Left for the phone: tapping an answered call and a contact, and their voices; a call
+        back the Mac no longer remembers going on as a call from Contacts; the alerts; "Open
+        Settings" landing on Ringback's page (in the simulator it opened Settings' first
+        page); hours changed in Settings reaching the switchboard on return to the app;
+        the values carried over from the app's own settings screen, and the hours moved
+        onto 15-minute steps once.
+      - Not handled: calling from Contacts a session whose call is held outside your work
+        hours leaves that call held; its voice has the session's latest briefing, which may
+        be the held call's, but can't answer what that call asks.
 6. **Weak signal.** Measure, then send less and recover more (see "Data and weak signal"
    in the iPhone app). Built and tried offline (`tools/phone-check --signal`,
    `tools/opus-check`): each call's "ended" report carries the phone's WebRTC stats, and

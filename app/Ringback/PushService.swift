@@ -9,8 +9,9 @@ final class PushService: NSObject, PKPushRegistryDelegate {
     private let state: AppState
     /// The notification token the switchboard last confirmed.
     private var sentNotificationToken: String?
-    /// The work hours the switchboard last confirmed.
+    /// The work hours the switchboard last confirmed, and its address then.
     private var sentHours: [String: String]?
+    private var sentURL: URL?
 
     init(calls: CallService, state: AppState) {
         self.calls = calls
@@ -22,17 +23,20 @@ final class PushService: NSObject, PKPushRegistryDelegate {
 
     /// Sends the token and the work hours to the switchboard, which is also how the app checks
     /// that calls can reach it, then fetches the calls that wait. On the main actor, because it
-    /// updates what the settings screen shows. Automatic checks (app opened, token arrived,
-    /// hours changed) skip a check that just succeeded with the same tokens and hours, and only
-    /// fetch the waiting calls; things you do yourself (Try Again, pull to refresh, Connect)
-    /// always check.
+    /// updates what the app shows. Automatic checks (app opened, token arrived, settings
+    /// changed) skip a check that just succeeded with the same address, tokens and hours, and
+    /// only fetch the waiting calls; things you do yourself (Try Again, pull to refresh) always
+    /// check.
     @MainActor
     func connect(force: Bool = false) async {
+        #if DEBUG
+        if Seed.isOn { return }  // screenshots, with sample calls and no switchboard
+        #endif
         guard Switchboard.url != nil else { state.connection = .notSetUp; return }
         guard let token = state.token else { state.connection = .waitingForToken; return }
         guard state.connection != .connecting else { return }
         if !force, case .connected(let at) = state.connection, Date.now.timeIntervalSince(at) < 10,
-            state.notificationToken == sentNotificationToken, WorkHours.fields == sentHours
+            state.notificationToken == sentNotificationToken, WorkHours.fields == sentHours, Switchboard.url == sentURL
         {
             await state.refreshWaiting()
             return
@@ -41,9 +45,11 @@ final class PushService: NSObject, PKPushRegistryDelegate {
         do {
             let notificationToken = state.notificationToken
             let hours = WorkHours.fields
+            let url = Switchboard.url
             try await Switchboard.register(token: token, notificationToken: notificationToken, hours: hours)
             sentNotificationToken = notificationToken
             sentHours = hours
+            sentURL = url
             state.lastConnected = .now
             state.connection = .connected(at: .now)
             ConnectionCheck.clear()
@@ -52,9 +58,18 @@ final class PushService: NSObject, PKPushRegistryDelegate {
             state.connection = .failed(reason: error.localizedDescription)
             return
         }
-        // Hours changed while it registered, which skipped that change: send them too.
-        if WorkHours.fields != sentHours { return await connect() }
+        // Settings changed while it registered, which skipped that change: send them too.
+        if WorkHours.fields != sentHours || Switchboard.url != sentURL { return await connect() }
         await state.refreshWaiting()
+    }
+
+    /// A setting changed: in the Settings app, which the app hears when it next runs, or by
+    /// the app itself. If it's the switchboard's address or the work hours, the switchboard
+    /// gets them now, so they apply from the next call.
+    @MainActor
+    func settingsChanged() async {
+        guard Switchboard.url != sentURL || WorkHours.fields != sentHours else { return }
+        await connect()
     }
 
     func pushRegistry(_ registry: PKPushRegistry, didUpdate credentials: PKPushCredentials, for type: PKPushType) {

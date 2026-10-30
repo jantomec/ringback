@@ -112,11 +112,16 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     /// offer also carries your interruption sensitivity and background filter, and whether the
     /// phone still rings (`ringing` as the offer goes). Returns whether it did. On the main
     /// actor, as `stop` is, so once the link is stopped no offer goes and no answer is applied.
-    /// `back` calls back the call `callID`, and `now` calls it while it waits, held outside
-    /// your work hours; the voice server answers either at once, and throws `RefusedCall` if
-    /// it doesn't know the call, or it no longer waits.
+    /// `back` calls back the call `callID`, `now` calls it while it waits, held outside your
+    /// work hours, and `contact` calls that session, from Contacts, as a new call `callID`. The
+    /// voice server answers each at once, and throws `RefusedCall`, with its reason, if it
+    /// doesn't know the call, it no longer waits, or the session isn't listening. A contact
+    /// offer is marked `back` too, so a voice server from before Contacts refuses it as a call
+    /// back it doesn't know ("unknown call").
     @MainActor
-    func start(voiceURL: URL, callID: String, back: Bool = false, now: Bool = false) async throws -> Bool {
+    func start(
+        voiceURL: URL, callID: String, back: Bool = false, now: Bool = false, contact: String? = nil
+    ) async throws -> Bool {
         var local = try await gather(nebulaOnly: true)
         guard !stopped else { throw CancellationError() }
         var found = Self.candidates(local)
@@ -137,15 +142,18 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
             "background_filter": Self.backgroundFilter,
         ]
         if ringing { body["ringing"] = true }
-        if back { body["back"] = true }
+        if back || contact != nil { body["back"] = true }
         if now { body["now"] = true }
+        body["contact"] = contact
         var request = URLRequest(url: voiceURL.appending(path: "offer"), timeoutInterval: 15)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await URLSession.shared.data(for: request)
         guard !stopped else { throw CancellationError() }
-        if (response as? HTTPURLResponse)?.statusCode == 403 { throw RefusedCall() }
+        if (response as? HTTPURLResponse)?.statusCode == 403 {
+            throw RefusedCall(reason: (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String)
+        }
         guard let answer = try JSONSerialization.jsonObject(with: data) as? [String: Any],
             let sdp = answer["sdp"] as? String
         else { throw URLError(.badServerResponse) }
@@ -340,7 +348,12 @@ private struct UnknownCall: LocalizedError {
 }
 
 /// The voice server refused an offer (403): it didn't place the call, or for a call back, no
-/// longer remembers it. It forgets calls a day after they end, and all of them when it restarts.
+/// longer remembers it (a day after it ended, or after a restart without its state), or for a
+/// call from Contacts, the session isn't listening. `reason` is what it said: "unknown call",
+/// or "not listening".
 struct RefusedCall: LocalizedError {
-    var errorDescription: String? { "The voice server doesn't know this call" }
+    var reason: String?
+    var errorDescription: String? {
+        reason == "not listening" ? "The session isn't listening" : "The voice server doesn't know this call"
+    }
 }

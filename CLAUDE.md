@@ -40,7 +40,14 @@ same, and rebuilds or conceals your lost packets) are built and tried offline
 `tools/opus-check`). Stage 6 worked on the phone (2026-10-30: normal, 3G and Very Bad
 Network, after fixing two limits that broke calls on slow networks, `tools/ice-check`); 4
 and 5 aren't tried on the phone yet. The voice server's launchd agent is written up in
-`docs/setup.md`, not installed. Then 7 (several sessions and retries) and 8 (later: a
+`docs/setup.md`, not installed. Stage 5, step 1 made the app like the Phone app: tabs for
+Recents (the call history, waiting calls on top, two-line rows with ⓘ for a call's details;
+tapping any call calls its session, answered calls too) and Contacts (the sessions with
+ringback on, on every Mac, which each voice server tells the switchboard; tapping one calls
+it, and the voice opens with what's new); its settings moved to the Settings app
+(`app/Settings.bundle`). Built and tried offline (`tools/phone-check --contacts`, the
+switchboard's smoke test, the mod's tests) and in a simulator (`tools/app-screens`), not yet
+on the phone. Then 7 (several sessions and retries) and 8 (later: a
 phone-network fallback, showing you things), under Stages in `docs/design.md`. How it works:
 the ringback mod (`mod/`) adds `/ringback`; while it's on, each finished turn has the
 session write a call briefing, and the voice server places the call through the
@@ -78,7 +85,8 @@ over (`handover-check`), what the voice speaks around its tool calls (`reply-che
 voice server's calls through a restart (`restart-check`), the call's Opus with lost
 packets (`opus-check`; `phone-check --signal` runs it through a call), how long a call's
 connection lasts on a slow network (`ice-check`), what `.disabled` does to a SwiftUI swipe
-action (`swipe-check`), and what a mod sees of its session's environment (`env-check`)).
+action (`swipe-check`), what a mod sees of its session's environment (`env-check`), and
+the app's screens in a simulator, with sample calls (`app-screens`)).
 How to set it all up and place a test call: `docs/setup.md`.
 
 ## Checks

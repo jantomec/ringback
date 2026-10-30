@@ -78,7 +78,7 @@ enum Waiting {
     @discardableResult
     static func hold(
         callID: String, project: String, subject: String?, voice: String, heldUntil: String, question: Bool = false,
-        remoteControl: Bool = false
+        remoteControl: Bool = false, session: String? = nil
     ) throws -> Bool {
         var calls = fresh()
         let notified = calls[callID]?["notified"]
@@ -87,6 +87,7 @@ enum Waiting {
         call["refreshed"] = Date().ISO8601Format()
         call["question"] = question ? "yes" : nil
         call["remote_control"] = remoteControl ? "yes" : nil
+        call["session_id"] = session
         let notify = question && notified == nil
         call["notified"] = notify ? Date().ISO8601Format() : notified
         calls[callID] = call
@@ -113,7 +114,7 @@ enum Waiting {
             let (at, bt) = (date(a.value["held_until"]), date(b.value["held_until"]))
             return at != bt ? at < bt : a.key < b.key
         }
-        let kept = ["project", "subject", "voice", "held_until"]
+        let kept = ["project", "subject", "voice", "held_until", "session_id"]
         return soonest.map { id, call in
             var listed: [String: Any] = call.filter { kept.contains($0.key) }
             listed["call_id"] = id
@@ -141,6 +142,64 @@ enum Waiting {
     private static func save(_ calls: [String: [String: String]]) throws {
         try FileManager.default.createDirectory(atPath: stateDir, withIntermediateDirectories: true)
         let data = try JSONSerialization.data(withJSONObject: calls, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+}
+
+/// The sessions that listen on each Mac, for the app's Contacts: `contacts.json` in the state
+/// folder, keyed by voice server, with when it last said ("refreshed") and its sessions, each
+/// with its session ID, project, and when it can, since when it listens and its latest
+/// briefing's subject and time. A voice server says every 30 s; one not heard from for 90 s is
+/// dropped, as when its Mac sleeps or the voice server stops.
+enum Contacts {
+    static let path = stateDir + "/contacts.json"
+    /// Seconds after a voice server last said that its sessions are dropped;
+    /// RINGBACK_CONTACTS_STALE sets fewer, for the smoke test.
+    static let stale = ProcessInfo.processInfo.environment["RINGBACK_CONTACTS_STALE"].flatMap(Double.init) ?? 90
+
+    static func load() -> [String: [String: Any]] {
+        guard let data = FileManager.default.contents(atPath: path) else { return [:] }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: [String: Any]] ?? [:]
+    }
+
+    /// A voice server's sessions now, replacing those it gave before; true if they changed.
+    @discardableResult
+    static func update(voice: String, sessions: [[String: String]]) throws -> Bool {
+        var all = fresh()
+        let before = all[voice]?["sessions"] as? [[String: String]]
+        all[voice] = ["refreshed": Date().ISO8601Format(), "sessions": sessions]
+        try save(all)
+        return before != sessions
+    }
+
+    /// Every fresh voice server's sessions, by project, then since when they listen, each with
+    /// its voice server; stale ones are dropped.
+    static func list() throws -> [[String: String]] {
+        let all = fresh()
+        if all.count != load().count { try save(all) }
+        let listed = all.flatMap { voice, entry in
+            (entry["sessions"] as? [[String: String]] ?? []).map { $0.merging(["voice": voice]) { $1 } }
+        }
+        return listed.sorted { a, b in
+            let key = { (s: [String: String]) in [s["project"]?.lowercased() ?? "", s["since"] ?? "", s["session_id"] ?? ""] }
+            return key(a).lexicographicallyPrecedes(key(b))
+        }
+    }
+
+    /// The voice servers heard from within `stale` seconds; the log says which are dropped.
+    private static func fresh() -> [String: [String: Any]] {
+        let now = Date()
+        return load().filter { voice, entry in
+            let refreshed = (entry["refreshed"] as? String).flatMap(parseISO8601) ?? .distantPast
+            guard now.timeIntervalSince(refreshed) > stale else { return true }
+            log("sessions listening on \(voice): dropped, not heard from since \(timeOfDay(refreshed))")
+            return false
+        }
+    }
+
+    private static func save(_ all: [String: [String: Any]]) throws {
+        try FileManager.default.createDirectory(atPath: stateDir, withIntermediateDirectories: true)
+        let data = try JSONSerialization.data(withJSONObject: all, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: URL(fileURLWithPath: path), options: .atomic)
     }
 }

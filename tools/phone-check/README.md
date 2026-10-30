@@ -134,6 +134,68 @@ since Haiku starts only at the offer; its first words came 1.5–2.5 s after. In
 run, before the lead said not to, one opening began "Hi, I'm calling about…"; the check for
 that came after it, and passed in the four runs since.
 
+## Contacts and answered call backs (`--contacts`)
+
+    uv run --project voice tools/phone-check/phone_check.py --contacts [--port P] [--keep DIR]
+
+Calls a session from the app's Contacts, as the app does (an offer with a call ID made on the
+phone, `"contact"` with the session's ID, and `"back": true`), and calls back a call you
+answered. A stand-in for the session's mod collects once a second and says the session's
+project and folder; the stand-in switchboard also takes what the voice server says of its
+sessions that listen (`/sessions`). The voice server says so every 3 s instead of 30
+(`RINGBACK_PUBLISH`), and a session not collected from for 4 s isn't listening, instead of
+30 (`RINGBACK_LISTENING`). It checks:
+- the switchboard hears the session listen, with its project and no briefing yet, and with
+  nothing changed, hears the same again every 3 s;
+- a call from Contacts to a session that isn't listening, or with a call ID shorter than 16
+  characters, gets 403 `not listening`;
+- **no briefing yet:** called from Contacts, the voice is heard, says the session has
+  nothing to report yet, and the session is told "The developer called the session from the
+  app's Contacts and it lasted …";
+- the session's briefing places a call that names the session to the switchboard
+  (`session_id`), and the switchboard hears the briefing's subject and when at once;
+- **answered call back:** you answer that call, then call it back: answered, the voice server
+  logs that you answered it, the voice doesn't say you missed it, and the session is told you
+  called back;
+- **a briefing you've heard:** called from Contacts again, the voice doesn't say you missed a
+  call, says nothing is new and doesn't retell the briefing, and your spoken "Please ask the
+  session to run the whole test suite again." reaches the session as one message;
+- a call from Contacts can be called back;
+- no opening introduces the voice or says it's calling;
+- ringback off (the mod stops collecting): the switchboard hears the session no longer
+  listens, and a call from Contacts is then refused;
+- no Haiku left, and none of its server's session folders.
+
+It prints the voice's log, the checks, what the voice said first on each call, and the time
+from each offer to the voice's first audio. It uses your Claude subscription, 5 Haiku
+sessions, and takes about 3 min.
+
+Result on 2026-10-30, Claude Code 2.1.314, three runs of 2–3 min:
+- the first: 22 of 23 checks passed. The one that failed was the check's own: the voice server
+  told the switchboard no session listened 3.6 s after the mod stopped, but the check took
+  the empty list for none heard. Fixed in the check;
+- the second: all 23 passed. But in both runs, called from Contacts with the briefing you'd
+  already talked through, the voice went through the briefing again ("The config parser
+  crash is fixed…") instead of saying nothing was new. Its lead now says not to retell it,
+  and a check says so (it fails on both openings);
+- the third, with that lead: 21 of 24. The voice said "Nothing new has come in since that
+  call. The session is still waiting on one thing: shall it push the config parser fix to a
+  branch and open a pull request?". The three that failed were the first three calls, whose
+  voice the phone didn't hear within its 20 s: Haiku's first words came 22 and 20 s after it
+  was asked (and none at all on the answered call), while `tools/restart-check` ran its own
+  Haiku sessions beside it. Each offer was answered in 0.14 s at most, and audio connected
+  in 0.44 s at most; on the calls after, Haiku answered in 1.3–2.7 s.
+
+Openings, as said: with no briefing, "Hi there. The session hasn't written a briefing yet,
+so I don't know what it's been working on. What would you like me to pass along?"; calling
+back the answered call, "Nothing new has come in since our last call. The config parser fix
+is still waiting on you: shall I push it to a branch and open a pull request?" (the same in
+all three runs); calling back the first call from Contacts, which had no briefing then,
+"Since we last spoke, the config parser crash is fixed…", what changed since. From the offer
+to the voice's first audio: a median 3.90 s (2.86–4.32 s) in the first run and 3.43 s
+(2.54–4.30 s) in the second, five calls each, as a call back's: Haiku starts only at the
+offer.
+
 ## Weak signal (`--signal`)
 
     uv run --project voice tools/phone-check/phone_check.py --signal [--loss 0,5,15] [--runs N] [--port P] [--keep DIR]

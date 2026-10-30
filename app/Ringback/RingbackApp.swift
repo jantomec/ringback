@@ -7,7 +7,7 @@ struct RingbackApp: App {
 
     var body: some Scene {
         WindowGroup {
-            SettingsView(state: delegate.state, push: delegate.push, calls: delegate.calls)
+            RootView(state: delegate.state, push: delegate.push, calls: delegate.calls)
         }
     }
 }
@@ -21,6 +21,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        // The settings' defaults, before anything reads them (AppSettings).
+        AppSettings.register()
+        #if DEBUG
+        if Seed.isOn { Seed.fill(state) }
+        #endif
         // A VoIP push relaunches the app in the background, so PushKit must be set up at launch.
         _ = push
         application.registerForRemoteNotifications()
@@ -33,7 +38,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     /// The switchboard's background push for a connection check, which also fetches the calls
-    /// that wait.
+    /// that wait. Work hours changed in the Settings app go with it, at the latest every 30 min.
     func application(
         _ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completion: @escaping (UIBackgroundFetchResult) -> Void

@@ -31,6 +31,17 @@ answer is answered on its call back; and that a call back while the missed call 
 placed leaves no "wasn't answered" note. Prints the openings, and the time from each offer
 to the voice's first audio.
 
+    uv run --project voice tools/phone-check/phone_check.py --contacts [--unanswered S] [--keep DIR]
+
+calls sessions from the app's Contacts instead, and calls back a call you answered. A
+stand-in for the session's mod collects once a second, saying its project and folder, and a
+stand-in switchboard takes what the voice server says of the sessions that listen. Checks that
+the switchboard hears the session, with its latest briefing once it has one, again while
+nothing changes, and that it stopped listening; that a call from Contacts is refused for a
+session that isn't listening; that its voice says there's no briefing yet, or opens on the
+latest one, and passes a message to the session; that the call back of an answered call
+doesn't say you missed it; and that a call from Contacts can be called back.
+
     uv run --project voice tools/phone-check/phone_check.py --signal [--loss 0,5,15] [--runs N] [--keep DIR]
 
 says known sentences instead, on calls rung by hand whose line loses some of the phone's
@@ -155,9 +166,12 @@ class Phone:
                 self.last_audio = time.monotonic()
                 self.first_audio = self.first_audio or self.last_audio
 
-    async def offer(self, call_id: str, ringing: bool, back: bool = False, now: bool = False) -> int:
-        """Offers the call's audio: while it rings, once you've answered, calling it back, or
-        calling a waiting call now."""
+    async def offer(
+        self, call_id: str, ringing: bool, back: bool = False, now: bool = False, contact: str | None = None
+    ) -> int | tuple[int, str]:
+        """Offers the call's audio: while it rings, once you've answered, calling it back,
+        calling a waiting call now, or calling a session from Contacts (marked "back" too, as
+        the app does). A call from Contacts that's refused gives the status and the error."""
         if not ringing:
             self.mic.on.set()
         await self.pc.setLocalDescription(await self.pc.createOffer())
@@ -168,10 +182,12 @@ class Phone:
             body["back"] = True
         if now:
             body["now"] = True
+        if contact:
+            body |= {"contact": contact, "back": True}
         async with aiohttp.ClientSession() as http:
             async with http.post(f"http://{VOICE}/offer", json=body) as r:
                 if r.status != 200:
-                    return r.status
+                    return (r.status, (await r.json(content_type=None) or {}).get("error", "")) if contact else r.status
                 answer = await r.json()
         if self.on_answer:
             self.on_answer(answer["sdp"])
@@ -248,7 +264,8 @@ async def main() -> int:
     p.add_argument("--ring", type=float, default=6.0, help="seconds from placing a call to answering it (default 6)")
     p.add_argument("--keep", type=Path, help="keep the voice log and transcripts in this directory")
     p.add_argument("--back", action="store_true", help="call back calls you didn't answer instead")
-    p.add_argument("--unanswered", type=float, default=8, help="with --back: seconds before an unanswered call is forgotten")
+    p.add_argument("--contacts", action="store_true", help="call sessions from Contacts, and an answered call back, instead")
+    p.add_argument("--unanswered", type=float, default=8, help="with --back or --contacts: seconds before an unanswered call is forgotten")
     p.add_argument("--signal", action="store_true", help="say known sentences through a line that loses packets instead")
     p.add_argument("--loss", default="0,5,15", help="with --signal: percentages of the phone's packets lost (default 0,5,15)")
     p.add_argument("--port", type=int, default=PORT, help=f"the stand-in switchboard's port; the voice server's is the next (default {PORT})")
@@ -260,6 +277,8 @@ async def main() -> int:
             sys.exit(f"{address} is in use: is another phone check running?")
     if args.back:
         return await call_backs(args)
+    if args.contacts:
+        return await contact_calls(args)
     if args.signal:
         return await weak_signal(args)
 
@@ -766,6 +785,246 @@ async def call_backs(args) -> int:
     print("\n".join(lines))
     print("\nwhat the voice said first on each call back:")
     print("\n".join(f"  {o}" for o in openings + replies))
+    if timings:
+        spread = f"median {statistics.median(timings):.2f}, {min(timings):.2f}–{max(timings):.2f}"
+        print(f"\nfrom the offer to the voice's first audio (s): {spread}: {', '.join(f'{v:.2f}' for v in timings)}")
+    if args.keep:
+        shutil.copytree(tmp, args.keep, dirs_exist_ok=True, ignore=shutil.ignore_patterns("*.sock"))
+    shutil.rmtree(tmp, ignore_errors=True)
+    shutil.rmtree(own, ignore_errors=True)
+    return 1 if fails else 0
+
+
+# Contacts (--contacts): calls to sessions from the app's Contacts, and a call back of a call you
+# answered.
+PUBLISH = 3  # seconds between the voice server's telling the switchboard, instead of 30
+LISTENING = 4  # seconds without collecting before a session isn't listening, instead of 30
+RUN_TESTS = "Please ask the session to run the whole test suite again."
+# A voice that says you missed a call, on a call back of one you took.
+MISSED = re.compile(r"missed|didn't (answer|pick)|couldn't reach|weren't available|tried to call|tried calling", re.I)
+# A voice that says, on a call to a session with no briefing yet, that it has nothing to report.
+NOTHING_YET = re.compile(r"nothing|no (briefing|news|update|report)|hasn't|haven't|not yet|isn't .*(report|brief)", re.I)
+# A voice that says, on a call to a session whose briefing you've heard, that nothing is new;
+# and the start of the briefing, retold.
+NOTHING_NEW = re.compile(r"nothing new|no news|nothing (has )?changed|nothing else|no new|since (we|our|that|the|your) ", re.I)
+RETOLD = re.compile(r"empty lines|two lines", re.I)
+
+
+async def contact_calls(args) -> int:
+    """Calls a session from the app's Contacts, before and after it writes a briefing, calls
+    back a call you answered and a call from Contacts, and follows what the voice server tells
+    the switchboard of the sessions that listen."""
+    tmp = Path(tempfile.mkdtemp(prefix="ringback-phone-check-"))
+    sock, voice_log, project = tmp / "voice.sock", tmp / "voice.log", tmp / "demo"
+    project.mkdir()
+    own = Path(tempfile.mkdtemp(prefix="rb"))  # the voice server's TMPDIR, as in call_backs
+    rung: list[dict] = []
+    told: list[tuple[float, dict]] = []  # what the voice server said of its sessions, and when
+
+    async def take_call(request: web.Request) -> web.Response:
+        rung.append(await request.json())
+        return web.json_response({"ok": True})
+
+    async def take_sessions(request: web.Request) -> web.Response:
+        told.append((time.monotonic(), await request.json()))
+        return web.json_response({"ok": True})
+
+    switchboard = web.AppRunner(web.Application())
+    switchboard.app.add_routes([web.post("/call", take_call), web.post("/sessions", take_sessions)])
+    await switchboard.setup()
+    host, port = SWITCHBOARD.rsplit(":", 1)
+    await web.TCPSite(switchboard, host, int(port)).start()
+    voice = subprocess.Popen(
+        [sys.executable, "-m", "ringback_voice", "serve", "--listen", VOICE, "--switchboard", SWITCHBOARD,
+         "--socket", str(sock)],
+        stdout=voice_log.open("w"), stderr=subprocess.STDOUT,
+        env=os.environ | {
+            "RINGBACK_UNANSWERED": str(args.unanswered), "RINGBACK_PUBLISH": str(PUBLISH),
+            "RINGBACK_LISTENING": str(LISTENING), "TMPDIR": str(own),
+        },
+    )  # fmt: skip
+    socket_side = aiohttp.ClientSession(connector=aiohttp.UnixConnector(path=str(sock)))
+    got: list[dict] = []  # what the stand-in mod collected for SESSION
+    where = f"project=demo&cwd={project}"
+
+    async def mod():
+        """The session's mod, while ringback is on: collects once a second, saying where it is."""
+        while True:
+            try:
+                async with socket_side.get(f"http://voice/sessions/{SESSION}/messages?{where}") as r:
+                    got.extend((await r.json())["messages"])
+            except (aiohttp.ClientError, ValueError):
+                pass
+            await asyncio.sleep(1)
+
+    def listed(after: float) -> list[list[dict]]:
+        """The lists of sessions the switchboard heard since after."""
+        return [body["sessions"] for at, body in told if at >= after]
+
+    async def heard(after: float, check, seconds: float) -> list[dict] | None:
+        """The first list heard since after that passes check, within seconds."""
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            # An empty list is a list heard: no session listens.
+            if (found := next((sessions for sessions in listed(after) if check(sessions)), None)) is not None:
+                return found
+            await asyncio.sleep(0.2)
+        return None
+
+    def outcomes(start: str) -> list[str]:
+        return [m["text"] for m in got if m.get("kind") == "outcome" and m["text"].startswith(start)]
+
+    def haikus() -> int:
+        found = subprocess.run(["pgrep", "-P", str(voice.pid), "-f", "input-format stream-json"], capture_output=True)
+        return len(found.stdout.split())
+
+    fails = 0
+    lines: list[str] = []
+    timings: list[float] = []
+    openings: list[str] = []
+
+    def check(name: str, ok: bool) -> None:
+        nonlocal fails
+        lines.append(f"{'ok  ' if ok else 'FAIL'}  {name}")
+        fails += not ok
+
+    async def talk(call_id: str, name: str, **offer) -> tuple[Phone, Path | None, str]:
+        """Offers a call you make, and listens to the voice's opening: the phone, its
+        transcript, and the opening as the voice said it."""
+        before = set(project.glob(".ringback/calls/*.md"))
+        phone = Phone()
+        t = time.monotonic()
+        status = await phone.offer(call_id, ringing=False, **offer)
+        voiced = await phone.heard_after(t)
+        await phone.quiet_for(2.5, limit=60)
+        transcript = next(iter(set(project.glob(".ringback/calls/*.md")) - before), None)
+        found = transcript and await wait_for(transcript, r"\*\*Voice:\*\* (.+)", 30)
+        opening = found[1] if found else ""
+        if voiced is not None:
+            timings.append(voiced)
+        openings.append(f"{name}: {opening}")
+        check(f"{name}: answered (200), voice heard {voiced or 0:.2f} s after the offer", status == 200 and voiced is not None)
+        return phone, transcript, opening
+
+    collecting = None
+    try:
+        from mlx_audio.tts.utils import load_model
+
+        kokoro = load_model(KOKORO)
+        run_tests = spoken(kokoro, RUN_TESTS)
+        if not await wait_for(voice_log, r"voice listening", 180):
+            print(voice_log.read_text())
+            sys.exit("The voice server didn't start.")
+
+        # The session listens: the switchboard hears it, with its project, and no briefing yet.
+        t = time.monotonic()
+        collecting = asyncio.create_task(mod())
+        first = await heard(t, lambda s: any(e["session_id"] == SESSION for e in s), PUBLISH + 3)
+        entry = next((e for e in first or [] if e["session_id"] == SESSION), {})
+        voice_url = next((body["voice"] for _, body in told), "")
+        check(f"the switchboard hears the session listen within {PUBLISH + 3} s, with its project and no briefing: {entry}",
+              entry.get("project") == "demo" and "subject" not in entry and "since" in entry
+              and voice_url == f"http://{VOICE}")  # fmt: skip
+        quiet = time.monotonic()
+        await asyncio.sleep(2 * PUBLISH + 1)
+        again = listed(quiet)
+        check(f"with nothing changed, it's told again every {PUBLISH} s: {len(again)} times in {2 * PUBLISH + 1} s",
+              len(again) >= 2 and all(s == first for s in again))  # fmt: skip
+
+        status = await Phone().offer("contact-gone-0000000001", ringing=False, contact=GONE_SESSION)
+        check(f"a call from Contacts to a session that isn't listening is refused: {status}", status == (403, "not listening"))
+        status = await Phone().offer("short", ringing=False, contact=SESSION)
+        check(f"one with a call ID too short to be secret is refused: {status}", status == (403, "not listening"))
+
+        # No briefing yet: the voice says so.
+        first_contact = "contact-" + secrets.token_hex(12)
+        phone, _, opening = await talk(first_contact, "from Contacts, no briefing yet", contact=SESSION)
+        check("from Contacts, no briefing yet: the voice says it has nothing to report yet", NOTHING_YET.search(opening) is not None)
+        await phone.hang_up()
+        await asyncio.sleep(2.5)
+        check(f"its session is told you called it from Contacts: {outcomes('The developer called the session')}",
+              len(outcomes("The developer called the session from the app's Contacts and it lasted")) == 1)  # fmt: skip
+
+        # The session writes a briefing: its call names the session, and the switchboard hears it.
+        t = time.monotonic()
+        body = {"session_id": SESSION, "project": "demo", "cwd": str(project), "subject": SUBJECT, "briefing": BRIEFING}
+        async with socket_side.post("http://voice/calls", json=body) as r:
+            ok = r.status == 200
+        answered_call = rung[-1]["call_id"]
+        check(f"a call names its session to the switchboard: {rung[-1].get('session_id')}", ok and rung[-1].get("session_id") == SESSION)
+        briefed = await heard(t, lambda s: any(e.get("subject") == SUBJECT for e in s), 5)
+        check(f"the switchboard hears the session's latest briefing at once: {briefed}",
+              briefed is not None and all("briefed_at" in e for e in briefed if e.get("subject")))  # fmt: skip
+
+        # You answer that call, then call it back.
+        phone, _, _ = await talk(answered_call, "the call, answered")
+        await asyncio.sleep(HEARD)
+        await phone.hang_up()
+        await asyncio.sleep(2.5)
+        check(f"it was answered: {outcomes(f'The call about \"{SUBJECT}\" was answered')}",
+              len(outcomes(f'The call about "{SUBJECT}" was answered')) == 1)  # fmt: skip
+        phone, _, opening = await talk(answered_call, "call back of an answered call", back=True)
+        logged = re.search(rf"call {re.escape(answered_call[:8])}: called back .*answered \d+ min ago", voice_log.read_text())
+        check("call back of an answered call: the voice server knows you answered it", logged is not None)
+        check("call back of an answered call: the voice doesn't say you missed it", MISSED.search(opening) is None)
+        await phone.hang_up()
+        await asyncio.sleep(2.5)
+        check(f"its session is told you called back: {outcomes('The developer called back')}",
+              len(outcomes(f'The developer called back about "{SUBJECT}" and it lasted')) == 1)  # fmt: skip
+
+        # From Contacts again, now with a briefing you've heard: you ask for something, and it
+        # reaches the session.
+        second_contact = "contact-" + secrets.token_hex(12)
+        phone, transcript, opening = await talk(second_contact, "from Contacts, a briefing you've heard", contact=SESSION)
+        check("from Contacts, a briefing you've heard: the voice doesn't say you missed a call", MISSED.search(opening) is None)
+        check("from Contacts, a briefing you've heard: the voice says nothing is new, and doesn't retell it",
+              NOTHING_NEW.search(opening) is not None and RETOLD.search(opening) is None)  # fmt: skip
+        messages_before = len([m for m in got if m.get("kind") == "message"])
+        phone.mic.say(run_tests)
+        end = time.monotonic() + 45
+        while len([m for m in got if m.get("kind") == "message"]) == messages_before and time.monotonic() < end:
+            await asyncio.sleep(0.5)
+        passed = [m["text"] for m in got if m.get("kind") == "message"][messages_before:]
+        check(f"from Contacts, what you ask reaches the session: {passed}",
+              len(passed) == 1 and re.search(r"test", passed[0], re.I) is not None)  # fmt: skip
+        await phone.quiet_for(2.5, limit=30)
+        await phone.hang_up()
+
+        # A call from Contacts is in the history: tapping it calls it back.
+        phone, _, opening = await talk(first_contact, "call back of a call from Contacts", back=True)
+        await phone.hang_up()
+        calling = [o for o in openings if INTRODUCES.search(o)]
+        check(f"no opening introduces the voice or says it's calling: {calling}", not calling)
+
+        # Ringback off: the mod stops collecting, and the switchboard hears it.
+        collecting.cancel()
+        collecting = None
+        t = time.monotonic()
+        gone = await heard(t, lambda s: not any(e["session_id"] == SESSION for e in s), LISTENING + PUBLISH + 3)
+        check(f"ringback off, the switchboard hears the session no longer listens within {LISTENING + PUBLISH + 3} s",
+              gone is not None)  # fmt: skip
+        status = await Phone().offer("contact-" + secrets.token_hex(12), ringing=False, contact=SESSION)
+        check(f"then a call from Contacts is refused: {status}", status == (403, "not listening"))
+
+        end = time.monotonic() + 5
+        while haikus() and time.monotonic() < end:
+            await asyncio.sleep(0.1)
+        await asyncio.sleep(1)
+        left = sorted(p.name for p in kept(own))
+        check(f"no Haiku left, and none of its sessions' folders in ~/.claude/projects: {left}", not haikus() and not left)
+    finally:
+        if collecting:
+            collecting.cancel()
+        await socket_side.close()
+        voice.terminate()
+        voice.wait()
+        await switchboard.cleanup()
+
+    print("--- voice log")
+    print("".join(line for line in voice_log.open() if re.search(r"call |voice listening|models loaded|session", line)))
+    print("\n".join(lines))
+    print("\nwhat the voice said first on each call:")
+    print("\n".join(f"  {o}" for o in openings))
     if timings:
         spread = f"median {statistics.median(timings):.2f}, {min(timings):.2f}–{max(timings):.2f}"
         print(f"\nfrom the offer to the voice's first audio (s): {spread}: {', '.join(f'{v:.2f}' for v in timings)}")

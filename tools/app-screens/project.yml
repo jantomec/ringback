@@ -1,0 +1,52 @@
+# Generates the app-screens project (run.sh does it, outside the repo): the app's own sources,
+# built for a simulator without signing, and a UI test that screenshots it with sample calls.
+name: AppScreens
+options:
+  deploymentTarget:
+    iOS: "26.0"
+packages:
+  WebRTC:
+    url: https://github.com/stasel/WebRTC
+    exactVersion: 156.0.0
+targets:
+  Ringback:
+    type: application
+    platform: iOS
+    sources:
+      - path: ../../app/Ringback
+        excludes: [Info.plist, Ringback.entitlements]  # generated there by the app's own project
+      - path: ../../app/Settings.bundle
+        buildPhase: resources
+    dependencies:
+      - package: WebRTC
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.ringback.screens
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Ringback
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Ringback uses the microphone so you can talk to your Claude Code sessions.
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_IDENTITY: "-"
+  AppScreensUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [AppScreensUITests]
+    dependencies:
+      - target: Ringback
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.ringback.screens.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_IDENTITY: "-"
+        TEST_TARGET_NAME: Ringback
+schemes:
+  AppScreens:
+    build:
+      targets:
+        Ringback: all
+        AppScreensUITests: [test]
+    test:
+      targets: [AppScreensUITests]

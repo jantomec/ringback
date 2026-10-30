@@ -2,13 +2,16 @@ import Foundation
 import UIKit
 
 /// Talks to the switchboard over Nebula: registers this phone's push tokens, reports what
-/// happened to each call, answers connection checks, and fetches the calls that wait.
+/// happened to each call, answers connection checks, and fetches the calls that wait and the
+/// sessions you can call.
 enum Switchboard {
+    /// Its address, as you typed it in the Settings app ("10.0.0.1"); before that, the app
+    /// kept the whole URL here, which reads the same.
     static let urlKey = "switchboardURL"
     static let defaultPort = 8787
 
     static var url: URL? {
-        UserDefaults.standard.string(forKey: urlKey).flatMap { URL(string: $0) }
+        UserDefaults.standard.string(forKey: urlKey).flatMap(normalize)
     }
 
     /// The address as you'd type it: no http://, and no port when it's the default.
@@ -68,7 +71,29 @@ enum Switchboard {
             else { return nil }
             return WaitingCall(
                 id: id, project: project, subject: call["subject"] as? String, voice: voice, heldUntil: heldUntil,
-                question: call["question"] as? Bool ?? false, remoteControl: call["remote_control"] as? Bool ?? false)
+                question: call["question"] as? Bool ?? false, remoteControl: call["remote_control"] as? Bool ?? false,
+                session: call["session_id"] as? String)
+        }
+    }
+
+    /// The sessions you can call, with ringback on, on every Mac, by project, each with its
+    /// voice server. As for the waiting calls, only a phone that registered gets them: a
+    /// session's ID lets whoever has it call the session. A switchboard from before Contacts
+    /// answers 404, which throws.
+    static func contacts(token: String) async throws -> [Contact] {
+        let data = try await post("contacts", ["token": token], timeout: 5)
+        guard let listed = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["contacts"] as? [[String: Any]]
+        else { throw URLError(.cannotParseResponse) }
+        let iso = ISO8601DateFormatter()
+        return listed.compactMap { contact in
+            guard let session = contact["session_id"] as? String, let project = contact["project"] as? String,
+                let voice = (contact["voice"] as? String).flatMap(URL.init(string:))
+            else { return nil }
+            let subject = (contact["subject"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            return Contact(
+                session: session, project: project, voice: voice, subject: subject,
+                briefedAt: (contact["briefed_at"] as? String).flatMap(iso.date(from:)),
+                since: (contact["since"] as? String).flatMap(iso.date(from:)))
         }
     }
 
@@ -113,10 +138,11 @@ enum Switchboard {
     }
 }
 
-/// The hours Claude may call you, set in Settings. Outside them the switchboard doesn't ring
-/// the phone: a call waits until they start. From later than To wraps past midnight, and
-/// equal ones mean any time. Kept as "HH:MM", so they stay the same hours when you travel;
-/// the switchboard reads them in the phone's time zone.
+/// The hours Claude may call you, set in the Settings app. Outside them the switchboard doesn't
+/// ring the phone: a call waits until they start. From later than To wraps past midnight, and
+/// equal ones mean any time. Kept as "HH:MM", in 15-minute steps (the Settings app has lists,
+/// not time pickers), so they stay the same hours when you travel; the switchboard reads them
+/// in the phone's time zone.
 enum WorkHours {
     static let onKey = "workHours"
     static let fromKey = "workHoursFrom"
@@ -134,5 +160,13 @@ enum WorkHours {
             "hours_to": on ? defaults.string(forKey: toKey) ?? defaultTo : "",
             "time_zone": TimeZone.current.identifier,
         ]
+    }
+
+    /// "HH:MM" on the nearest 15-minute step, at most 23:45; nil if it isn't a time.
+    static func quarter(_ time: String) -> String? {
+        let parts = time.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2, (0..<24).contains(parts[0]), (0..<60).contains(parts[1]) else { return nil }
+        let minutes = min((parts[0] * 60 + parts[1] + 7) / 15 * 15, 23 * 60 + 45)
+        return String(format: "%02d:%02d", minutes / 60, minutes % 60)
     }
 }

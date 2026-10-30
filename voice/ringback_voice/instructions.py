@@ -3,10 +3,11 @@ when to put a better model on, what it can do for the session, how to put what t
 asks to the developer, then the session's briefing.
 
 On a call rung by hand there's no session: the briefing is the report file given to the
-server, or STAND_IN. On a call back, the briefing is the missed call's, with a lead that says
-the developer called (called_back); if the session isn't listening any more, the voice is
-told it can't act on it. A waiting call the developer calls from the app gets a lead too
-(called_now).
+server, or STAND_IN. On a call back, the briefing is the earlier call's, with a lead that
+says the developer called, and whether they didn't answer then or talked (called_back); if
+the session isn't listening any more, the voice is told it can't act on it. A waiting call
+the developer calls from the app gets a lead too (called_now), and so does a session they
+call from the app's Contacts, with its latest briefing if it has one (called_contact).
 """
 
 RULES = """\
@@ -117,13 +118,22 @@ This call is the developer calling back. The session called them {ago} ago about
 briefing below, and they didn't answer then. Now they've called you and you've picked up.
 So don't introduce yourself, greet them at length, or say you're calling: open straight with
 what the missed call was about."""
+# The lead of a call back of a call the developer answered, or called themselves.
+CALLED_BACK_TALKED = """\
+This call is the developer calling back. You talked with them about the briefing below {ago}
+ago, on an earlier call; you don't know what was said then beyond it. Now they've called you
+again and you've picked up. So don't introduce yourself, greet them at length, or say you're
+calling. Open with what's changed since, briefly, if anything has; if nothing has, say so in
+a few words and ask what they want."""
 MOVED_ON = """\
-The session has written a newer briefing since, {ago} ago, which follows the missed call's.
-Open with what changed since the missed call, then what needs the developer now. Where the
+The session has written a newer briefing since, {ago} ago, which follows the {earlier}'s.
+Open with what changed since the {earlier}, then what needs the developer now. Where the
 two differ, the newer one is right."""
 SETTLED = """\
-The session no longer waits for an answer to {names}, which the missed call's briefing asks:
+The session no longer waits for an answer to {names}, which the {earlier}'s briefing asks:
 don't ask it."""
+# An earlier call made from the app's Contacts before the session had written a briefing.
+NO_BRIEFING = "(none: the session hadn't written a briefing yet)"
 # The lead of the briefing of a call that was waiting for the developer's work hours, which
 # they called from the app.
 CALLED_NOW = """\
@@ -131,6 +141,24 @@ This call is the developer calling you. The session's call to them was waiting f
 hours to start; they saw it waiting in the app and called it now, and you've picked up. So
 don't introduce yourself, greet them at length, or say you're calling: open straight with
 what the call is about."""
+# The lead of a call the developer makes to a session from the app's Contacts.
+CALLED_CONTACT = """\
+This call is the developer calling the session: they chose it in their phone's contacts and
+called, and you've picked up. So don't introduce yourself, greet them at length, or say
+you're calling."""
+CONTACT_BRIEFED = """\
+Below is the session's latest briefing, written {ago} ago. Open with what's new in it,
+briefly, then what needs the developer."""
+CONTACT_HEARD = """\
+Below is the session's latest briefing, written {ago} ago. The developer already heard it
+on a call {heard} ago, and the session hasn't reported anything since, so nothing is new.
+Don't retell it: open by saying in a few words that nothing new has come in since that
+call, then ask what they want, and if the briefing leaves a question open, remind them of
+it in one short sentence. You can pass their questions or instructions to the session."""
+CONTACT_NONE = """\
+The session hasn't written a briefing yet, so you know nothing of its work. Say so in a few
+words, and ask what they want. You can pass their questions or instructions to the session.
+"""
 
 
 def instructions(report: str | None, session: bool = False, listening: bool = True) -> str:
@@ -138,22 +166,40 @@ def instructions(report: str | None, session: bool = False, listening: bool = Tr
     return RULES + rules + (report or STAND_IN).strip() + "\n"
 
 
-def called_back(briefing: str, ago: float, since: tuple[str, float] | None = None, settled: list[str] = ()) -> str:
-    """The briefing of a call back: the missed call's, placed ago seconds before, with a lead.
-    since is the briefing of the session's latest call and how long ago it was placed, if
-    that came after; settled names what the missed call asks and no longer waits for."""
-    lead = CALLED_BACK.format(ago=while_ago(ago))
+def called_back(
+    briefing: str, ago: float, since: tuple[str, float] | None = None, settled: list[str] = (), talked: float | None = None
+) -> str:
+    """The briefing of a call back: the earlier call's, placed ago seconds before, with a
+    lead. since is the briefing of the session's latest call and how long ago it was placed,
+    if that came after; settled names what the earlier call asks and no longer waits for.
+    talked is how long ago the developer last talked on it, if they answered it or called it;
+    otherwise they missed it."""
+    earlier = "missed call" if talked is None else "earlier call"
+    lead = CALLED_BACK.format(ago=while_ago(ago)) if talked is None else CALLED_BACK_TALKED.format(ago=while_ago(talked))
     if since:
-        lead += "\n" + MOVED_ON.format(ago=while_ago(since[1]))
+        lead += "\n" + MOVED_ON.format(ago=while_ago(since[1]), earlier=earlier)
     if settled:
-        lead += "\n" + SETTLED.format(names=" or ".join(settled))
-    text = f"{lead}\n\nThe missed call's briefing:\n{briefing.strip()}"
+        lead += "\n" + SETTLED.format(names=" or ".join(settled), earlier=earlier)
+    text = f"{lead}\n\nThe {earlier}'s briefing:\n{briefing.strip() or NO_BRIEFING}"
     return text + (f"\n\nSince then, the session's latest briefing:\n{since[0].strip()}" if since else "")
 
 
 def called_now(briefing: str) -> str:
     """The briefing of a waiting call the developer called from the app, with a lead."""
     return f"{CALLED_NOW}\n\nThe call's briefing:\n{briefing.strip()}"
+
+
+def called_contact(briefing: str | None, ago: float, heard: float | None = None) -> str:
+    """The briefing of a call to a session from the app's Contacts: its latest briefing,
+    written ago seconds before, if it has one, with a lead. heard is how long ago the
+    developer last talked on a call with that briefing, if they did."""
+    if not briefing or not briefing.strip():
+        return f"{CALLED_CONTACT}\n{CONTACT_NONE}"
+    if heard is None:
+        lead = CONTACT_BRIEFED.format(ago=while_ago(ago))
+    else:
+        lead = CONTACT_HEARD.format(ago=while_ago(ago), heard=while_ago(heard))
+    return f"{CALLED_CONTACT}\n{lead}\n\nThe session's latest briefing:\n{briefing.strip()}"
 
 
 def while_ago(seconds: float) -> str:

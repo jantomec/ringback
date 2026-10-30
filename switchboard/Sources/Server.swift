@@ -1,7 +1,8 @@
 import Foundation
 
-/// The HTTP endpoints the phone talks to over Nebula: `/register`, `/events`, `/check` and
-/// `/waiting`; and `/call`, which the voice servers ask to ring the phone. Requests are small
+/// The HTTP endpoints the phone talks to over Nebula: `/register`, `/events`, `/check`,
+/// `/waiting` and `/contacts`; and `/call`, which the voice servers ask to ring the phone, and
+/// `/sessions`, where they say which of their sessions listen. Requests are small
 /// and rare, so they're handled one at a time. Each gets at most 5 s, so a
 /// stalled connection can't hold the next request past the app's 10 s timeout. Meanwhile it
 /// asks the phones to check their connection (Check.swift).
@@ -57,6 +58,7 @@ private struct Forbidden: Error {}
 private func answer(_ request: Request?) -> (String, String) {
     let endpoints: [Substring: ([String: Any]) throws -> [String: Any]] = [
         "/register": register, "/events": event, "/check": checkIn, "/call": call, "/waiting": waiting,
+        "/sessions": sessions, "/contacts": contacts,
     ]
     guard let request else { return ("400 Bad Request", #"{"ok": false}"#) }
     guard let endpoint = endpoints[request.path] else { return ("404 Not Found", #"{"ok": false}"#) }
@@ -104,13 +106,17 @@ private func register(_ body: [String: Any]) throws -> [String: Any] {
 /// Meanwhile the call waits, and the app shows it (Waiting). The voice server says whether the
 /// call has a question (`question`), and whether Remote Control is on in its session
 /// (`remote_control`), as the session last said. The first time a held call has a question,
-/// the phone gets a notification, once for that call.
+/// the phone gets a notification, once for that call. The voice server also names the
+/// calling session (`session_id`), which goes to the phone with the call, so the app can call
+/// that session from Contacts once the voice server has forgotten the call; one from before
+/// Contacts doesn't.
 private func call(_ body: [String: Any]) throws -> [String: Any] {
     guard let project = body["project"] as? String, !project.isEmpty,
         let voice = body["voice"] as? String, voice.hasPrefix("http://") || voice.hasPrefix("https://"),
         let callID = body["call_id"] as? String, (16...128).contains(callID.count)
     else { throw BadRequest() }
     let subject = (body["subject"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    let session = (body["session_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
     log("call \(callID.prefix(8)): asked by \(voice) for \(project)\(subject.map { ": \($0)" } ?? "")")
     if let held = heldUntil(Date()) {
         let question = body["question"] as? Bool ?? false
@@ -119,7 +125,7 @@ private func call(_ body: [String: Any]) throws -> [String: Any] {
         log("call \(callID.prefix(8)): held until \(held), outside the work hours of every phone\(with)")
         let notify = try Waiting.hold(
             callID: callID, project: project, subject: subject, voice: voice, heldUntil: held, question: question,
-            remoteControl: remoteControl)
+            remoteControl: remoteControl, session: session)
         if notify {
             Task.detached {
                 for line in await notifyQuestion(callID: callID, project: project, subject: subject, until: parseISO8601(held)) {
@@ -131,7 +137,7 @@ private func call(_ body: [String: Any]) throws -> [String: Any] {
     }
     if try Waiting.remove(callID) { log("call \(callID.prefix(8)): no longer waiting, it rings") }
     Task.detached {
-        let lines = await ring(project: project, subject: subject, voice: voice, callID: callID)
+        let lines = await ring(project: project, subject: subject, voice: voice, callID: callID, session: session)
         if lines.isEmpty { log("call \(callID.prefix(8)): no phone registered") }
         lines.forEach { log($0) }
     }
@@ -177,6 +183,40 @@ private func event(_ body: [String: Any]) throws -> [String: Any] {
 private func waiting(_ body: [String: Any]) throws -> [String: Any] {
     guard let token = body["token"] as? String, Devices.load()[token] != nil else { throw Forbidden() }
     return ["calls": try Waiting.list()]
+}
+
+/// A voice server says which of its sessions listen (ringback on), for the phone's Contacts:
+/// `{"voice": URL, "sessions": [...]}`, each with its `session_id` and `project`, and when it
+/// can, since when it listens (`since`) and its latest briefing's `subject` and `briefed_at`.
+/// The list replaces the one it gave before. It says so when it changes and every 30 s; a voice
+/// server not heard from in 90 s is dropped (Contacts).
+private func sessions(_ body: [String: Any]) throws -> [String: Any] {
+    guard let voice = body["voice"] as? String, voice.hasPrefix("http://") || voice.hasPrefix("https://"),
+        let given = body["sessions"] as? [[String: Any]]
+    else { throw BadRequest() }
+    let listed = try given.map { session -> [String: String] in
+        guard let id = session["session_id"] as? String, (1...128).contains(id.count),
+            let project = session["project"] as? String, !project.isEmpty
+        else { throw BadRequest() }
+        var kept = ["session_id": id, "project": project]
+        for key in ["subject", "briefed_at", "since"] {
+            if let value = session[key] as? String, !value.isEmpty { kept[key] = value }
+        }
+        return kept
+    }
+    if try Contacts.update(voice: voice, sessions: listed) {
+        let names = listed.map { "\($0["project"]!) (\($0["session_id"]!.prefix(8)))" }.joined(separator: ", ")
+        log("sessions listening on \(voice): \(names.isEmpty ? "none" : names)")
+    }
+    return ok
+}
+
+/// The sessions that listen on every Mac, for the app's Contacts: `{"contacts": [...]}`, by
+/// project, each with its voice server (`voice`). Only a phone that registered gets them, by
+/// its push token, as for `/waiting`: a session's ID lets whoever has it call the session.
+private func contacts(_ body: [String: Any]) throws -> [String: Any] {
+    guard let token = body["token"] as? String, Devices.load()[token] != nil else { throw Forbidden() }
+    return ["contacts": try Contacts.list()]
 }
 
 /// A phone's work hours as the log and `devices` show them; nil if it has none.

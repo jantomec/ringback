@@ -4,8 +4,8 @@ import Foundation
 import UIKit
 
 /// Rings through CallKit for each call the switchboard places, and reports back what happened.
-/// Calls you didn't answer can be called back from the call history, and calls that wait for
-/// your work hours called now, as outgoing calls.
+/// Any call in the history can be called back, calls that wait for your work hours called now,
+/// and sessions called from Contacts, as outgoing calls.
 final class CallService: NSObject, CXProviderDelegate {
     /// How long the phone rings before the call counts as missed.
     static let ringTimeout: TimeInterval = 30
@@ -42,6 +42,9 @@ final class CallService: NSObject, CXProviderDelegate {
     private var callingBack: [UUID: String] = [:]
     /// The live calls you called while they waited.
     private var callingNow: Set<UUID> = []
+    /// The live calls you made from Contacts, or that became such a call (a call back the Mac
+    /// no longer remembered).
+    private var callingContact: Set<UUID> = []
     /// Calls whose audio connected, so a call back that never did ends as not connected.
     private var connected: Set<UUID> = []
     private var heartbeatTimer: Timer?
@@ -81,7 +84,7 @@ final class CallService: NSObject, CXProviderDelegate {
         let voiceURL = (payload["voice"] as? String).flatMap { URL(string: $0) }
         let record = CallRecord(
             id: callID, project: project, subject: subject, ringAt: .now, outcome: .ringing,
-            onAnotherCall: onAnotherCall, voice: voiceURL)
+            onAnotherCall: onAnotherCall, voice: voiceURL, session: payload["session_id"] as? String)
 
         // The lock screen shows who's calling, so the voice doesn't have to say it.
         let update = CXCallUpdate()
@@ -127,16 +130,39 @@ final class CallService: NSObject, CXProviderDelegate {
         }
     }
 
-    /// Calls back a call you didn't answer, straight away, as an outgoing call without ringing:
-    /// its audio goes to the voice server that placed it, with that call's ID, and the voice
-    /// picks up. It's a new record of its own, which keeps the ID of the call it calls back.
+    /// Calls a call in the history, as the Phone app does: answered or not, it calls its
+    /// session back, through the voice server that has the call. A call from before calling
+    /// back, which doesn't say its voice server, calls its session from Contacts, if it's there.
+    func call(_ call: CallRecord) {
+        if call.voice != nil {
+            callBack(call)
+        } else if let contact = state.contact(for: call) {
+            callContact(contact)
+        }
+    }
+
+    /// Calls back a call in the history, straight away, as an outgoing call without ringing:
+    /// its audio goes to the voice server that has it, with that call's ID, and the voice
+    /// picks up. It's a new record of its own, which keeps the ID of the call it calls back. If
+    /// the voice server no longer remembers the call, it calls the session from Contacts.
     func callBack(_ call: CallRecord) {
         guard let voice = call.voice, state.activeCall == nil, startingCallBacks.isEmpty else { return }
         let uuid = UUID()
         let record = CallRecord(
             id: UUID().uuidString.lowercased(), project: call.project, subject: call.subject, ringAt: .now,
-            outcome: .onCall, voice: voice, callsBack: call.callsBack ?? call.id)
+            outcome: .onCall, voice: voice, callsBack: call.callsBack ?? call.id, session: call.session)
         startCall(uuid, record)
+    }
+
+    /// Calls a session from Contacts, straight away, as an outgoing call without ringing: its
+    /// audio goes to that session's voice server, which answers at once with a new call, under
+    /// an ID made here, and the voice picks up with the session's latest briefing.
+    func callContact(_ contact: Contact) {
+        guard state.activeCall == nil, startingCallBacks.isEmpty else { return }
+        let record = CallRecord(
+            id: UUID().uuidString.lowercased(), project: contact.project, subject: contact.subject, ringAt: .now,
+            outcome: .onCall, voice: contact.voice, contact: true, session: contact.session)
+        startCall(UUID(), record)
     }
 
     /// Calls a call that waits for your work hours now, straight away, as a call back does: its
@@ -146,7 +172,7 @@ final class CallService: NSObject, CXProviderDelegate {
         guard state.activeCall == nil, startingCallBacks.isEmpty else { return }
         let record = CallRecord(
             id: call.id, project: call.project, subject: call.subject, ringAt: .now, outcome: .onCall,
-            voice: call.voice, calledNow: true)
+            voice: call.voice, calledNow: true, session: call.session)
         startCall(UUID(), record)
     }
 
@@ -157,7 +183,7 @@ final class CallService: NSObject, CXProviderDelegate {
             guard let error else { return }
             DispatchQueue.main.async { [self] in
                 startingCallBacks[uuid] = nil
-                let what = record.calledNow == true ? "Can't call" : "Can't call back"
+                let what = record.callsBack != nil ? "Can't call back" : "Can't call"
                 state.callBackProblem = "\(what): \(error.localizedDescription)"
             }
         }
@@ -183,9 +209,9 @@ final class CallService: NSObject, CXProviderDelegate {
         isOutgoing(uuid) && !connected.contains(uuid) ? .failed : .answered
     }
 
-    /// A call back, or a waiting call you called now.
+    /// A call back, a waiting call you called now, or a call from Contacts.
     private func isOutgoing(_ uuid: UUID) -> Bool {
-        callingBack[uuid] != nil || callingNow.contains(uuid)
+        callingBack[uuid] != nil || callingNow.contains(uuid) || callingContact.contains(uuid)
     }
 
     func setMuted(_ muted: Bool) {
@@ -208,6 +234,7 @@ final class CallService: NSObject, CXProviderDelegate {
         voiceURLs[uuid] = nil
         callingBack[uuid] = nil
         callingNow.remove(uuid)
+        callingContact.remove(uuid)
         connected.remove(uuid)
         if state.activeCall?.uuid == uuid { endHeartbeat() }
         guard let callID = callIDs.removeValue(forKey: uuid) else {
@@ -324,8 +351,10 @@ final class CallService: NSObject, CXProviderDelegate {
     }
 
     /// A call back's audio: reaches the voice server, then offers with the ID of the call it
-    /// calls back. If the voice server no longer knows that call, the call ends and the app
-    /// says why.
+    /// calls back. If the voice server no longer knows that call (a day after it ended, after a
+    /// restart without its state, or from before calling back answered calls), the call goes
+    /// on as a call to its session from Contacts, if the session is there now; otherwise it
+    /// ends and the app says why.
     private func callBackAudio(_ uuid: UUID, _ callID: String, _ original: String, _ voiceURL: URL) {
         let deadline = Date.now + Self.reachTimeout
         connecting[uuid] = Task { @MainActor [self] in
@@ -341,15 +370,86 @@ final class CallService: NSObject, CXProviderDelegate {
             let link = makeLink(uuid, callID)
             do {
                 _ = try await link.start(voiceURL: voiceURL, callID: original, back: true)
-            } catch is RefusedCall {
+            } catch let refused as RefusedCall {
                 guard links[uuid] === link else { return reached }
-                audioFailed(uuid, callID, RefusedCall().localizedDescription, note: offerNote(uuid))
-                state.callBackProblem = "Claude can't take this call back any more."
-                end(uuid)
+                await state.refreshContacts()
+                guard callIDs[uuid] != nil, links[uuid] === link else { return reached }
+                let call = state.calls.first { $0.id == callID }
+                if let call, let contact = state.contact(for: call) {
+                    await callInstead(uuid, callID, contact)
+                } else {
+                    audioFailed(uuid, callID, refused.localizedDescription, note: offerNote(uuid))
+                    state.callBackProblem = """
+                        Claude can't take this call back: its Mac no longer remembers it, and \
+                        \(call?.project ?? "its session") isn't in Contacts now.
+                        """
+                    end(uuid)
+                }
             } catch {
                 if links[uuid] === link { audioFailed(uuid, callID, error.localizedDescription, note: offerNote(uuid)) }
             }
             return reached
+        }
+    }
+
+    /// A call back the voice server no longer remembers goes on as a call to its session from
+    /// Contacts, under the call back's own ID.
+    @MainActor
+    private func callInstead(_ uuid: UUID, _ callID: String, _ contact: Contact) async {
+        links.removeValue(forKey: uuid)?.stop()  // the refused offer's
+        callingBack[uuid] = nil
+        callingContact.insert(uuid)
+        voiceURLs[uuid] = contact.voice
+        state.update(callID) { call in
+            call.callsBack = nil
+            call.contact = true
+            call.session = contact.session
+            call.voice = contact.voice
+        }
+        Switchboard.report(
+            callID: callID, event: "called contact",
+            extra: ["note": "the Mac no longer remembers the call, so it calls session \(contact.session.prefix(8))"])
+        await offerContact(uuid, callID, contact)
+    }
+
+    /// A call from Contacts: reaches the session's voice server, then offers with the call's ID,
+    /// made here, and the session's. If the session isn't listening any more, or the voice
+    /// server is from before Contacts, the call ends, the app says why, and Contacts is fetched
+    /// again.
+    private func contactAudio(_ uuid: UUID, _ callID: String, _ contact: Contact) {
+        let deadline = Date.now + Self.reachTimeout
+        connecting[uuid] = Task { @MainActor [self] in
+            let task = UIApplication.shared.beginBackgroundTask(withName: "call a contact")
+            defer { UIApplication.shared.endBackgroundTask(task) }
+            let reached = await AudioLink.reach(contact.voice, until: deadline)
+            guard callIDs[uuid] != nil else { return reached }
+            guard let reached else {
+                audioFailed(uuid, callID, ReachError().localizedDescription, note: offerNote(uuid))
+                state.callBackProblem = "Can't reach \(contact.project)'s Mac over Nebula. Check that Nebula is on."
+                end(uuid)
+                return nil
+            }
+            reportReached(callID, reached)
+            await offerContact(uuid, callID, contact)
+            return reached
+        }
+    }
+
+    @MainActor
+    private func offerContact(_ uuid: UUID, _ callID: String, _ contact: Contact) async {
+        let link = makeLink(uuid, callID)
+        do {
+            _ = try await link.start(voiceURL: contact.voice, callID: callID, contact: contact.session)
+        } catch let refused as RefusedCall {
+            guard links[uuid] === link else { return }
+            audioFailed(uuid, callID, refused.localizedDescription, note: offerNote(uuid))
+            state.callBackProblem = refused.reason == "not listening"
+                ? "\(contact.project) isn't listening any more: ringback is off in that session, or it has ended."
+                : "\(contact.project)'s Mac can't take calls from Contacts yet: its voice server is from before them."
+            end(uuid)
+            await state.refreshContacts()
+        } catch {
+            if links[uuid] === link { audioFailed(uuid, callID, error.localizedDescription, note: offerNote(uuid)) }
         }
     }
 
@@ -436,7 +536,7 @@ final class CallService: NSObject, CXProviderDelegate {
         let answered = call.answeredAt.map {
             String(format: "%.1f s after answering", max(0, reached.at.timeIntervalSince($0)))
         }
-        let calling = call.calledNow == true ? "calling it now" : "calling back"
+        let calling = call.contact == true ? "calling from Contacts" : call.calledNow == true ? "calling it now" : "calling back"
         let note = call.isOutgoing
             ? String(format: "%.1f s after \(calling), \(reached.tries) tries", reached.at.timeIntervalSince(call.ringAt))
             : String(format: "%.1f s after ringing, ", reached.at.timeIntervalSince(call.ringAt))
@@ -451,7 +551,9 @@ final class CallService: NSObject, CXProviderDelegate {
         if state.activeCall?.uuid == uuid { state.activeCall?.audio = .connected }
         if isOutgoing(uuid) { provider.reportOutgoingCall(with: uuid, connectedAt: at) }
         guard let call = state.calls.first(where: { $0.id == callID }), let answeredAt = call.answeredAt else { return }
-        let start = call.callsBack != nil ? "calling back" : call.calledNow == true ? "calling it now" : "ringing"
+        let start =
+            call.callsBack != nil ? "calling back" : call.calledNow == true ? "calling it now"
+            : call.contact == true ? "calling from Contacts" : "ringing"
         var note = offerNote(uuid) + String(format: ", connected %.1f s after \(start)", at.timeIntervalSince(call.ringAt))
         if let link = links[uuid] { note += ", addresses: \(link.addresses)" }
         if at < answeredAt { note += String(format: ", %.1f s before answering", answeredAt.timeIntervalSince(at)) }
@@ -471,6 +573,7 @@ final class CallService: NSObject, CXProviderDelegate {
     private func offerNote(_ uuid: UUID) -> String {
         if let original = callingBack[uuid] { return "a call back of \(original.prefix(8))" }
         if callingNow.contains(uuid) { return "called now, while it waited" }
+        if callingContact.contains(uuid) { return "called from Contacts" }
         guard let ringing = ringingAudio[uuid] else { return "offered after answering" }
         if let failure = ringing.failure { return "offered after answering, as connecting while ringing failed (\(failure))" }
         return ringing.offered ? "offered while ringing" : "offered after answering"
@@ -506,14 +609,14 @@ final class CallService: NSObject, CXProviderDelegate {
         action.fulfill()
     }
 
-    /// A call back you tapped in the call history, or a waiting call: it's on at once,
-    /// connecting, and the voice picks up once its audio connects. A call back is reported to
-    /// the switchboard under its own ID; a waiting call under the call's, which takes it off the
-    /// switchboard's waiting calls.
+    /// A call back you tapped in the call history, a waiting call, or a session in Contacts:
+    /// it's on at once, connecting, and the voice picks up once its audio connects. A call back
+    /// or a call from Contacts is reported to the switchboard under its own ID; a waiting call
+    /// under the call's, which takes it off the switchboard's waiting calls.
     func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
         let uuid = action.callUUID
         guard var record = startingCallBacks.removeValue(forKey: uuid), let voiceURL = record.voice,
-            record.callsBack != nil || record.calledNow == true
+            record.callsBack != nil || record.calledNow == true || record.contact == true
         else { return action.fail() }
         AudioLink.prepareAudioSession()
         record.answeredAt = .now
@@ -531,6 +634,10 @@ final class CallService: NSObject, CXProviderDelegate {
         if let original = record.callsBack {
             callingBack[uuid] = original
             Switchboard.report(callID: record.id, event: "called back", extra: ["note": "calls back \(original.prefix(8))"])
+        } else if record.contact == true {
+            callingContact.insert(uuid)
+            let session = record.session.map { " \($0.prefix(8))" } ?? ""
+            Switchboard.report(callID: record.id, event: "called contact", extra: ["note": "calls session\(session)"])
         } else {
             callingNow.insert(uuid)
             state.waiting.removeAll { $0.id == record.id }
@@ -550,6 +657,11 @@ final class CallService: NSObject, CXProviderDelegate {
         provider.reportCall(with: uuid, updated: update)
         if let original = record.callsBack {
             callBackAudio(uuid, record.id, original, voiceURL)
+        } else if record.contact == true, let session = record.session {
+            let contact = Contact(
+                session: session, project: record.project, voice: voiceURL, subject: record.subject, briefedAt: nil,
+                since: nil)
+            contactAudio(uuid, record.id, contact)
         } else {
             callNowAudio(uuid, record.id, voiceURL)
         }

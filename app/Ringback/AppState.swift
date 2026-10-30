@@ -29,17 +29,20 @@ struct CallRecord: Codable, Identifiable {
     /// You called it from the waiting calls, while it was held outside your work hours. It
     /// keeps the call's own ID.
     var calledNow: Bool?
+    /// You called its session from Contacts. Its ID is the phone's own, which its offer carries.
+    var contact: Bool?
+    /// The session that called, or that you called: its ID, from the push, the waiting calls or
+    /// Contacts. Calls from a switchboard or voice server before Contacts have none.
+    var session: String?
 
     var callerName: String { project }
 
-    /// A call you made: a call back, or a waiting call you called now.
-    var isOutgoing: Bool { callsBack != nil || calledNow == true }
+    /// A call you made: a call back, a waiting call you called now, or a call from Contacts.
+    var isOutgoing: Bool { callsBack != nil || calledNow == true || contact == true }
 
-    /// A red call whose voice server is known: tapping it calls it back. A call back that
-    /// didn't connect calls back the same call again.
-    var canCallBack: Bool {
-        voice != nil && [.declined, .missed, .failed].contains(outcome)
-    }
+    /// Whether it's red in the history: declined, missed, couldn't ring, or a call you made
+    /// that didn't connect.
+    var isMissed: Bool { [.declined, .missed, .busy, .failed].contains(outcome) }
 
     var duration: TimeInterval? {
         guard let answeredAt, let endedAt else { return nil }
@@ -63,8 +66,24 @@ struct WaitingCall: Identifiable, Equatable {
     /// Remote Control is on in its session, as the session last said, so the Claude app can
     /// show the question.
     var remoteControl = false
+    /// The session that placed it, if the switchboard says.
+    var session: String?
 
     var callerName: String { project }
+}
+
+/// A session you can call: one with ringback on, on any of your Macs, as the switchboard lists
+/// them for Contacts. Its voice server takes the call.
+struct Contact: Identifiable, Equatable {
+    var id: String { session }
+    let session: String
+    let project: String
+    let voice: URL
+    /// What its latest briefing was about, and when the session wrote it, if it has one.
+    let subject: String?
+    let briefedAt: Date?
+    /// Since when ringback has been on in it, as its voice server saw.
+    let since: Date?
 }
 
 /// The call you're on, while it lasts; the in-call screen shows it.
@@ -96,7 +115,7 @@ enum Connection: Equatable {
     }
 }
 
-/// What the settings screen shows. Changed only on the main queue (PushKit and CallKit both
+/// What the app's screens show. Changed only on the main queue (PushKit and CallKit both
 /// deliver there).
 @Observable
 final class AppState {
@@ -117,6 +136,10 @@ final class AppState {
     var callBackProblem: String?
     /// The calls that wait to ring, soonest first, as the switchboard last gave them.
     var waiting: [WaitingCall] = []
+    /// The sessions you can call, by project, as the switchboard last gave them.
+    var contacts: [Contact] = []
+    /// Microphone access is off, so Claude can't hear you on calls.
+    var microphoneOff = false
     /// Counts successful checks you started yourself; the haptic tap plays on each.
     var confirmations = 0
     /// The last time the switchboard confirmed this phone, kept across launches.
@@ -144,6 +167,29 @@ final class AppState {
         guard Switchboard.url != nil, let token else { return }
         if let calls = try? await Switchboard.waiting(token: token) { waiting = calls }
     }
+
+    /// Fetches the sessions you can call from the switchboard. If it can't be reached, or is
+    /// from before Contacts, the list stays as it was.
+    @MainActor
+    func refreshContacts() async {
+        guard Switchboard.url != nil, let token else { return }
+        if let found = try? await Switchboard.contacts(token: token) { contacts = found }
+    }
+
+    /// The session a call in the history is from, if it's in Contacts now: by its ID, or for a
+    /// call from before Contacts, the only session of that project on that Mac.
+    func contact(for call: CallRecord) -> Contact? {
+        if let session = call.session { return contacts.first { $0.session == session } }
+        let same = contacts.filter { $0.project == call.project && (call.voice == nil || $0.voice == call.voice) }
+        return same.count == 1 ? same[0] : nil
+    }
+
+    #if DEBUG
+    /// Sample calls for screenshots (Seed), kept in memory only.
+    func seed(_ calls: [CallRecord]) {
+        self.calls = calls
+    }
+    #endif
 
     private func save() {
         try? FileManager.default.createDirectory(at: .applicationSupportDirectory, withIntermediateDirectories: true)

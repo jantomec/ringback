@@ -306,12 +306,16 @@ async function finished($: EngineInterface, answer: string): Promise<void> {
 }
 
 // Submits what the voice passed on for this session, each as a prompt of its own. A call's
-// outcome isn't a prompt: it's added to the conversation.
+// outcome isn't a prompt: it's added to the conversation. Collecting also says the session's
+// project and folder, so the phone's Contacts can list it while ringback is on, and a call from
+// there knows where its transcript goes.
 async function collect($: EngineInterface): Promise<void> {
   if (!isOn || isCollecting) return
   isCollecting = true
   try {
-    const response = await voice($, `/sessions/${await $.session.id()}/messages`)
+    const cwd = await $.session.cwd()
+    const where = `project=${encodeURIComponent(projectOf(cwd))}&cwd=${encodeURIComponent(cwd)}`
+    const response = await voice($, `/sessions/${await $.session.id()}/messages?${where}`)
     if (!response.ok) return
     for (const m of JSON.parse(response.text).messages as { kind?: string; text: string; transcript?: string }[]) {
       if (m.kind === 'outcome') outcomes.push(m.text)
