@@ -82,6 +82,9 @@ Every 30 min it wakes each phone with a background push, and the app checks in a
 that now, and `ringback-switchboard devices` shows when each phone last checked in.
 
 To update it, copy the new binary over the old one, stop `serve` and start it again.
+Work hours (a setting in the app) need the voice servers updated too: one from before them
+takes a call the switchboard holds for one that rang, so the call is lost and its session
+hears it wasn't answered.
 
 ## 4. The voice server (every Mac that runs sessions)
 

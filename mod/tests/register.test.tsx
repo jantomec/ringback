@@ -4,17 +4,20 @@ import { expect, mock, test } from 'claude-code/testing'
 type On = Parameters<Parameters<typeof test>[1]>[1]
 
 // What the voice server answers, by path: `live` says whether you're on a call with the
-// session, and `waiting` is what the voice passed on for it. A permission or question put to
-// you is `created` (by default 200, `p1` or `q1`), and each long-poll for its answer takes the
-// next of `answers`. With none left, it waits `pollMs` (25 s) on `clock` and answers pending;
-// without a clock it answers 404, so a test that scripts every answer can't hang.
+// session, and `waiting` is what the voice passed on for it. A call is `placed` with that
+// answer (by default `{ ok: true }`). A permission or question put to you is `created` (by
+// default 200, `p1` or `q1`), and each long-poll for its answer takes the next of `answers`.
+// With none left, it waits `pollMs` (25 s) on `clock` and answers pending, `held` while that's
+// set; without a clock it answers 404, so a test that scripts every answer can't hang.
 type Voice = {
   live?: boolean
   waiting?: object[]
+  placed?: object
   created?: { status: number; body: object }
   answers?: object[]
   clock?: { sleep: (ms: number) => Promise<void> }
   pollMs?: number
+  held?: boolean
   // The session's folder can't be read: the mod's hook fails.
   isCwdBroken?: boolean
 }
@@ -59,6 +62,7 @@ function engine(on: On, voice: Voice = {}) {
     })
     if (e.url.endsWith('/news')) return ok({ live: voice.live ?? false })
     if (e.url.endsWith('/messages')) return ok({ messages: voice.waiting?.splice(0) ?? [] })
+    if (e.url.endsWith('/calls')) return ok(voice.placed ?? { ok: true })
     if (/\/(permissions|questions)$/.test(e.url)) {
       const created = voice.created ?? { status: 200, body: { permission: 'p1', question: 'q1', call: 'placed' } }
       return ok(created.body, created.status)
@@ -68,7 +72,12 @@ function engine(on: On, voice: Voice = {}) {
       if (answer) return ok(answer)
       if (!voice.clock) return ok({ error: 'no such permission or question' }, 404)
       await voice.clock.sleep(voice.pollMs ?? 25_000)
-      return ok(e.url.includes('/permissions/') ? { verdict: 'pending', said: null } : { status: 'pending', answers: null, said: null })
+      const held = voice.held ? { held: true } : {}
+      return ok(
+        e.url.includes('/permissions/')
+          ? { verdict: 'pending', said: null, ...held }
+          : { status: 'pending', answers: null, said: null, ...held },
+      )
     }
     return ok({ ok: true })
   })
@@ -253,6 +262,40 @@ test("a call's outcome waits while a turn runs, and is added when it ends", asyn
   // The turn's end still asks for a briefing, as with no outcome waiting.
   expect(asked.prompts.length).toBe(1)
   expect(asked.prompts[0]).toContain('Subject: ')
+})
+
+// Work hours. A time on 30 or 31 October 2026 here, and as the switchboard writes it: ISO 8601
+// with this machine's offset from UTC.
+const at = (day: number, hour: number, minute = 0) => new Date(2026, 9, day, hour, minute)
+const written = (date: Date) => {
+  const offset = -date.getTimezoneOffset()
+  const two = (n: number) => String(Math.floor(n)).padStart(2, '0')
+  const local = new Date(date.getTime() + offset * 60_000).toISOString().slice(0, 19)
+  return `${local}${offset < 0 ? '-' : '+'}${two(Math.abs(offset) / 60)}:${two(Math.abs(offset) % 60)}`
+}
+
+test('outside your work hours, a dim line says when the call rings', async ($, on) => {
+  mock.clock(on, { now: at(30, 2).getTime() })
+  const voice: Voice = {}
+  const asked = engine(on, voice)
+  await start($)
+  const briefed = async () => {
+    await $.turn.complete(turn('Done.'))
+    await settle()
+    await $.turn.complete(turn('Subject: Parser fixed\n\nI fixed the parser.'))
+    await settle()
+  }
+  // A call that rings says nothing.
+  await briefed()
+  expect(asked.logs).toEqual([])
+  voice.placed = { ok: true, held_until: written(at(30, 8)) }
+  await briefed()
+  expect(asked.logs).toEqual(['Outside your work hours: the call rings at 08:00.'])
+  // Not today: with the date.
+  voice.placed = { ok: true, held_until: written(at(31, 8)) }
+  await briefed()
+  expect(asked.logs.at(-1)).toBe('Outside your work hours: the call rings at 08:00 on Sat 31 Oct.')
+  expect(asked.fetches.filter(f => f.url === 'http://voice/calls').length).toBe(3)
 })
 
 test('an interrupted briefing places no call', async ($, on) => {
@@ -502,6 +545,39 @@ test('after 15 min with no answer, the terminal asks', { timeoutMs: 30_000, ...a
   await ran
   await settle()
   expect(polls(asked.fetches).length).toBe(2)
+  expect(withdrawn(asked.fetches)).toEqual(['http://voice/sessions/session-1234/permissions/p1'])
+  expect(answers(asked.debug)).toEqual([{}])
+  expect(asked.logs.at(-1)).toBe("No answer from the phone in 15 min, so it's asked here.")
+})
+
+// 35 min of collecting once a second takes about 10 s.
+test('while its call is held, a permission waits, and 15 min count from when it rings', { timeoutMs: 60_000, ...above(observing) }, async ($, on) => {
+  const clock = mock.clock(on, { now: at(30, 7).getTime() })
+  const voice: Voice = {
+    clock,
+    held: true,
+    created: { status: 200, body: { permission: 'p1', call: 'held', held_until: written(at(30, 7, 30)) } },
+  }
+  const asked = engine(on, voice)
+  tools(on)
+  await start($)
+  const ran = $.tool.call(bash)
+  await clock.settle()
+  expect(asked.logs).toEqual([
+    'Asking you on the phone: Permission to run a shell command',
+    'Outside your work hours: the call rings at 07:30.',
+  ])
+  // Held for 20 min: still waiting, past the 15.
+  await clock.advance(20 * 60_000)
+  expect(answers(asked.debug)).toEqual([])
+  expect(withdrawn(asked.fetches)).toEqual([])
+  // It rings: the last poll that said held was at 20 min, so 15 min count from then.
+  voice.held = false
+  await clock.advance(14 * 60_000)
+  expect(answers(asked.debug)).toEqual([])
+  await clock.advance(60_000)
+  await ran
+  await settle()
   expect(withdrawn(asked.fetches)).toEqual(['http://voice/sessions/session-1234/permissions/p1'])
   expect(answers(asked.debug)).toEqual([{}])
   expect(asked.logs.at(-1)).toBe("No answer from the phone in 15 min, so it's asked here.")

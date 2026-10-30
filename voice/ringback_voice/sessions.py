@@ -16,6 +16,11 @@ again.
 The session also learns how each call went: when it ends, or when it isn't answered in time,
 its outcome waits here for the mod too, as a note the session reads rather than a prompt.
 
+Outside your work hours (set in the app) the switchboard holds a call instead of ringing,
+and says when the hours start. The call is kept here meanwhile, without Haiku, and the
+switchboard is asked again then, or within REASK s, so hours you widen apply soon. A new
+briefing from its session replaces the held call's, and what the session asks goes to it.
+
 When the session needs your permission, or asks you questions, its mod holds the tool call
 and asks here (an Ask). The call you're on with that session gets it as a note; otherwise a
 call is placed to ask it. The mod waits for the answer the voice gives, and shows its own
@@ -30,6 +35,7 @@ import string
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from aiohttp import ClientError, ClientSession, ClientTimeout, web
@@ -43,6 +49,14 @@ SOCKET = Path("~/.local/state/ringback/voice.sock").expanduser()
 # call is forgotten. The phone rings for 30 s, and its push can take about 16 s to arrive
 # after it leaves Wi-Fi. RINGBACK_UNANSWERED overrides it, for checks.
 UNANSWERED = float(os.environ.get("RINGBACK_UNANSWERED", "90"))
+# Seconds a call held outside your work hours waits at most before the switchboard is asked
+# again, so hours you widen apply within this long. If it can't be reached, it's asked again
+# after RETRY s. RINGBACK_REASK overrides it, for checks.
+REASK = float(os.environ.get("RINGBACK_REASK", "600"))
+RETRY = min(60.0, REASK)
+# Seconds a held call sleeps at most before it looks at the clock again. asyncio's clock
+# stops while the Mac sleeps, so the wait is on the wall clock, looked at this often.
+TICK = 30.0
 # What a session asks is kept this long after it's answered, so its mod can still read the
 # answer, then forgotten.
 KEEP = 600
@@ -64,6 +78,7 @@ class Link:
         # talking.
         self.notify: Callable[[str], Awaitable[None]] | None = None
         self.asks: dict[str, Ask] = {}  # what the session asks you on this call, until answered
+        self._briefed: list[Ask] = []  # what the call's briefing asks, placed to ask it
         # Notes kept until the voice has started talking: one appended before the opening is
         # spoken would make Haiku answer it instead.
         self._notes: list[tuple[Ask | None, str]] = []
@@ -108,8 +123,18 @@ class Link:
         """Puts what the session asks to this call's voice: in a note, unless the call was
         placed to ask it, so its briefing has it."""
         self.asks[ask.id] = ask
-        if not briefed:
+        if briefed:
+            self._briefed.append(ask)
+        else:
             self.tell(ask.note(), ask)
+
+    def rebriefed(self) -> None:
+        """The call has a new briefing, which doesn't mention what the old one asked: the
+        asks still waiting for it go to the voice as notes instead."""
+        briefed, self._briefed = self._briefed, []
+        for ask in briefed:
+            if self.asks.get(ask.id) is ask:
+                self.tell(ask.note(), ask)
 
     def answer(self, id: str, outcome: str, said: str, answers: dict[str, str] | None = None) -> bool:
         """Gives the session your answer, once you've heard the voice say it; False if it no
@@ -255,18 +280,23 @@ class Call:
     cwd: str  # the session's working directory, where the transcript goes
     subject: str
     briefing: str
-    placed: float
+    placed: float  # when the phone started ringing (time.monotonic())
     answered_at: float | None = None  # when you answered (time.monotonic())
     link: Link | None = field(default=None, repr=False)  # to its session, made when it's placed
     # Haiku, writing the opening while the phone rings, for the call's voice; closed when the
     # call ends or is forgotten.
     haiku: Haiku | None = field(default=None, repr=False)
     deadline: asyncio.Task | None = field(default=None, repr=False)  # forgets it if it isn't answered
+    # Outside your work hours: when the switchboard said the call can ring (ISO 8601, with an
+    # offset), until it rings.
+    held_until: str | None = None
+    holding: asyncio.Task | None = field(default=None, repr=False)  # asks the switchboard again
 
 
 class Calls:
     """The calls placed and not yet ended, and what waits for each session. The Mac stays
-    awake while there are calls."""
+    awake while there are calls, held ones too, so a call held overnight can ring in the
+    morning."""
 
     def __init__(self, switchboard: str | None, voice: str, log: Callable[[str], None]):
         self._switchboard = switchboard
@@ -281,27 +311,57 @@ class Calls:
         self._closing: set[asyncio.Task] = set()  # Haikus of forgotten calls, while they close
 
     async def place(self, session: str, project: str, cwd: str, subject: str, briefing: str) -> Call:
-        """Asks the switchboard to ring the phone; raises RuntimeError if it can't."""
+        """Asks the switchboard to ring the phone; raises RuntimeError if it can't. Outside
+        your work hours the switchboard holds the call (its held_until), and a new briefing
+        for a session whose call is held goes to that call instead of placing another."""
         if not self._switchboard:
             raise RuntimeError("the voice server was started without --switchboard")
+        if held := next((c for c in self._calls.values() if c.session == session and c.held_until), None):
+            held.project, held.cwd, held.subject, held.briefing = project, cwd, subject, briefing
+            held.link.rebriefed()
+            self._log(f"call {held.id[:8]}: still held until {held.held_until}, with a new briefing: {subject}")
+            return held
         call = Call(secrets.token_urlsafe(24), session, project, cwd, subject, briefing, time.monotonic())
-        body = {"project": project, "subject": subject, "voice": f"http://{self._voice}", "call_id": call.id}
+        held_until = await self._ask_switchboard(call)
+        # The transcript joins the link when you answer.
+        link = Link(lambda text: self.send(session, text, link.transcript.relative if link.transcript else None))
+        call.link = link
+        self._calls[call.id] = call
+        if held_until:
+            call.held_until = held_until
+            self._log(f"call {call.id[:8]}: held until {held_until} for {project} ({session[:8]}): {subject}")
+            call.holding = asyncio.create_task(self._hold(call))
+        else:
+            self._log(f"call {call.id[:8]}: placed for {project} ({session[:8]}): {subject}")
+            await self._ring(call)
+        await self._stay_awake()
+        return call
+
+    async def _ask_switchboard(self, call: Call) -> str | None:
+        """Asks the switchboard to ring the phone for a call: None if it rings, or when it
+        can ring if it holds the call outside your work hours. Raises RuntimeError if it can't
+        be reached or refuses."""
+        body = {"project": call.project, "subject": call.subject, "voice": f"http://{self._voice}", "call_id": call.id}
         try:
             async with ClientSession(timeout=ClientTimeout(total=10)) as http:
                 async with http.post(f"http://{self._switchboard}/call", json=body) as response:
                     if response.status != 200:
                         raise RuntimeError(f"the switchboard answered {response.status}")
+                    try:
+                        answer = await response.json(content_type=None)
+                    except ValueError:
+                        answer = None  # a switchboard from before work hours answers only 200
         except (ClientError, TimeoutError) as e:
             raise RuntimeError(f"can't reach the switchboard at {self._switchboard}: {e or type(e).__name__}") from e
-        # The transcript joins the link when you answer.
-        link = Link(lambda text: self.send(session, text, link.transcript.relative if link.transcript else None))
-        call.link = link
-        self._calls[call.id] = call
-        self._log(f"call {call.id[:8]}: placed for {project} ({session[:8]}): {subject}")
-        # Haiku thinks of what to say while the phone rings, so the voice can start as soon
-        # as you answer.
+        held_until = answer.get("held_until") if isinstance(answer, dict) else None
+        return held_until if isinstance(held_until, str) and held_until else None
+
+    async def _ring(self, call: Call) -> None:
+        """The phone rings: Haiku thinks of what to say meanwhile, so the voice can start as
+        soon as you answer, and the call is forgotten if you don't within UNANSWERED s."""
+        call.placed = time.monotonic()
         say = lambda line: self._log(f"call {call.id[:8]}: {line}")
-        haiku = Haiku(instructions(briefing, session=True), say, tools=True)
+        haiku = Haiku(instructions(call.briefing, session=True), say, tools=True)
         try:
             await haiku.start()
             call.haiku = haiku
@@ -309,13 +369,35 @@ class Calls:
             self._log(f"call {call.id[:8]}: Haiku didn't start ({e}); the call starts its own")
             await haiku.close()
         call.deadline = asyncio.create_task(self._deadline(call))
-        await self._stay_awake()
-        return call
+
+    async def _hold(self, call: Call) -> None:
+        """Asks the switchboard again about a held call when it said the call can ring, or
+        after REASK s if that's sooner, until it rings; RETRY s after a try that fails. The
+        wait is on the wall clock, which goes on while the Mac sleeps."""
+        due = wake(call.held_until)
+        while True:
+            while (left := due - time.time()) > 0:
+                await asyncio.sleep(min(left, TICK))
+            try:
+                held_until = await self._ask_switchboard(call)
+            except RuntimeError as e:
+                self._log(f"call {call.id[:8]}: still held, {e}; asking again in {RETRY:.0f} s")
+                due = time.time() + RETRY
+                continue
+            if not held_until:
+                break
+            if held_until != call.held_until:
+                self._log(f"call {call.id[:8]}: now held until {held_until}")
+            call.held_until = held_until
+            due = wake(held_until)
+        call.held_until = None
+        self._log(f"call {call.id[:8]}: placed for {call.project} ({call.session[:8]}), held until now: {call.subject}")
+        await self._ring(call)
 
     def offer(self, call_id: str) -> Call | None:
         """The call an offer is for, if it's one this server placed. The offer can come while
         the phone still rings, and a call you haven't answered stays placed until it's
-        forgotten, so the phone can offer again."""
+        forgotten, so the phone can offer again. A held one is refused (__main__.py)."""
         return self._calls.get(call_id)
 
     def answered(self, call_id: str) -> Call | None:
@@ -353,28 +435,33 @@ class Calls:
                 return True
         return False
 
-    async def ask(self, session: str, kind: str, request: dict) -> tuple[Ask, str]:
+    async def ask(self, session: str, kind: str, request: dict) -> tuple[Ask, str, str | None]:
         """Puts what a session asks to the call you're on with it ("live"), or to its call
-        that's ringing, for once you answer ("placed"); otherwise places a call to ask it
-        ("placed"). Raises RuntimeError if no call can be placed."""
+        that's ringing, for once you answer ("placed"), or held outside your work hours
+        ("held"); otherwise places a call to ask it ("placed" or "held"). Returns it, how, and
+        when a held call can ring. Raises RuntimeError if no call can be placed."""
         # One at a time: parallel tool calls can ask at once, and should share one call.
         async with self._asking:
             ask = Ask(new_id(self._asks), kind, session, request)
             ours = [c for c in self._calls.values() if c.session == session]
             if call := ([c for c in ours if c.answered_at is not None] or ours or [None])[-1]:
                 call.link.ask(ask)
-                how = "live" if call.answered_at is not None else "placed"
             else:
                 r = request
                 call = await self.place(session, r["project"], r["cwd"], r["subject"], ask.briefing())
                 call.link.ask(ask, briefed=True)
-                how = "placed"
+            how = "live" if call.answered_at is not None else "held" if call.held_until else "placed"
             self._asks[ask.id] = ask
         self._log(f"call {call.id[:8]}: {ask.name} for session {session[:8]}, {how}: {ask.details()[:100]!r}")
         keeping = asyncio.create_task(self._keep(ask))
         self._keeping.add(keeping)
         keeping.add_done_callback(self._keeping.discard)
-        return ask, how
+        return ask, how, call.held_until
+
+    def held_until(self, ask: Ask) -> str | None:
+        """When the call that asks it can ring, while that call is held outside your work
+        hours."""
+        return next((c.held_until for c in self._calls.values() if c.held_until and ask.id in c.link.asks), None)
 
     def asked(self, session: str, kind: str, id: str) -> Ask | None:
         """What a session asked, by its id, until it's withdrawn or forgotten."""
@@ -415,8 +502,9 @@ class Calls:
         """Drops a call, answered and ended or never answered: the one place a call goes. Its
         session is told how it went, and the Haiku that wrote its opening is closed."""
         self._calls.pop(call.id, None)
-        if call.deadline and call.deadline is not asyncio.current_task():
-            call.deadline.cancel()
+        for task in (call.deadline, call.holding):
+            if task and task is not asyncio.current_task():
+                task.cancel()
         if call.haiku:
             closing = asyncio.create_task(call.haiku.close())
             self._closing.add(closing)
@@ -451,6 +539,18 @@ def outcome(call: Call, transcript: str | None) -> str:
     return f"{text} Its transcript: {transcript}" if transcript else text
 
 
+def wake(held_until: str) -> float:
+    """When a held call asks the switchboard again (time.time()): when it said the call can
+    ring, or in REASK s if that's sooner. Never within a second, so a Mac whose clock is a
+    little ahead of the switchboard's doesn't ask again and again."""
+    try:
+        at = datetime.fromisoformat(held_until).timestamp()
+    except ValueError:
+        at = float("inf")
+    now = time.time()
+    return max(min(at, now + REASK), now + 1)
+
+
 def new_id(taken: dict) -> str:
     """Four random lowercase letters, not taken yet: short, and safe for Haiku to write."""
     while (id := "".join(secrets.choice(string.ascii_lowercase) for _ in range(4))) in taken:
@@ -468,7 +568,8 @@ def duration(seconds: float) -> str:
 
 def session_side(calls: Calls) -> web.Application:
     """The endpoints the mods call:
-    - `POST /calls` places a call with a session's briefing;
+    - `POST /calls` places a call with a session's briefing. Outside your work hours the
+      answer has `held_until`, when the call can ring (ISO 8601, with an offset);
     - `GET /sessions/{id}/messages` collects what waits for a session: each message has a
       `kind`, `message` for what the voice passed on and `outcome` for how a call went, its
       `text`, and the call's `transcript` if there is one;
@@ -478,10 +579,12 @@ def session_side(calls: Calls) -> web.Application:
     - `POST /sessions/{id}/permissions` asks your permission for a tool call, and
       `POST /sessions/{id}/questions` asks you questions, each with their options. Either is
       put to the call you're on with the session (`"call": "live"`) or to one placed to ask
-      it (`"placed"`), and answered with its id; 502 if no call can be placed;
+      it (`"placed"`), or held outside your work hours (`"held"`, with `held_until`), and
+      answered with its id; 502 if no call can be placed;
     - `GET .../{ask}?wait=S` waits up to S seconds (at most 25) for the answer: a permission's
       `verdict` (allow, deny, none or pending), or the questions' `status` (answered, none or
-      pending) and `answers`, with your `said`. None: the call ended without an answer;
+      pending) and `answers`, with your `said`, and `"held": true` while its call is held.
+      None: the call ended without an answer;
     - `POST .../{ask}` records an answer, as the voice does (for tools);
     - `DELETE .../{ask}` withdraws it: the session no longer waits for an answer.
     """
@@ -498,12 +601,12 @@ def session_side(calls: Calls) -> web.Application:
         except ValueError:
             return web.json_response({"error": "needs session_id, project and briefing"}, status=400)
         try:
-            await calls.place(
+            call = await calls.place(
                 body["session_id"], body["project"], str(body.get("cwd", "")), str(body.get("subject", "")), body["briefing"]
             )
         except RuntimeError as e:
             return web.json_response({"error": str(e)}, status=502)
-        return web.json_response({"ok": True})
+        return web.json_response({"ok": True} | ({"held_until": call.held_until} if call.held_until else {}))
 
     async def collect(request: web.Request) -> web.Response:
         return web.json_response({"messages": calls.collect(request.match_info["id"])})
@@ -534,10 +637,10 @@ def session_side(calls: Calls) -> web.Application:
                 needs = "tool" if kind == "permission" else "questions, each with a question and options with labels"
                 return web.json_response({"error": f"needs {needs}"}, status=400)
             try:
-                asked, how = await calls.ask(request.match_info["id"], kind, checked)
+                asked, how, held_until = await calls.ask(request.match_info["id"], kind, checked)
             except RuntimeError as e:
                 return web.json_response({"error": str(e)}, status=502)
-            return web.json_response({kind: asked.id, "call": how})
+            return web.json_response({kind: asked.id, "call": how} | ({"held_until": held_until} if held_until else {}))
 
         def asked(request: web.Request) -> Ask:
             if found := calls.asked(request.match_info["id"], kind, request.match_info["ask"]):
@@ -545,9 +648,10 @@ def session_side(calls: Calls) -> web.Application:
             raise web.HTTPNotFound(text='{"error": "unknown"}', content_type="application/json")
 
         def answer(a: Ask) -> dict:
+            held = {"held": True} if calls.held_until(a) else {}
             if kind == "permission":
-                return {"verdict": a.outcome or "pending", "said": a.said}
-            return {"status": a.outcome or "pending", "answers": a.answers, "said": a.said}
+                return {"verdict": a.outcome or "pending", "said": a.said} | held
+            return {"status": a.outcome or "pending", "answers": a.answers, "said": a.said} | held
 
         async def wait(request: web.Request) -> web.Response:
             a = asked(request)

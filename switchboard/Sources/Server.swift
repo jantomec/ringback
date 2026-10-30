@@ -51,9 +51,10 @@ private struct Request {
 
 private struct BadRequest: Error {}
 
-/// Runs the endpoint a request asks for. The phone only checks for a 200.
+/// Runs the endpoint a request asks for, which answers its own JSON. The phone only checks for
+/// a 200.
 private func answer(_ request: Request?) -> (String, String) {
-    let endpoints: [Substring: ([String: Any]) throws -> Void] = [
+    let endpoints: [Substring: ([String: Any]) throws -> [String: Any]] = [
         "/register": register, "/events": event, "/check": checkIn, "/call": call,
     ]
     guard let request else { return ("400 Bad Request", #"{"ok": false}"#) }
@@ -63,8 +64,8 @@ private func answer(_ request: Request?) -> (String, String) {
         return ("400 Bad Request", #"{"ok": false}"#)
     }
     do {
-        try endpoint(body)
-        return ("200 OK", #"{"ok": true}"#)
+        let answer = try JSONSerialization.data(withJSONObject: try endpoint(body), options: [.sortedKeys])
+        return ("200 OK", String(decoding: answer, as: UTF8.self))
     } catch is BadRequest {
         return ("400 Bad Request", #"{"ok": false}"#)
     } catch {
@@ -73,47 +74,76 @@ private func answer(_ request: Request?) -> (String, String) {
     }
 }
 
-private func register(_ body: [String: Any]) throws {
-    guard let token = body["token"] as? String, !token.isEmpty else { throw BadRequest() }
+private let ok: [String: Any] = ["ok": true]
+
+/// A phone registers its push tokens, and its work hours if it has any: a registration
+/// without them clears them, and ones that can't be read are a 400.
+private func register(_ body: [String: Any]) throws -> [String: Any] {
+    guard let token = body["token"] as? String, !token.isEmpty, let hours = WorkHours.fields(of: body) else {
+        throw BadRequest()
+    }
     let environment = body["environment"] as? String ?? "sandbox"
     let device = body["device"] as? String ?? "a phone"
     let notificationToken = (body["notification_token"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-    try Devices.register(token: token, environment: environment, device: device, notificationToken: notificationToken)
+    try Devices.register(
+        token: token, environment: environment, device: device, notificationToken: notificationToken, hours: hours)
     let checks = notificationToken == nil ? "" : ", with connection checks"
-    log("registered \(device) (\(environment)), token …\(token.suffix(8))\(checks)")
+    log("registered \(device) (\(environment)), token …\(token.suffix(8))\(checks)\(describe(hours).map { ", \($0)" } ?? "")")
+    return ok
 }
 
 /// A voice server asks to ring the phone for one of its sessions. The call ID is that call's
 /// secret: the voice server accepts only an offer that carries it, and only the push takes it
 /// to the phone. The push goes out after the answer, so a slow APNs doesn't hold up requests.
-private func call(_ body: [String: Any]) throws {
+///
+/// Outside the work hours of every phone nothing rings: the answer says when the first of
+/// them start (`held_until`), and the voice server asks again by then, with the same call ID.
+private func call(_ body: [String: Any]) throws -> [String: Any] {
     guard let project = body["project"] as? String, !project.isEmpty,
         let voice = body["voice"] as? String, voice.hasPrefix("http://") || voice.hasPrefix("https://"),
         let callID = body["call_id"] as? String, (16...128).contains(callID.count)
     else { throw BadRequest() }
     let subject = (body["subject"] as? String).flatMap { $0.isEmpty ? nil : $0 }
     log("call \(callID.prefix(8)): asked by \(voice) for \(project)\(subject.map { ": \($0)" } ?? "")")
+    if let held = heldUntil(Date()) {
+        log("call \(callID.prefix(8)): held until \(held), outside the work hours of every phone")
+        return ["ok": true, "held_until": held]
+    }
     Task.detached {
         let lines = await ring(project: project, subject: subject, voice: voice, callID: callID)
         if lines.isEmpty { log("call \(callID.prefix(8)): no phone registered") }
         lines.forEach { log($0) }
     }
+    return ok
 }
 
 /// The phone reached the switchboard on a connection check. Without a known token it still
-/// gets a 200: the check is whether it got through.
-private func checkIn(_ body: [String: Any]) throws {
-    guard let token = body["token"] as? String else { return }
-    try Devices.checkedIn(token: token)
+/// gets a 200: the check is whether it got through. Its work hours come along, so a new time
+/// zone reaches the switchboard within the half hour between checks. Hours that can't be read
+/// are left out rather than refused, for the same reason.
+private func checkIn(_ body: [String: Any]) throws -> [String: Any] {
+    guard let token = body["token"] as? String else { return ok }
+    let sent = WorkHours.keys.contains { body[$0] != nil }
+    let hours = sent ? WorkHours.fields(of: body) : nil
+    if sent && hours == nil { log("check from …\(token.suffix(8)): work hours that can't be read, left out") }
+    try Devices.checkedIn(token: token, hours: hours)
+    return ok
 }
 
-private func event(_ body: [String: Any]) throws {
+private func event(_ body: [String: Any]) throws -> [String: Any] {
     try Events.append(body)
     let extra = ["on_another_call", "duration_s", "since_answer_s", "error", "note"]
         .compactMap { key in body[key].map { ", \(key) \($0)" } }.joined()
     let at = (body["at"] as? String).flatMap(parseISO8601).map { " (on the phone at \(timeOfDay($0)))" } ?? ""
     let call = (body["call_id"] as? String ?? "?").prefix(8)
     log("call \(call): \(body["event"].map { "\($0)" } ?? "?")\(extra)\(at)")
+    return ok
+}
+
+/// A phone's work hours as the log and `devices` show them; nil if it has none.
+func describe(_ hours: [String: String]) -> String? {
+    guard let from = hours["hours_from"], let to = hours["hours_to"] else { return nil }
+    return "work hours \(from)–\(to) \(hours["time_zone"] ?? "")"
 }
 
 private func parseISO8601(_ text: String) -> Date? {

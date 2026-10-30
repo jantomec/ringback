@@ -307,6 +307,10 @@ def main() -> None:
         ringing = body.get("ringing") is True
         call = calls.offer(call_id)
         link = haiku = None
+        if call and call.held_until:
+            # Held outside your work hours, it hasn't rung, so the phone can't know its ID.
+            log(f"call {call_id[:8]}: refused, held until {call.held_until}")
+            return web.json_response({"error": "unknown call"}, status=403)
         if call:
             text, link = call.briefing, call.link
         elif args.report:

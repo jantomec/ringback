@@ -2,7 +2,7 @@
 
 Checks the voice server's side of what a session asks you on a call: its permissions and
 its questions (`/sessions/{id}/permissions` and `/sessions/{id}/questions` on the session
-socket, in `voice/ringback_voice/sessions.py`). A voice server is started here with its own
+socket, in `voice/ringback_voice/sessions.py`); and its calls held outside your work hours. A voice server is started here with its own
 socket, in a temporary folder, and phone-check's ports 18797 and 18798. So it runs beside
 your own voice server, but not beside `tools/phone-check`. The session's requests go to that
 socket as its mod sends them. A stand-in switchboard takes the calls they place, so nothing
@@ -25,15 +25,33 @@ It checks:
   one still waiting when you hang up gets `none`;
 - the call's transcript has both requests and both answers.
 
-Run from the repo root. It uses your Claude subscription, two Haiku sessions:
+Then calls held outside your work hours: the stand-in switchboard answers `held_until`, as
+the switchboard does outside every phone's hours. It checks:
+- a permission with no call places a held one (`"call": "held"`, with the `held_until` the
+  switchboard gave), which starts no Haiku and keeps the Mac awake (a `caffeinate` child
+  of the voice server); a long poll answers `"held": true`; an offer for it gets 403;
+- a session's new briefing (`/calls`) goes to the held call, without asking the
+  switchboard for another, and a question goes to it too;
+- held for an hour, it's asked again after `--reask` seconds, with the same call ID and
+  the new subject; held for 2.5 s, at the time the switchboard gave; after a 503,
+  `--reask` seconds later (a minute, in real use); then it rings and Haiku starts;
+- answered, its transcript has the new briefing, and the permission the old briefing
+  asked, and the question, went to the voice as notes;
+- another session's call, held 3 s, rings and isn't answered: it's forgotten
+  `--unanswered` seconds after it rang, not after it was placed, and then no Haiku and no
+  sleep assertion are left.
 
-    uv run --project voice tools/ask-check/ask_check.py [--unanswered S] [--keep DIR]
+Run from the repo root. It uses your Claude subscription, four Haiku sessions:
+
+    uv run --project voice tools/ask-check/ask_check.py [--unanswered S] [--reask S] [--keep DIR]
 
 - `--unanswered` is how long the voice server waits for a call to be answered, 10 s by
   default instead of the real 90 s (it sets `RINGBACK_UNANSWERED` for the voice server).
-- `--keep DIR` keeps the voice's log and the call's transcript.
+- `--reask` is the longest a held call waits before the switchboard is asked again, 4 s by
+  default instead of the real 10 min (`RINGBACK_REASK`).
+- `--keep DIR` keeps the voice's log and the calls' transcripts.
 
-It prints the call's transcript, the voice's log and the checks. What the voice says when it
+It prints the calls' transcripts, the voice's log and the checks. What the voice says when it
 asks, and how it takes unclear answers, is for `tools/call-check` (`?` and `??` turns).
 The mod's side, holding the tool call and showing its own prompt on `none`, isn't part of
 it.
@@ -45,3 +63,12 @@ yes) and 9.5 s (the choice) after the voice server recognised your words: Haiku 
 tool before speaking, its first words came 2.7 and 4.1 s after your turn, and the answer then
 waited until its spoken sentence had been heard (3.9 and 5.1 s of speech). A permission
 still waiting when the phone hung up got `none` 3 ms after the voice server noticed.
+
+Result on 2026-10-30, Claude Code 2.1.314, one run with held calls: all 41 checks passed
+(the 22 above and 19 for held calls), in 3 min 5 s with the models loading. The call held
+for an hour was asked again 4.01 s after it was placed, with the new subject; then 0.00 s
+after the time the switchboard gave; then 4.00 s after the 503. Haiku started 0.06 s after
+the switchboard took the call. Answered, the voice opened on the new briefing, then put
+both the permission the old briefing asked and the question to you. The other call rang
+2.59 s after it was placed and was forgotten 10.06 s after it rang ("wasn't answered within
+10 s"). 0.64 s after that outcome arrived, no Haiku ran and the sleep assertion had ended.

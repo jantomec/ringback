@@ -242,6 +242,7 @@ async function call($: EngineInterface, answer: string): Promise<void> {
   try {
     const response = await voice($, '/calls', body)
     if (!response.ok) $.ui.toast(`Can't call: ${errorOf(response.text) ?? `the voice server answered ${response.status}`}`)
+    else await showHeld($, fieldOf(response.text, 'held_until'))
   } catch {
     $.ui.toast("Can't call: the voice server isn't running (ringback-voice serve)")
   } finally {
@@ -252,15 +253,39 @@ async function call($: EngineInterface, answer: string): Promise<void> {
 
 const projectOf = (cwd: string) => cwd.split('/').filter(Boolean).pop() ?? 'Claude'
 
-// The voice server's answer: what a permission or question resolved to.
-type Answer = { verdict?: string; status?: string; answers?: Record<string, string> | null; said?: string | null }
+// Outside your work hours (set in the app) the switchboard holds the call: a dim line says
+// when it rings, in this Mac's time, with the date unless it's today.
+async function showHeld($: EngineInterface, heldUntil: unknown): Promise<void> {
+  const at = typeof heldUntil === 'string' ? new Date(heldUntil) : undefined
+  if (!at || Number.isNaN(at.getTime())) return
+  const now = new Date(await $.clock.now())
+  const two = (n: number) => String(n).padStart(2, '0')
+  const time = `${two(at.getHours())}:${two(at.getMinutes())}`
+  const isToday = at.toDateString() === now.toDateString()
+  const day = `${DAYS[at.getDay()]} ${at.getDate()} ${MONTHS[at.getMonth()]}`
+  $.ui.log(`Outside your work hours: the call rings at ${time}${isToday ? '' : ` on ${day}`}.`)
+}
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+// The voice server's answer: what a permission or question resolved to, and whether its call
+// is held outside your work hours.
+type Answer = {
+  verdict?: string
+  status?: string
+  answers?: Record<string, string> | null
+  said?: string | null
+  held?: boolean
+}
 
 // Puts a permission or a question to you on a call, and waits for your answer: long-polls the
 // voice server until it has one, ringback is switched off, the tool call is abandoned or
 // 15 min pass. Unanswered, it's withdrawn, and it's left to the terminal (undefined). A
 // long-poll is a call on `$`, so its wait doesn't count against the hook's 10 s; a
 // `$.clock.sleep` would, so there's none. Each poll waits 25 s at most, inside the 30 s
-// that one `$.http.fetch` may take.
+// that one `$.http.fetch` may take. While the call is held outside your work hours, the
+// 15 min start again with each poll, so they count from when it rings.
 async function hold(
   $: EngineInterface,
   kind: 'permissions' | 'questions',
@@ -276,7 +301,12 @@ async function hold(
       resolve({})
     }
   })
-  const timer = $.clock.after(HOLD_MS, () => stop('No answer from the phone in 15 min'))
+  const timeUp = () => stop('No answer from the phone in 15 min')
+  let timer = $.clock.after(HOLD_MS, timeUp)
+  const restart = () => {
+    timer.cancel()
+    timer = $.clock.after(HOLD_MS, timeUp)
+  }
   const abandoned = () => stop()
   signal.addEventListener('abort', abandoned)
   if (signal.aborted) stop()
@@ -295,9 +325,14 @@ async function hold(
       if (error) why = `Couldn't ask you on the phone: ${error}`
       return undefined
     }
+    if (value.call === 'held') {
+      restart()
+      await showHeld($, value.held_until)
+    }
     while (true) {
       const polled = await Promise.race([reply(voice($, `${path}/${value[id]}?wait=25`)), stopped])
       const got: Answer | undefined = polled.value
+      if (got?.held) restart()
       if (got?.verdict === 'allow' || got?.verdict === 'deny' || (got?.status === 'answered' && got.answers)) {
         answer = got
         return answer
@@ -398,8 +433,13 @@ async function doing($: EngineInterface) {
 }
 
 function errorOf(text: string): string | undefined {
+  return fieldOf(text, 'error') as string | undefined
+}
+
+// One field of the voice server's JSON answer, if it has it.
+function fieldOf(text: string, key: string): unknown {
   try {
-    return JSON.parse(text).error
+    return JSON.parse(text)?.[key]
   } catch {
     return undefined
   }
