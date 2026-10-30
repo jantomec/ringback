@@ -218,17 +218,17 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      collects it, and takes the session's answers back as news for the call. When a mod
      last collected tells whether its session is listening: within 30 s, as the mod
      collects once a second while ringback is on. The mod says its session's project and
-     folder as it collects (`?project=…&cwd=…`), for Contacts.
+     folder as it collects (`?project=…&cwd=…`), for the Sessions tab.
    - **The sessions that listen** (Stage 5, step 1; built, tried offline, not yet on the
-     phone) are the phone's Contacts. The voice server tells the switchboard which they are
+     phone) are the app's Sessions. The voice server tells the switchboard which they are
      (`POST /sessions` with its own address and, for each, the session's ID, project,
      since when it listens, and its latest briefing's subject and when the session wrote
      it, if it has one), whenever that changes and every 30 s; after a try that fails, a
      change goes again 5 s later. A session whose mod didn't say its project (a mod from
-     before Contacts) goes by its latest call's project, or isn't listed. "Since when" is
+     before the Sessions tab) goes by its latest call's project, or isn't listed. "Since when" is
      when this voice server first saw it listen, so a restart sets it anew. A switchboard
-     from before Contacts answers 404, which is logged once.
-   - **Calling from Contacts** (`"contact": <session ID>` in the phone's offer, with a call
+     from before the Sessions tab answers 404, which is logged once.
+   - **Calling from the Sessions tab** (`"contact": <session ID>` in the phone's offer, with a call
      ID made on the phone, at least 16 characters). For a session that listens, it makes a
      new call for that session under that ID, a fresh Haiku answered at once, as a call back
      does: messages, news, what the session asks (what it asked on calls you didn't answer
@@ -319,7 +319,7 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      server's list when it changes, and when one is dropped;
    - starts a call with a VoIP push through APNs that names the Mac taking the call, and
      the session that calls (`session_id`, from Stage 5 step 1), so the app can call that
-     session from Contacts once the voice server has forgotten the call;
+     session from the Sessions tab once the voice server has forgotten the call;
    - takes calls from the voice servers at `/call` over Nebula, with their project,
      subject, call ID and session;
    - **work hours:** outside the work hours of every phone (set in the Settings app), `/call` pushes
@@ -638,9 +638,9 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      switchboard at the next launch.
    - **Like the Phone app** (Stage 5, step 1; built, tried in a simulator, not yet on the
      phone). The app has two tabs, as the iPhone's Phone app has in its classic layout:
-     **Recents** (`clock.fill`), the call history, and **Contacts**
-     (`person.crop.circle.fill`), the sessions you can call. Both are standard lists, in
-     light and dark. Its settings are in the Settings app (below). Above the calls, Recents
+     **Recents** (`clock.fill`), the call history, a standard list, and **Sessions**
+     (`terminal.fill`; Contacts until 2026-10-30), the sessions you can call, a card each,
+     in light and dark. Its settings are in the Settings app (below). Above the calls, Recents
      shows a banner only while something's wrong: microphone access is off, the app isn't
      set up, or calls can't reach the phone (the connection check). `tools/app-screens`
      screenshots both tabs, the details screens, the banners and the Settings page in a
@@ -667,7 +667,7 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        project's name ("Claude from \<project\>" until 2026-10-30): red for declined,
        missed, busy or couldn't ring, and for a call you made that didn't connect; orange
        for a waiting call; otherwise primary. A call you made (a call back, a call from
-       Contacts, a waiting call you called now) has a small `phone.arrow.up.right` in
+       Sessions, a waiting call you called now) has a small `phone.arrow.up.right` in
        secondary before the name, in a column of its own so every name starts in the same
        place. The second line is the call's 3–8 word subject in secondary, cut to one line;
        the session writes it with its briefing, and the push carries it. On the right: the
@@ -676,7 +676,7 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      - ⓘ opens the call's details, as the Phone app's call info: a monogram of the
        project's name, the name, a "call" button, then the call under its day ("Today"):
        when, what kind ("Incoming Call", "Missed Call", "Declined Call", "Called Back",
-       "Called from Contacts", "Called While Waiting", "Didn't Connect"…), how long, and
+       "Called from Sessions", "Called While Waiting", "Didn't Connect"…), how long, and
        "While on another call"; then its whole subject.
    - **Calling a call** (Stage 5, step 1; built, tried offline, not yet on the phone).
      Tapping any call calls its session straight away, without ringing, as in the iPhone's
@@ -698,14 +698,14 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        back whose audio never connected is red, and tapping it calls the same call back
        again.
      - If the voice server no longer knows the call (forgotten after a day, or after a
-       restart without its state), the app fetches Contacts, and if the call's session is
-       there, the call goes on as a call to it from Contacts, under the same ID ("called
+       restart without its state), the app fetches the sessions, and if the call's session is
+       there, the call goes on as a call to it from the Sessions tab, under the same ID ("called
        contact" to the switchboard). The push and the waiting calls now carry the session's
        ID for this; for a call from before, the app takes the only session of that project
        on that Mac. Otherwise the call ends, and an alert says the Mac no longer remembers
-       the call and the session isn't in Contacts now.
+       the call and the session isn't in Sessions now.
      - A call from before calling back, whose push didn't name its voice server, calls its
-       session from Contacts if it's there; otherwise its row can't be tapped.
+       session from the Sessions tab if it's there; otherwise its row can't be tapped.
      - A voice server from before calling back answered calls takes their call back as
        one you missed: its voice says you didn't answer then. Not refused, since that voice
        server remembers answered calls too.
@@ -742,24 +742,35 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        app has no notification delegate); the list is fetched when you open the app.
    - **Held calls** (Stage 7). While all calls are held after a final decline, the app
      says so and shows which call to call back. Calling it back releases them.
-   - **Contacts** (Stage 5, step 1; built, tried offline, not yet on the phone): your
-     sessions with ringback on, on every Mac, by project, as the switchboard lists them
-     (`/contacts`, the switchboard's contacts). Two sessions in the same project have a
-     second line: their latest subject, or since when ringback has been on. The app fetches
-     them each time the tab shows, and on pull to refresh; they can be up to 30 s old.
+   - **Sessions** (Stage 5, step 1; built, tried offline, not yet on the phone; called
+     Contacts, as standard list rows, until 2026-10-30): your sessions with ringback on, on
+     every Mac, by project, as the switchboard lists them (`/contacts`, the switchboard's
+     contacts, a name the protocol keeps). There are a handful, not the Phone app's
+     hundreds, so each is a card: the project's initials on a circle in a colour taken from
+     its name, the project, its latest briefing's subject (two lines at most; "No briefing
+     yet"), when it was briefed or since when ringback has been on, a call of the session's
+     that waits ("Question waiting", "Call waiting", in orange), and a green phone on the
+     right. While the tab shows and the app is in front, the app fetches them, and the
+     waiting calls, every 3 s, and on pull to refresh. A voice server tells the switchboard
+     within a second of a session starting or stopping to listen, so a new session shows
+     within about 4 s. (Until 2026-10-30 they were fetched only when the tab showed, so a
+     session that started meanwhile didn't show until you switched tabs.)
      - Tapping one calls it at once: an outgoing CallKit call, as a call back is. Its offer
        carries a new ID made on the phone and `"contact": <session ID>`, and `"back": true`
-       too, so a voice server from before Contacts refuses it as a call back it doesn't
+       too, so a voice server from before the Sessions tab refuses it as a call back it doesn't
        know rather than taking it for a call rung by hand. The voice server answers with a
        new call for that session, whose voice has the session's latest briefing (calling
-       from Contacts, in the voice server's session side). It talks with the session as any
+       from the Sessions tab, in the voice server's session side). It talks with the session as any
        call does, and shows in Recents as an outgoing call, caller the project. Its events
        go to the switchboard as "called contact", then ended or audio failed.
      - Refused because the session isn't listening any more (its list is a little old), the
-       call ends and an alert says so; refused by a voice server from before Contacts, an
-       alert says that Mac's voice server is older than Contacts. Contacts is fetched again.
-     - ⓘ opens the session's details: its project, a "call" button, its latest briefing's
-       subject and when, since when ringback has been on, its Mac and the start of its ID.
+       call ends and an alert says so; refused by a voice server from before the Sessions
+       tab, an alert says that Mac's voice server is from before it. The sessions are
+       fetched again.
+     - Holding a card offers Call and Details (a context menu); Details, also a VoiceOver
+       action, opens the session's details: its project, a "call" button, its latest
+       briefing's subject and when, since when ringback has been on, its Mac and the start of
+       its ID. (Until 2026-10-30, ⓘ on the row opened them.)
    - **Settings** live in the Settings app (Settings → Apps → Ringback), from the app's
      `Settings.bundle`; the app has no settings screen any more. Groups, each with a footer
      that says what the app's sections said:
@@ -1062,14 +1073,15 @@ Each entry says why it lost and what would make it worth retrying.
   running as you on the calling Mac can reach the voice server's session side. The
   switchboard also gives out the IDs of waiting calls (Stage 5), but only for a registered
   phone's push token, which travels only between the phone, Apple and the switchboard. The
-  voice server's state file holds call IDs too, readable only by you. Since Contacts (Stage
+  voice server's state file holds call IDs too, readable only by you. Since the Sessions tab (Stage
   5 step 1), a session's ID is a secret of the same kind: with it, any device on Nebula can
   call a session that listens from its voice server, and pass the session messages, which it
   takes as prompts. The switchboard keeps the IDs in `contacts.json` and gives them only to a
   registered phone, and they go to the phone in the call's push too, through Apple; on the
   Mac, Claude Code names files after them, readable only by you.
-- Contacts are as fresh as the voice servers' last word to the switchboard and the app's
-  last fetch: a session switched off can show for up to about a minute, and calling it then
+- The Sessions tab is as fresh as the voice servers' last word to the switchboard (the app
+  asks every 3 s while it shows): a session switched off can show for up to about a minute
+  (its voice server waits 30 s for its mod to collect again), and calling it then
   gets "isn't listening any more"; a Mac that went to sleep shows its sessions for up to
   90 s.
 - Development builds use the APNs sandbox, and provisioning profiles expire.
@@ -1518,9 +1530,9 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
       top, in rows of two lines with ⓘ for a call's details; and Contacts, the sessions with
       ringback on, on every Mac. Tapping any call calls its session, answered calls too
       (calling back, in the voice server's session side), and tapping a contact calls that
-      session (calling from Contacts). Each voice server tells the switchboard which of its
+      session (calling from the Sessions tab). Each voice server tells the switchboard which of its
       sessions listen (the switchboard's contacts). The settings moved to the Settings app.
-      See the iPhone app's "Like the Phone app", "Recents", "Calling a call", "Contacts" and
+      See the iPhone app's "Like the Phone app", "Recents", "Calling a call", "Sessions" and
       "Settings". Checks:
       - The switchboard (`switchboard/smoke-test.sh`, 19 new checks, 111 in all, about 15 s):
         `/contacts` for an unregistered token or none gets 403; `/sessions` without a voice
@@ -1570,6 +1582,14 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
       - Not handled: calling from Contacts a session whose call is held outside your work
         hours leaves that call held; its voice has the session's latest briefing, which may
         be the held call's, but can't answer what that call asks.
+      - Then (2026-10-30, after a first look on the phone): with the tab open, a session
+        that turned ringback on didn't show until you switched tabs and back; the switchboard
+        had it in the same second. So the tab now fetches every 3 s while it shows. Contacts
+        became **Sessions**, and its rows cards, larger, for a handful of sessions; holding
+        one offers its details instead of ⓘ (the iPhone app's "Sessions"). The app builds
+        with no Swift warnings; `tools/app-screens` showed every screen in light and dark,
+        the cards and their menu included (one run, 2 min 20 s). The fetching every 3 s and
+        the cards on the phone are untried.
 6. **Weak signal.** Measure, then send less and recover more (see "Data and weak signal"
    in the iPhone app). Built and tried offline (`tools/phone-check --signal`,
    `tools/opus-check`): each call's "ended" report carries the phone's WebRTC stats, and

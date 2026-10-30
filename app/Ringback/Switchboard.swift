@@ -76,7 +76,7 @@ enum Switchboard {
 
     /// The sessions you can call, with ringback on, on every Mac, by project, each with its
     /// voice server. As for the waiting calls, only a phone that registered gets them: a
-    /// session's ID lets whoever has it call the session. A switchboard from before Contacts
+    /// session's ID lets whoever has it call the session. A switchboard from before the Sessions tab
     /// answers 404, which throws.
     static func contacts(token: String) async throws -> [Contact] {
         let data = try await post("contacts", ["token": token], timeout: 5)

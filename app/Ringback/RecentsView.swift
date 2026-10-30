@@ -70,7 +70,7 @@ private struct CallRow: View {
     }
 
     /// Calls before calling back don't say their voice server: those call the session from
-    /// Contacts, while it's there.
+    /// Sessions, while it's there.
     private var canCall: Bool {
         call.outcome != .ringing && call.outcome != .onCall && (call.voice != nil || state.contact(for: call) != nil)
     }

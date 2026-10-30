@@ -2,7 +2,7 @@ import XCTest
 
 /// Screenshots the app with sample calls (the app's debug-only Seed), in the simulator's
 /// current appearance: Recents, a waiting call swiped open, a call's and a waiting call's
-/// details, Contacts and a contact's details, the connection banner, the banner of a phone
+/// details, Sessions and a session's details, the connection banner, the banner of a phone
 /// that isn't set up, and Ringback's page in the Settings app. Saves each as
 /// `<look>-<name>.png` in APP_SCREENS_OUT (run.sh sets it, and APP_SCREENS_LOOK), and prints
 /// one line per screen ("APP-SCREENS …") saying whether what it looked for was there.
@@ -39,8 +39,8 @@ final class AppScreensUITests: XCTestCase {
         note("call details", app.staticTexts["Incoming Call"].waitForExistence(timeout: 5))
         shot("call-details")
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        details.element(boundBy: 2).tap()  // the first call: one made from Contacts
-        note("outgoing call details", app.staticTexts["Called from Contacts"].waitForExistence(timeout: 5))
+        details.element(boundBy: 2).tap()  // the first call: one made from Sessions
+        note("outgoing call details", app.staticTexts["Called from Sessions"].waitForExistence(timeout: 5))
         shot("call-details-outgoing")
         app.navigationBars.buttons.element(boundBy: 0).tap()
         details.element(boundBy: 0).tap()  // the waiting call with a question
@@ -48,13 +48,17 @@ final class AppScreensUITests: XCTestCase {
         shot("waiting-details")
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
-        app.tabBars.buttons["Contacts"].tap()
-        note("contacts", app.navigationBars["Contacts"].waitForExistence(timeout: 5))
-        shot("contacts")
-        app.buttons.matching(identifier: "Details").element(boundBy: 2).tap()  // ringback, with a briefing
-        note("contact details", app.staticTexts["Latest Briefing"].waitForExistence(timeout: 5)
+        app.tabBars.buttons["Sessions"].tap()
+        note("sessions", app.navigationBars["Sessions"].waitForExistence(timeout: 5))
+        shot("sessions")
+        // Held, a card offers its details: ringback, with a briefing.
+        app.buttons.matching(identifier: "Session").element(boundBy: 2).press(forDuration: 1.2)
+        note("session menu", app.buttons["Details"].waitForExistence(timeout: 5))
+        shot("session-menu")
+        app.buttons["Details"].tap()
+        note("session details", app.staticTexts["Latest Briefing"].waitForExistence(timeout: 5)
             || app.staticTexts["LATEST BRIEFING"].exists)
-        shot("contact-details")
+        shot("session-details")
         app.terminate()
 
         let problem = launch("problem")

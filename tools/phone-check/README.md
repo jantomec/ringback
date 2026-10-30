@@ -138,7 +138,8 @@ that came after it, and passed in the four runs since.
 
     uv run --project voice tools/phone-check/phone_check.py --contacts [--port P] [--keep DIR]
 
-Calls a session from the app's Contacts, as the app does (an offer with a call ID made on the
+Calls a session from the app's Sessions tab (Contacts until 2026-10-30, still the name of the
+offer's field and of the voice server's notes), as the app does (an offer with a call ID made on the
 phone, `"contact"` with the session's ID, and `"back": true`), and calls back a call you
 answered. A stand-in for the session's mod collects once a second and says the session's
 project and folder; the stand-in switchboard also takes what the voice server says of its

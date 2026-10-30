@@ -56,7 +56,7 @@ struct CallDetailsView: View {
         if call.isOutgoing {
             if call.outcome == .onCall || call.outcome == .ringing { return "On Call" }
             if call.outcome == .failed { return "Didn't Connect" }
-            if call.contact == true { return "Called from Contacts" }
+            if call.contact == true { return "Called from Sessions" }
             return call.calledNow == true ? "Called While Waiting" : "Called Back"
         }
         return switch call.outcome {

@@ -29,15 +29,15 @@ struct CallRecord: Codable, Identifiable {
     /// You called it from the waiting calls, while it was held outside your work hours. It
     /// keeps the call's own ID.
     var calledNow: Bool?
-    /// You called its session from Contacts. Its ID is the phone's own, which its offer carries.
+    /// You called its session from Sessions. Its ID is the phone's own, which its offer carries.
     var contact: Bool?
     /// The session that called, or that you called: its ID, from the push, the waiting calls or
-    /// Contacts. Calls from a switchboard or voice server before Contacts have none.
+    /// Sessions. Calls from a switchboard or voice server before the Sessions tab have none.
     var session: String?
 
     var callerName: String { project }
 
-    /// A call you made: a call back, a waiting call you called now, or a call from Contacts.
+    /// A call you made: a call back, a waiting call you called now, or a call from Sessions.
     var isOutgoing: Bool { callsBack != nil || calledNow == true || contact == true }
 
     /// Whether it's red in the history: declined, missed, couldn't ring, or a call you made
@@ -70,7 +70,7 @@ struct WaitingCall: Identifiable, Equatable {
 }
 
 /// A session you can call: one with ringback on, on any of your Macs, as the switchboard lists
-/// them for Contacts. Its voice server takes the call.
+/// them for the Sessions tab. Its voice server takes the call.
 struct Contact: Identifiable, Equatable {
     var id: String { session }
     let session: String
@@ -162,19 +162,19 @@ final class AppState {
     @MainActor
     func refreshWaiting() async {
         guard Switchboard.url != nil, let token else { return }
-        if let calls = try? await Switchboard.waiting(token: token) { waiting = calls }
+        if let calls = try? await Switchboard.waiting(token: token), calls != waiting { waiting = calls }
     }
 
     /// Fetches the sessions you can call from the switchboard. If it can't be reached, or is
-    /// from before Contacts, the list stays as it was.
+    /// from before the Sessions tab, the list stays as it was.
     @MainActor
     func refreshContacts() async {
         guard Switchboard.url != nil, let token else { return }
-        if let found = try? await Switchboard.contacts(token: token) { contacts = found }
+        if let found = try? await Switchboard.contacts(token: token), found != contacts { contacts = found }
     }
 
-    /// The session a call in the history is from, if it's in Contacts now: by its ID, or for a
-    /// call from before Contacts, the only session of that project on that Mac.
+    /// The session a call in the history is from, if it's in Sessions now: by its ID, or for a
+    /// call from before the Sessions tab, the only session of that project on that Mac.
     func contact(for call: CallRecord) -> Contact? {
         if let session = call.session { return contacts.first { $0.session == session } }
         let same = contacts.filter { $0.project == call.project && (call.voice == nil || $0.voice == call.voice) }

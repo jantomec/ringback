@@ -113,10 +113,10 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     /// phone still rings (`ringing` as the offer goes). Returns whether it did. On the main
     /// actor, as `stop` is, so once the link is stopped no offer goes and no answer is applied.
     /// `back` calls back the call `callID`, `now` calls it while it waits, held outside your
-    /// work hours, and `contact` calls that session, from Contacts, as a new call `callID`. The
+    /// work hours, and `contact` calls that session, from Sessions, as a new call `callID`. The
     /// voice server answers each at once, and throws `RefusedCall`, with its reason, if it
     /// doesn't know the call, it no longer waits, or the session isn't listening. A contact
-    /// offer is marked `back` too, so a voice server from before Contacts refuses it as a call
+    /// offer is marked `back` too, so a voice server from before the Sessions tab refuses it as a call
     /// back it doesn't know ("unknown call").
     @MainActor
     func start(
@@ -349,7 +349,7 @@ private struct UnknownCall: LocalizedError {
 
 /// The voice server refused an offer (403): it didn't place the call, or for a call back, no
 /// longer remembers it (a day after it ended, or after a restart without its state), or for a
-/// call from Contacts, the session isn't listening. `reason` is what it said: "unknown call",
+/// call from Sessions, the session isn't listening. `reason` is what it said: "unknown call",
 /// or "not listening".
 struct RefusedCall: LocalizedError {
     var reason: String?

@@ -1,7 +1,7 @@
 import AVFoundation
 import SwiftUI
 
-/// The app, like the iPhone's Phone app: Recents, the call history, and Contacts, the sessions
+/// The app, like the iPhone's Phone app: Recents, the call history, and Sessions, the sessions
 /// you can call, as tabs. Its settings are in the Settings app (AppSettings). The in-call
 /// screen covers both while you're on a call.
 struct RootView: View {
@@ -16,8 +16,8 @@ struct RootView: View {
             Tab("Recents", systemImage: "clock.fill") {
                 RecentsView(state: state, push: push, calls: calls)
             }
-            Tab("Contacts", systemImage: "person.crop.circle.fill") {
-                ContactsView(state: state, calls: calls)
+            Tab("Sessions", systemImage: "terminal.fill") {
+                SessionsView(state: state, calls: calls)
             }
         }
         // Only checks you started, never the automatic one on opening.

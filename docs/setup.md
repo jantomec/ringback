@@ -5,7 +5,7 @@ calls you when it finishes, what you tell the voice reaches the session, you can
 its permission prompts and questions on the call, and you can call back a call you missed
 from the app; built but not yet tried on the phone: staying up through restarts, calling a
 call that waits for your work hours from the app, calling back any call, and calling your
-sessions from the app's Contacts). Replace the example addresses with your own.
+sessions from the app's Sessions tab). Replace the example addresses with your own.
 
 ## You need
 
@@ -71,15 +71,16 @@ noise doesn't stop it.
 
 The app has two tabs, as the Phone app has. **Recents** lists every call: tap one to call
 its session at once, answered or not, and its ⓘ for its details. A call from an app older
-than calling back calls its session from Contacts, if it's there. Calls that wait for your
+than calling back calls its session from Sessions, if it's there. Calls that wait for your
 work hours show at the top in orange, with when they ring; tap one to call it now, without
 waiting. One whose session asks you a question says so, and the phone gets one notification
 for it. Swipe it left for **Claude App** to send the question to the session's own dialog
 instead, which Remote Control shows in the Claude app (ringback turns Remote Control on in
 the session); the call then never rings.
 
-**Contacts** lists your sessions with ringback on, on every Mac, by project: tap one to call
-it, and the voice picks up with what's new since the session last reported.
+**Sessions** shows your sessions with ringback on, on every Mac, by project, a card each,
+and keeps up while it shows: tap one to call it, and the voice picks up with what's new since
+the session last reported. Hold one for its details.
 
 ## 3. The switchboard (one always-on Mac)
 
@@ -119,12 +120,12 @@ voice server from before it refuses the call, and the app says it isn't waiting 
 Questions outside your work hours (their notification and **Claude App**) need all four
 updated, the mod with the voice server: a mod from before gives the question to the
 terminal at once, a switchboard from before sends no notification and lists no question,
-and an app from before shows no swipe action. Contacts, and calling back answered calls,
+and an app from before shows no swipe action. Sessions, and calling back answered calls,
 need all four updated too: a mod from before doesn't say its session's project, so a session
-shows in Contacts only once it has placed a call; a voice server from before tells the
-switchboard nothing, refuses a call from Contacts (the app says that Mac's voice server is
-from before Contacts) and takes the call back of an answered call as one you missed; a
-switchboard from before lists no contacts; and an app from before has no Contacts, and keeps
+shows in Sessions only once it has placed a call; a voice server from before tells the
+switchboard nothing, refuses a call from Sessions (the app says that Mac's voice server is
+from before it) and takes the call back of an answered call as one you missed; a
+switchboard from before lists no sessions; and an app from before has no Sessions, and keeps
 its settings on its own screen (the values carry over).
 
 ## 4. The voice server (every Mac that runs sessions)

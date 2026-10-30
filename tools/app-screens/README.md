@@ -2,7 +2,7 @@
 
 Screenshots the iPhone app in a simulator, with sample calls, in light and dark, to review
 how it looks (Stage 5 step 1 in `docs/design.md`: the app as the Phone app, with Recents,
-Contacts and its settings in the Settings app). A simulator is fine for this: it's SwiftUI's
+Sessions and its settings in the Settings app). A simulator is fine for this: it's SwiftUI's
 drawing, not ringing, push or audio.
 
 The project is the app's own sources (`app/Ringback`, `app/Settings.bundle`), built for a
@@ -11,11 +11,12 @@ when launched with `-RingbackSeed calls`, `problem` or `setup` (`app/Ringback/Se
 then it doesn't reach a switchboard and asks for no permissions. The test saves, for each
 appearance:
 - `recents`: waiting calls (one with a question, one without), and calls answered,
-  missed, declined, called back, called from Contacts, one that didn't connect, one on
+  missed, declined, called back, called from Sessions, one that didn't connect, one on
   another call, from today, yesterday, this week and earlier;
 - `recents-swipe`: the waiting call with a question swiped open to its "Claude App" action;
 - `call-details`, `call-details-outgoing`, `waiting-details`: a call's details from its ⓘ;
-- `contacts`, with two sessions in one project, and `contact-details`;
+- `sessions`, cards with two sessions in one project and both kinds of waiting call,
+  `session-menu`, a card held, and `session-details`, from its Details;
 - `banner`: Recents while the switchboard can't be reached, with Try Again;
 - `setup`: a phone that isn't set up, then `settings` and `settings-more`, Ringback's page in
   the Settings app, from the banner's Open Settings.
@@ -39,3 +40,7 @@ Ringback's, so the test goes on through Apps → Ringback; on the phone it shoul
 Ringback's page (not checked). A simulator that has just
 booted shows a notification of its own over the top for a few seconds, so the test waits 8 s
 before the first screenshot.
+
+Result on 2026-10-30, after Contacts became Sessions, with cards: one run, 2 min 20 s, every
+screen shown in light and dark, the cards, a card held with its Call and Details, and the
+session's details from it included (Open Settings again opened Settings' first page).

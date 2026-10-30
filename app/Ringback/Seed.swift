@@ -36,7 +36,7 @@ enum Seed {
         let hour = Calendar.current.component(.hour, from: now)
         let earlier = { (back: Int) in at(0, max(0, hour - back), 5 * back) }
         state.seed([
-            call("c1", "ringback", "Contacts tab built and tried offline", earlier(0), .answered, minutes: 3.2, contact: true),
+            call("c1", "ringback", "Sessions tab built and tried offline", earlier(0), .answered, minutes: 3.2, contact: true),
             call("c2", "ringback", "Answered call backs work offline", earlier(1), .answered, minutes: 4.2),
             call("c3", "parser", "Parser fix ready to push", earlier(2), .missed),
             call("c4", "parser", "Parser fix ready to push", earlier(2), .answered, minutes: 2, back: "c3"),
@@ -62,7 +62,7 @@ enum Seed {
                 session: Self.ids["parser"]!, project: "parser", voice: mac, subject: "Which branch should the fix go to?",
                 briefedAt: earlier(1), since: at(0, 8, 0)),
             Contact(
-                session: Self.ids["ringback"]!, project: "ringback", voice: mac, subject: "Contacts tab built and tried offline",
+                session: Self.ids["ringback"]!, project: "ringback", voice: mac, subject: "Sessions tab built and tried offline",
                 briefedAt: earlier(0), since: at(0, 9, 12)),
             Contact(
                 session: Self.ids["ringback-2"]!, project: "ringback", voice: mac, subject: nil, briefedAt: nil,
