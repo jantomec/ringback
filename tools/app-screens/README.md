@@ -10,9 +10,9 @@ simulator without signing, and a UI test. The app shows the samples only in a de
 when launched with `-RingbackSeed calls`, `problem` or `setup` (`app/Ringback/Seed.swift`);
 then it doesn't reach a switchboard and asks for no permissions. The test saves, for each
 appearance:
-- `recents`: waiting calls (one with a question, one without), and calls answered,
-  missed, declined, called back, called from Sessions, one that didn't connect, one on
-  another call, from today, yesterday, this week and earlier;
+- `recents`: waiting calls (one with a question, one without) under Waiting, and under
+  Calls, calls answered, missed, declined, called back, called from Sessions, one that
+  didn't connect, one on another call, from today, yesterday, this week and earlier;
 - `recents-swipe`: the waiting call with a question swiped open to its "Claude App" action;
 - `call-details`, `call-details-outgoing`, `waiting-details`: a call's details from its ⓘ;
 - `sessions`, cards with two sessions in one project and both kinds of waiting call,
@@ -40,6 +40,9 @@ Ringback's, so the test goes on through Apps → Ringback; on the phone it shoul
 Ringback's page (not checked). A simulator that has just
 booted shows a notification of its own over the top for a few seconds, so the test waits 8 s
 before the first screenshot.
+
+2026-10-31, with Recents' Waiting and Calls headers (one run, 2 min 26 s): every screen was
+shown, the headers in both appearances, and the Claude App swipe under Waiting.
 
 Result on 2026-10-30, after Contacts became Sessions, with cards: one run, 2 min 20 s, every
 screen shown in light and dark, the cards, a card held with its Call and Details, and the

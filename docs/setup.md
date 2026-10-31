@@ -72,11 +72,11 @@ noise doesn't stop it.
 The app has two tabs, as the Phone app has. **Recents** lists every call: tap one to call
 its session at once, answered or not, and its ⓘ for its details. A call from an app older
 than calling back calls its session from Sessions, if it's there. Calls that wait for your
-work hours show at the top in orange, with when they ring; tap one to call it now, without
-waiting. One whose session asks you a question says so, and the phone gets one notification
-for it. Swipe it left for **Claude App** to send the question to the session's own dialog
-instead, which Remote Control shows in the Claude app (ringback turns Remote Control on in
-the session); the call then never rings.
+work hours show at the top in orange, under Waiting, with when they ring; tap one to call
+it now, without waiting. One whose session asks you a question says so, and the phone gets
+one notification for it. Swipe it left for **Claude App** to send the question to the
+session's own dialog instead, which Remote Control shows in the Claude app (ringback turns
+Remote Control on in the session); the call then never rings.
 
 **Sessions** shows your sessions with ringback on, on every Mac, by project, a card each,
 and keeps up while it shows: tap one to call it, and the voice picks up with what's new since

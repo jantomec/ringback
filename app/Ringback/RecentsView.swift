@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// The call history, as the Phone app's Recents: the calls that wait for your work hours at
-/// the top, in orange, then every call, most recent first. Tapping a call calls its session,
-/// and its ⓘ opens its details. A banner at the top says when calls can't reach the phone.
+/// the top, in orange, under "Waiting", then every call, most recent first, under "Calls"
+/// (without either header while nothing waits). Tapping a call calls its session, and its ⓘ
+/// opens its details. A banner at the top says when calls can't reach the phone.
 struct RecentsView: View {
     let state: AppState
     let push: PushService
@@ -19,11 +20,19 @@ struct RecentsView: View {
         NavigationStack {
             List {
                 Banners(state: state, push: push)
-                ForEach(state.waiting) { call in
-                    WaitingRow(call: call, state: state, calls: calls) { details = .waiting(call.id) }
-                }
-                ForEach(state.calls) { call in
-                    CallRow(call: call, state: state, calls: calls) { details = .call(call.id) }
+                if state.waiting.isEmpty {
+                    history
+                } else {
+                    // Headers keep the waiting calls, in orange, apart from the calls you missed,
+                    // in red.
+                    Section("Waiting") {
+                        ForEach(state.waiting) { call in
+                            WaitingRow(call: call, state: state, calls: calls) { details = .waiting(call.id) }
+                        }
+                    }
+                    if !state.calls.isEmpty {
+                        Section("Calls") { history }
+                    }
                 }
             }
             .listStyle(.plain)
@@ -43,6 +52,12 @@ struct RecentsView: View {
                 case .waiting(let id): WaitingDetailsView(id: id, state: state, calls: calls)
                 }
             }
+        }
+    }
+
+    private var history: some View {
+        ForEach(state.calls) { call in
+            CallRow(call: call, state: state, calls: calls) { details = .call(call.id) }
         }
     }
 }

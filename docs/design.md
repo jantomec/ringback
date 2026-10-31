@@ -721,7 +721,9 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        server remembers answered calls too.
    - **Waiting calls** (Stage 5; built, not yet tried on the phone). The calls that wait,
      held outside your work hours (and from Stage 7 queued), show at the top of the call
-     history, the caller in orange, and on the second line when they ring and the subject
+     history under "Waiting", above the rest under "Calls" (2026-10-31: on the phone the
+     orange was too close to the red of missed calls next to it), the caller in orange,
+     and on the second line when they ring and the subject
      ("Rings tomorrow at 08:00 · Parser fix ready", "Question · rings at 08:00 · …" with a
      question); ⓘ shows when it rings, whether it asks a question, the subject, and buttons
      to call it now and, with a question, to send it to the Claude app. The app fetches them
