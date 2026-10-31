@@ -57,6 +57,7 @@ default), so two checks can run at once.
 import argparse
 import ast
 import asyncio
+import contextlib
 import fractions
 import json
 import os
@@ -803,7 +804,10 @@ RUN_TESTS = "Please ask the session to run the whole test suite again."
 # A voice that says you missed a call, on a call back of one you took.
 MISSED = re.compile(r"missed|didn't (answer|pick)|couldn't reach|weren't available|tried to call|tried calling", re.I)
 # A voice that says, on a call to a session with no briefing yet, that it has nothing to report.
-NOTHING_YET = re.compile(r"nothing|no (briefing|news|update|report)|hasn't|haven't|not yet|isn't .*(report|brief)", re.I)
+NOTHING_YET = re.compile(
+    r"nothing|no (briefing|news|update|report)|(don't|do not) have (a |any )?(briefing|news|update|report)|hasn't|haven't"
+    r"|not yet|isn't .*(report|brief)", re.I,
+)  # fmt: skip
 # A voice that says, on a call to a session whose briefing you've heard, that nothing is new;
 # and the start of the briefing, retold.
 NOTHING_NEW = re.compile(r"nothing new|no news|nothing (has )?changed|nothing else|no new|since (we|our|that|the|your) ", re.I)
@@ -874,6 +878,24 @@ async def contact_calls(args) -> int:
     def outcomes(start: str) -> list[str]:
         return [m["text"] for m in got if m.get("kind") == "outcome" and m["text"].startswith(start)]
 
+    async def next_outcome(start: str, count: int, seconds: float) -> str | None:
+        """The next outcome that starts with start, once there are more than count."""
+        end = time.monotonic() + seconds
+        while len(outcomes(start)) <= count and time.monotonic() < end:
+            await asyncio.sleep(0.2)
+        return outcomes(start)[count] if len(outcomes(start)) > count else None
+
+    def lasted(text: str) -> int | None:
+        """How long an outcome says the call lasted, in seconds: "lasted 1 min 5 s"."""
+        found = re.search(r"lasted (?:(\d+) min)? ?(?:(\d+) s)?\.", text)
+        return 60 * int(found[1] or 0) + int(found[2] or 0) if found and (found[1] or found[2]) else None
+
+    def remembered_heard(call_id: str) -> bool | None:
+        """Whether the voice server remembers you talked on a call that has ended, from its state
+        file; None if it doesn't remember the call."""
+        past = json.loads((sock.parent / "voice-state.json").read_text())["past"]
+        return next((call["talked"] is not None for call in past if call["id"] == call_id), None)
+
     def haikus() -> int:
         found = subprocess.run(["pgrep", "-P", str(voice.pid), "-f", "input-format stream-json"], capture_output=True)
         return len(found.stdout.split())
@@ -938,12 +960,15 @@ async def contact_calls(args) -> int:
 
         # No briefing yet: the voice says so.
         first_contact = "contact-" + secrets.token_hex(12)
+        t = time.monotonic()
         phone, _, opening = await talk(first_contact, "from Contacts, no briefing yet", contact=SESSION)
         check("from Contacts, no briefing yet: the voice says it has nothing to report yet", NOTHING_YET.search(opening) is not None)
         await phone.hang_up()
+        talked = time.monotonic() - t
         await asyncio.sleep(2.5)
-        check(f"its session is told you called it from Contacts: {outcomes('The developer called the session')}",
-              len(outcomes("The developer called the session from the app's Contacts and it lasted")) == 1)  # fmt: skip
+        told_it = outcomes("The developer called the session from the app's Contacts and it lasted")
+        check(f"its session is told you called it from Contacts, for as long as you did ({talked:.1f} s): {told_it}",
+              len(told_it) == 1 and abs((lasted(told_it[0]) or 0) - talked) <= 2)  # fmt: skip
 
         # The session writes a briefing: its call names the session, and the switchboard hears it.
         t = time.monotonic()
@@ -995,6 +1020,54 @@ async def contact_calls(args) -> int:
         await phone.hang_up()
         calling = [o for o in openings if INTRODUCES.search(o)]
         check(f"no opening introduces the voice or says it's calling: {calling}", not calling)
+
+        # You hang up a call you made before its audio connects, as by tapping End at once
+        # (2026-10-30 on the phone, 1.2 s after tapping): the voice server notices only once
+        # its connection gives up, and the session is told it didn't connect, not how long that
+        # took. It isn't remembered as heard, so the next call still tells the session's latest
+        # briefing.
+        made = "The developer called the session from the app's Contacts"
+        count = len(outcomes(made))
+        phone = Phone()
+        phone.mic.on.set()
+        await phone.pc.setLocalDescription(await phone.pc.createOffer())
+        body = {"sdp": phone.pc.localDescription.sdp, "type": "offer", "call_id": "contact-" + secrets.token_hex(12),
+                "contact": SESSION, "back": True}  # fmt: skip
+        async with aiohttp.ClientSession() as http:
+            async with http.post(f"http://{VOICE}/offer", json=body) as r:
+                status = r.status
+        t = time.monotonic()
+        await phone.hang_up()
+        told_it = await next_outcome(made, count, 90)
+        took = time.monotonic() - t
+        check(f"hung up before its audio connected: told it didn't connect, {took:.0f} s later: {told_it}",
+              status == 200 and told_it == f"{made}, but the call didn't connect.")  # fmt: skip
+        as_heard = remembered_heard(body["call_id"])
+        check(f"and it isn't remembered as heard: {as_heard}", as_heard is False)
+
+        # The phone vanishes mid-call (no signal, a dead battery): it sends nothing more, not
+        # even its hang-up, and the voice server notices only once its checks of the
+        # connection fail. The session is told how long you talked until the phone went.
+        count = len(outcomes(made))
+        t = time.monotonic()
+        vanished = "contact-" + secrets.token_hex(12)
+        phone, _, _ = await talk(vanished, "from Contacts, the phone vanishes", contact=SESSION)
+        await asyncio.sleep(3)
+        talked = time.monotonic() - t
+        gone = time.monotonic()
+        async def nothing(data: bytes, addr: tuple[str, int]) -> None:
+            pass
+
+        for protocol in phone.pc.getTransceivers()[0].sender.transport.transport._connection._protocols:  # aioice's
+            protocol.send_data, protocol.send_stun = nothing, lambda message, addr: None
+        told_it = await next_outcome(made, count, 120)
+        noticed = time.monotonic() - gone
+        check(f"the phone vanished after {talked:.1f} s: told how long you talked until then, {noticed:.0f} s later: {told_it}",
+              told_it is not None and abs((lasted(told_it) or 0) - talked) <= 2 and noticed > 5)  # fmt: skip
+        as_heard = remembered_heard(vanished)
+        check(f"and it's remembered as heard: {as_heard}", as_heard is True)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(phone.hang_up(), 10)  # its connection sends nothing now
 
         # Ringback off: the mod stops collecting, and the switchboard hears it.
         collecting.cancel()

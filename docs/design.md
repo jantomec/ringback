@@ -94,7 +94,17 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      message to the session as a prompt, with the call transcript's path. A question the
      voice forwards goes the same way, and the session's answer goes back to the call.
    - **Call outcomes.** After each call, the session is told how it went: answered and how
-     long, with the transcript's path, or not answered within 90 s. The note is added to
+     long, with the transcript's path, or not answered within 90 s. How long is from when
+     its audio connected or you answered, whichever came last, until your audio last came
+     to the voice server, which notes when it does (`Heard` in `voice/ringback_voice/__main__.py`).
+     The phone sends audio all through a call, silence too, so a phone that vanishes (no
+     signal, a dead battery) ends the call there, though the voice server notices only once
+     its checks of the connection fail, 20–60 s later. A call whose audio never connected
+     after you answered, as when you hang up a call you made at once, "didn't connect", and
+     isn't remembered as heard: the next call about it still tells its briefing.
+     (Until 2026-10-31 it was until the voice server noticed: a call from the app hung up
+     1.2 s after the tap, before its audio connected, was told to its session as "lasted
+     1 min". Tried offline, `tools/phone-check --contacts`.) The note is added to
      its conversation, not submitted, so it starts no turn and can't set off another
      call, and Claude reads it on its next turn. It waits while a turn runs, you see it
      as a dim line, and it says it's from ringback: Claude Code adds it to the next

@@ -152,7 +152,7 @@ sessions that listen (`/sessions`). The voice server says so every 3 s instead o
   characters, gets 403 `not listening`;
 - **no briefing yet:** called from Contacts, the voice is heard, says the session has
   nothing to report yet, and the session is told "The developer called the session from the
-  app's Contacts and it lasted …";
+  app's Contacts and it lasted …", within 2 s of how long the phone was on the call;
 - the session's briefing places a call that names the session to the switchboard
   (`session_id`), and the switchboard hears the briefing's subject and when at once;
 - **answered call back:** you answer that call, then call it back: answered, the voice server
@@ -162,14 +162,22 @@ sessions that listen (`/sessions`). The voice server says so every 3 s instead o
   call, says nothing is new and doesn't retell the briefing, and your spoken "Please ask the
   session to run the whole test suite again." reaches the session as one message;
 - a call from Contacts can be called back;
+- **hung up before its audio connected** (the phone offers, then closes its connection as soon
+  as the voice server answers, as when you tap End at once): the session is told the call
+  didn't connect, not how long the voice server took to notice, and the voice server's state
+  file doesn't remember it as heard (the vanished phone's call below is);
+- **the phone vanishes mid-call** (3 s after the opening, the phone's ICE sends nothing more,
+  neither audio nor its answers to the voice server's checks of the connection, as with no
+  signal or a dead battery): the session is told the call lasted until then, within 2 s, and
+  the voice server noticed more than 5 s later, and the call is remembered as heard;
 - no opening introduces the voice or says it's calling;
 - ringback off (the mod stops collecting): the switchboard hears the session no longer
   listens, and a call from Contacts is then refused;
 - no Haiku left, and none of its server's session folders.
 
 It prints the voice's log, the checks, what the voice said first on each call, and the time
-from each offer to the voice's first audio. It uses your Claude subscription, 5 Haiku
-sessions, and takes about 3 min.
+from each offer to the voice's first audio. It uses your Claude subscription, 7 Haiku
+sessions, and takes about 4 min.
 
 Result on 2026-10-30, Claude Code 2.1.314, four runs of 2–3 min:
 - the first: 22 of 23 checks passed. The one that failed was the check's own: the voice server
@@ -191,6 +199,21 @@ Result on 2026-10-30, Claude Code 2.1.314, four runs of 2–3 min:
   session is asking whether to push the config parser fix to a branch and open a pull
   request. What would you like to do?". From the offer to the voice's first audio, a median
   2.67 s (1.75–3.27 s).
+
+Result on 2026-10-31, with how long each call lasted counted from its audio, two runs of
+about 3 min 45 s:
+- the first: all 27 passed. The call with no briefing was told as "lasted 12 s" after 12.1 s
+  on the phone. The call hung up before its audio connected was told as "didn't connect", 61 s
+  later, once the voice server's connection gave up. The phone that vanished 17.2 s into its
+  call was told as "lasted 17 s"; the voice server noticed 33 s after it went;
+- the second, after a call that never connected stopped counting as heard: 28 of 29. The
+  hung-up call isn't remembered as heard, the vanished phone's is ("lasted 19 s" after 19.3 s,
+  noticed 30 s later). The one that failed was the check's own: with no briefing, the voice
+  said "I don't have a briefing from the session yet, …", which its pattern didn't take for
+  nothing to report. The pattern takes it now (tried on that opening, not in a third run).
+
+(A run before those hung: the check's stand-in for the vanished phone broke its own
+connection, and its output was buffered; fixed.)
 
 `--back` after the same merge (one run, 2 min 32 s): 21 of 22. The one that failed: the missed
 call's call back opened "Hi, I'm calling about the config parser crash…", as one did twice

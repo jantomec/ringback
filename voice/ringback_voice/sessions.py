@@ -342,6 +342,9 @@ class Call:
     briefing: str
     placed: float  # when the phone started ringing (time.monotonic())
     answered_at: float | None = None  # when you answered (time.monotonic())
+    # Once it's ended: how long you talked, from when its audio connected or you answered,
+    # whichever came last, until your audio last came; None if its audio never connected.
+    lasted: float | None = None
     link: Link | None = field(default=None, repr=False)  # to its session, made when it's placed
     # Haiku, writing the opening while the phone rings, for the call's voice; closed when the
     # call ends or is forgotten.
@@ -750,8 +753,11 @@ class Calls:
             self._save()
         return call
 
-    async def end(self, call_id: str) -> None:
+    async def end(self, call_id: str, lasted: float | None = None) -> None:
+        """A call you answered has ended: you talked for `lasted` seconds, or None if its
+        audio never connected."""
         if call := self._calls.get(call_id):
+            call.lasted = lasted
             await self._forget(call)
 
     def send(self, session: str, text: str, transcript: str | None = None, kind: str = "message") -> None:
@@ -883,8 +889,9 @@ class Calls:
         transcript = call.link.transcript.relative if call.link.transcript else None
         self.send(call.session, outcome(call, transcript), transcript, kind="outcome")
         # What's remembered is the call as it was placed, also after a call back, with when you
-        # last talked on it.
-        self._past[call.id] = (talked(call), time.time())
+        # last talked on it. One whose audio never connected you didn't hear, so the next call
+        # about it still tells it.
+        self._past[call.id] = (talked(call, heard=call.lasted is not None), time.time())
         self._expire()
         self._save()
         await self._stay_awake()
@@ -1065,11 +1072,11 @@ def restarted(call: Call) -> str:
     return f"{about} {ended}, before it was answered."
 
 
-def talked(call: Call) -> Call:
+def talked(call: Call, heard: bool = True) -> Call:
     """What's remembered of a call that has ended: the call as it was placed, also after a call
-    back, and when you last talked on it, if you answered."""
+    back, and when you last talked on it, if you answered and its audio connected (`heard`)."""
     kept = call.back or remembered(call)
-    return dataclasses.replace(kept, talked=time.time()) if call.answered_at is not None else kept
+    return dataclasses.replace(kept, talked=time.time()) if call.answered_at is not None and heard else kept
 
 
 def remembered(call: Call) -> Call:
@@ -1086,23 +1093,24 @@ def outcome(call: Call, transcript: str | None) -> str:
     can't tell why; the switchboard's log can."""
     about = f'The call about "{call.subject}"' if call.subject else "The call"
     if call.contact:
-        if call.answered_at is None:
+        if call.answered_at is None or call.lasted is None:
             return "The developer called the session from the app's Contacts, but the call didn't connect."
-        lasted = duration(time.monotonic() - call.answered_at)
-        text = f"The developer called the session from the app's Contacts and it lasted {lasted}."
+        text = f"The developer called the session from the app's Contacts and it lasted {duration(call.lasted)}."
         return f"{text} Its transcript: {transcript}" if transcript else text
     if call.back:
         what = f'"{call.subject}"' if call.subject else "an earlier call"
         # From the app's call history, or a held call from the app's waiting calls.
         how = f"called about {what} from the app while it waited" if call.now else f"called back about {what}"
-        if call.answered_at is None:
+        if call.answered_at is None or call.lasted is None:
             return f"The developer {how}, but the call didn't connect."
-        text = f"The developer {how} and it lasted {duration(time.monotonic() - call.answered_at)}."
+        text = f"The developer {how} and it lasted {duration(call.lasted)}."
         return f"{text} Its transcript: {transcript}" if transcript else text
     if call.answered_at is None:
         took = duration(time.monotonic() - call.placed)
         return f"{about} wasn't answered within {took}: declined, missed, or its audio didn't connect."
-    text = f"{about} was answered and lasted {duration(time.monotonic() - call.answered_at)}."
+    if call.lasted is None:
+        return f"{about} was answered, but its audio didn't connect."
+    text = f"{about} was answered and lasted {duration(call.lasted)}."
     return f"{text} Its transcript: {transcript}" if transcript else text
 
 

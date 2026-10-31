@@ -39,7 +39,8 @@ from loguru import logger
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import BotStartedSpeakingFrame, LLMMessagesAppendFrame, LLMRunFrame
+from pipecat.frames.frames import BotStartedSpeakingFrame, InputAudioRawFrame, LLMMessagesAppendFrame, LLMRunFrame
+from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.observers.user_bot_latency_observer import UserBotLatencyObserver
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -115,6 +116,21 @@ class HeldConnection(SmallWebRTCConnection):
         super().replace_audio_track(track)
 
 
+class Heard(BaseObserver):
+    """When the phone's audio last came. The phone sends it all through the call, silence
+    too, and a lost packet is made up only once a later one comes (opus.py), so once the phone
+    is gone (no signal, a dead battery) nothing comes, though the connection notices only once
+    its checks fail, 20-60 s later."""
+
+    def __init__(self):
+        super().__init__()
+        self.at: float | None = None  # time.monotonic()
+
+    async def on_push_frame(self, data: FramePushed) -> None:
+        if isinstance(data.frame, InputAudioRawFrame):
+            self.at = time.monotonic()
+
+
 def call_task(
     transport: BaseTransport,
     report: str | None,
@@ -124,10 +140,12 @@ def call_task(
     gate: float = hearing.GATE,
     link: sessions.Link | None = None,
     haiku: Haiku | None = None,
+    heard: Heard | None = None,
 ) -> PipelineTask:
     """The conversation, between transport's input and output. With a link, the voice can
     pass messages to the session, and the session's news reaches the call. Haiku is the
-    session the call started already, if it did."""
+    session the call started already, if it did. Heard, if given, notes when your audio last
+    came."""
     timeline = Timeline()
     end_of_turn = LocalSmartTurnAnalyzerV3(params=SmartTurnParams(stop_secs=turn_wait))
     vad = hearing.thresholds(sensitivity, gate)
@@ -165,7 +183,7 @@ def call_task(
         params=PipelineParams(
             audio_in_sample_rate=models.HEARING_RATE, audio_out_sample_rate=models.SPEAKING_RATE, enable_metrics=True
         ),
-        observers=[latency],
+        observers=[latency, heard] if heard else [latency],
     )
 
     if link:
@@ -204,16 +222,19 @@ async def run_call(
     offer: Offer,
     link: sessions.Link | None = None,
     haiku: Haiku | None = None,
-) -> None:
+) -> float | None:
     """A call from the phone's offer until it hangs up, or a new offer replaces this one. The
-    voice opens once you've answered and audio is connected, whichever comes last."""
+    voice opens once you've answered and audio is connected, whichever comes last. Returns
+    how long you talked: from then until your audio last came, or None if it never connected
+    after you answered, as when you hang up a call you made at once."""
     answered = offer.answered
     say = lambda line: log(f"call {call}: {line}")
     since = lambda: f"{time.monotonic() - t0:.2f} s after the offer"
     transport = SmallWebRTCTransport(
         webrtc_connection=conn, params=TransportParams(audio_in_enabled=True, audio_out_enabled=True)
     )
-    task = call_task(transport, text, say, sensitivity=sensitivity, gate=gate, link=link, haiku=haiku)
+    heard = Heard()
+    task = call_task(transport, text, say, sensitivity=sensitivity, gate=gate, link=link, haiku=haiku, heard=heard)
     connected = asyncio.Event()
     connected_at = 0.0
     started = False
@@ -256,10 +277,17 @@ async def run_call(
     finally:
         for waiter in waiting:
             waiter.cancel()
-    if connected.is_set() and answered.done():
-        # Audio went both ways from when you answered or it connected, whichever came last.
-        say(await audio_stats(conn, time.monotonic() - max(connected_at, answered.result())))
-    say("finished")
+    if not (connected.is_set() and answered.done()):
+        say("finished, its audio never connected")
+        return None
+    # Audio went both ways from when you answered or it connected, whichever came last.
+    start = max(connected_at, answered.result())
+    say(await audio_stats(conn, time.monotonic() - start))
+    # With nothing from the phone since then, until the connection ended.
+    end = heard.at if heard.at is not None and heard.at > start else time.monotonic()
+    lasted = end - start
+    say(f"finished: you talked {lasted:.1f} s, your audio last came {time.monotonic() - end:.1f} s ago")
+    return lasted
 
 
 async def audio_stats(conn: SmallWebRTCConnection, secs: float) -> str:
@@ -464,15 +492,16 @@ def main() -> None:
             mark_answered(call_id)
 
         async def talk():
+            lasted = None
             try:
-                await run_call(conn, call_id[:8], t0, text, sensitivity, gate, this, link, haiku)
+                lasted = await run_call(conn, call_id[:8], t0, text, sensitivity, gate, this, link, haiku)
             finally:
                 if not this.replaced.is_set():
                     del offered[call_id]
                     # A call you haven't answered stays placed until it's forgotten, so the
                     # phone can offer again.
                     if this.answered.done():
-                        await calls.end(call_id)
+                        await calls.end(call_id, lasted)
                 this.ended.set()
 
         asyncio.create_task(talk())
