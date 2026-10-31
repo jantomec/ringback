@@ -71,6 +71,26 @@ earlier conversation tells:
       "How long do the tests take now?" "Can I get a better model on the line?" "..." \
       "What did I ask you before?" "Thanks, that's all."
 
+Whether the voice does work itself or passes it on (2026-10-31), with the briefings in
+`briefings/`: a call back with no briefing, then a task, cutting off the voice's reply; and
+a briefing's questions, then a suggestion only the session can make:
+
+    uv run --project voice tools/call-check/call_check.py OUT_DIR --session \
+      --report tools/call-check/briefings/called-back-no-briefing.txt \
+      "Write a short poem." "@0.3:Let it be about Halloween." \
+      "No, no, no, just write it, I'll read it later." "Thanks, that's all."
+    uv run --project voice tools/call-check/call_check.py OUT_DIR --session \
+      --report tools/call-check/briefings/parser-fix.txt \
+      "How many tests were there, and how long did they take?" "What was the crash about again?" \
+      "Okay. Also, what's a good name for the pull request?" "Thanks, that's all."
+
+Result: before the voice was told it does no work itself, the first wrote and read Halloween
+poems, twice, and passed nothing on (one run, 63 s). After, three runs of 47–54 s: each passed
+"write a short poem about Halloween" to the session once (the first message was dropped, as
+your interruption came before you'd heard it announced), and none mentioned the interruption;
+to "just write it", twice "I can't write it myself", once a further message. The second, two
+runs of 82–88 s: the briefing's questions answered from it, the name asked of the session.
+
 It prints the voice's log as the server would, then the timing measured on its own clock,
 from where your speech starts and ends in each clip:
 - when each of your turns started and ended, and whether the voice talked over you;

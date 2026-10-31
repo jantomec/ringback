@@ -485,6 +485,16 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      garbled to be sure;
    - act on a permission prompt only after a clear yes or no, otherwise ask again; never
      choose an option for you, and take your own words when no option fits;
+   - the voice does no work itself: whatever you want written, made, changed, run or
+     looked up goes to the session, even something short; it answers from the briefing
+     only what the briefing says. On the phone (2026-10-31) "Write a short poem" got a poem
+     from the voice, read aloud, then again after "just write it, I'll read it later", and
+     the session never heard of it; the voice also said "the previous poem never reached
+     you", so it no longer mentions an interruption. Replayed with `tools/call-check`
+     (README): before, one run, no message to the session; after, three runs, each passed
+     "write a short poem about Halloween" once, and none mentioned the interruption. With
+     a briefing, two runs: its questions were still answered from it, and a name for the
+     pull request went to the session;
    - when several things need your answer, say how many, then ask them one at a time,
      and pass the answers on together once they're all in (or when you want to stop);
      nothing the voice says after passing something on is spoken;
