@@ -38,8 +38,8 @@ enum OnDeviceVoice {
         }
     }
 
-    /// Apple's English model for SpeechTranscriber, installed if it isn't yet, as the speech
-    /// trial's Install English does. The model runs in a system service, outside the app.
+    /// Apple's English model for SpeechTranscriber, installed if it isn't yet. The model runs in
+    /// a system service, outside the app.
     static func installModel() async throws {
         guard SpeechTranscriber.isAvailable else { throw SpeechError("This iPhone can't recognise speech by itself.") }
         guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: locale) else {
@@ -104,7 +104,7 @@ final class Converter {
 }
 
 /// Finds when you start and stop speaking, and when your turn ends, from the level of the
-/// microphone's audio after echo cancellation, as the speech trial does: the noise floor follows
+/// microphone's audio after echo cancellation, as the speech trial did: the noise floor follows
 /// the quiet down at once and up slowly, and speech is audio well above it and above a minimum.
 /// A rough stand-in for the speech node's Silero and Smart Turn. Your Interruption Sensitivity
 /// and Ignore Background Noise set its thresholds, and while the voice plays it's harder to set
@@ -119,10 +119,10 @@ struct LevelDetector {
         var onset: Double
 
         /// From the app's settings, each 0 to 1, the background filter 0 when it's off. At the
-        /// defaults (0.5 and 0.5) they're the speech trial's, whose 22 starts of speech, at -52 to
-        /// -19 dB with the floor at -81 to -94, all counted: -55 dB, 15 dB above the floor. Less
-        /// sensitive needs louder and longer speech; the filter raises the minimum by up to 5 dB
-        /// over the default.
+        /// defaults (0.5 and 0.5) they're the speech trial's (`tools/speech-trial`), whose 22
+        /// starts of speech, at -52 to -19 dB with the floor at -81 to -94, all counted: -55 dB,
+        /// 15 dB above the floor. Less sensitive needs louder and longer speech; the filter raises
+        /// the minimum by up to 5 dB over the default.
         init(sensitivity: Double, backgroundFilter: Double) {
             let s = min(max(sensitivity, 0), 1)
             let g = min(max(backgroundFilter, 0), 1)
@@ -584,7 +584,7 @@ final class PhoneSpeech: CallLink {
 }
 
 /// One call's hearing: the microphone after echo cancellation, through SpeechTranscriber set up
-/// as the speech trial's live run sets it up, and the level detector, which says when you start
+/// as the speech trial's live run set it up, and the level detector, which says when you start
 /// and stop speaking, and when your turn ends. The analyzer then finalizes your words through
 /// the end of your speech (it finds no end itself), and the turn goes to the hub with them.
 private final class Hearing: @unchecked Sendable {  // its shared state is under `lock`

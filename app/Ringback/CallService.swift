@@ -179,32 +179,6 @@ final class CallService: NSObject, CXProviderDelegate {
         startCall(UUID(), record)
     }
 
-    #if DEBUG
-    /// A speech trial's call (SpeechTrial), through CallKit, so it hears you as a call does, with
-    /// the phone locked too. It has no audio link: the trial hears the microphone itself.
-    private var trialCall: UUID?
-
-    func startTrial() {
-        guard trialCall == nil, state.activeCall == nil else { return }
-        let uuid = UUID()
-        trialCall = uuid
-        controller.request(CXTransaction(action: CXStartCallAction(call: uuid, handle: CXHandle(type: .generic, value: "Speech trial")))) {
-            [self] error in
-            if let error {
-                DispatchQueue.main.async { [self] in
-                    trialCall = nil
-                    state.callBackProblem = "Can't start the trial call: \(error.localizedDescription)"
-                }
-            }
-        }
-    }
-
-    func endTrial() {
-        guard let uuid = trialCall else { return }
-        controller.request(CXTransaction(action: CXEndCallAction(call: uuid))) { _ in }
-    }
-    #endif
-
     private func startCall(_ uuid: UUID, _ record: CallRecord) {
         startingCallBacks[uuid] = record
         let start = CXStartCallAction(call: uuid, handle: CXHandle(type: .generic, value: record.callerName))
@@ -715,15 +689,6 @@ final class CallService: NSObject, CXProviderDelegate {
     /// under the call's, which takes it off the switchboard's waiting calls.
     func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
         let uuid = action.callUUID
-        #if DEBUG
-        if uuid == trialCall {
-            SpeechTrial.prepareAudioSession()
-            action.fulfill()
-            provider.reportOutgoingCall(with: uuid, startedConnectingAt: .now)
-            provider.reportOutgoingCall(with: uuid, connectedAt: .now)
-            return
-        }
-        #endif
         guard var record = startingCallBacks.removeValue(forKey: uuid), let voiceURL = record.voice,
             record.callsBack != nil || record.calledNow == true || record.contact == true
         else { return action.fail() }
@@ -777,13 +742,6 @@ final class CallService: NSObject, CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
-        #if DEBUG
-        if action.callUUID == trialCall {
-            trialCall = nil
-            Task { @MainActor in await SpeechTrial.shared.stopLive() }
-            return action.fulfill()
-        }
-        #endif
         if let callID = callIDs[action.callUUID] {
             let answered = state.calls.first(where: { $0.id == callID })?.answeredAt != nil
             let outcome = answered ? endedOutcome(action.callUUID) : .declined
@@ -799,21 +757,12 @@ final class CallService: NSObject, CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
-        #if DEBUG
-        if trialCall != nil {
-            Task { @MainActor in await SpeechTrial.shared.startLive() }
-            return
-        }
-        #endif
         AudioLink.activate(audioSession)
         audioSessionActive = true
         for case let speech as PhoneSpeech in links.values { speech.audioActive = true }
     }
 
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
-        #if DEBUG
-        if trialCall != nil { return }
-        #endif
         AudioLink.deactivate(audioSession)
         audioSessionActive = false
         for case let speech as PhoneSpeech in links.values { speech.audioActive = false }

@@ -2002,7 +2002,7 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
      in `aNode`, `warmNodes` and `speechLinked`), the app's status counts only nodes not
      paused, and resuming one has the calls that waited for speech ask again. Paused through
      the page's button in Chrome, and in the tests. No other nodes' settings yet.
-- **Speech on the phone** (decided 2026-11-02; a trial in progress, `tools/speech-trial`). First a trial on an older iPhone (4 GB)
+- **Speech on the phone** (decided 2026-11-02; trial done, `tools/speech-trial`, and its code taken out of the app after commit `a89043e`). First a trial on an older iPhone (4 GB)
   with Apple's on-device recognition, measured: how soon your words come after you stop,
   their accuracy on `tools/stt-eval`'s recordings, the app's memory, battery over a
   10-minute call, and whether it hears on a locked phone during a call. If it holds up: the

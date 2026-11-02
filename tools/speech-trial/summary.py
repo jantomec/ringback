@@ -1,7 +1,7 @@
-"""Summarises a live log of the on-device speech trial (the app's SpeechTrial, in debug builds):
-whether audio and results kept coming in the background and with the phone locked, how soon
-the final words came once asked for, the first words after you started, the app's memory and
-the battery. See README.md.
+"""Summarises a live log of the on-device speech trial (the app's SpeechTrial, in the debug
+builds up to commit a89043e): whether audio and results kept coming in the background and with
+the phone locked, how soon the final words came once asked for, the first words after you
+started, the app's memory and the battery. See README.md.
 
 "Locked" is iOS's data protection: from the lock until Face ID or the passcode unlocks it,
 which a glance at the lock screen does while the screen stays locked. "Background" is the app

@@ -2,8 +2,9 @@
 
 A measured trial of Apple's on-device speech recognition (SpeechAnalyzer with
 SpeechTranscriber, iOS 26 and later) on the phone, for hearing you without a speech node
-("Speech on the phone" in `docs/design.md`). It's in the app's debug builds: the waveform
-button at the top of Recents opens it. It answers four questions:
+("Speech on the phone" in `docs/design.md`). It was in the app's debug builds, behind a
+button at the top of Recents, until its runs were done; the app's commit `a89043e` is the last
+that has it. It answers four questions:
 - **Does it hear on a locked phone during a call?** Nothing in Apple's documentation says either
   way.
 - **How soon do your words come** after you stop speaking?
@@ -21,10 +22,11 @@ What Apple's documentation says, checked on 2026-11-02 (sources in the design):
 
 ## Running it
 
-The phone needs the debug build installed (`docs/setup.md`, step 7), and to be unlocked and
-on the same Wi-Fi as the Mac for the copies. `UDID` is the phone's (`xcrun devicectl list
-devices`), `BUNDLE` the app's bundle ID (`RINGBACK_BUNDLE_ID` in `app/Config/Local.xcconfig`),
-and `DATA_DIR` the recordings folder of `tools/stt-eval`.
+The phone needs the debug build of commit `a89043e` installed (`git switch --detach a89043e`,
+then `docs/setup.md`, step 7), and to be unlocked and on the same Wi-Fi as the Mac for the
+copies. `UDID` is the phone's (`xcrun devicectl list devices`), `BUNDLE` the app's bundle ID
+(`RINGBACK_BUNDLE_ID` in `app/Config/Local.xcconfig`), and `DATA_DIR` the recordings folder of
+`tools/stt-eval`.
 
 1. **The model.** In the trial, tap **Install English**; the model line then says "installed".
 2. **Accuracy.** Copy the recordings and their segments to the app:
@@ -105,5 +107,6 @@ reports without `fastResults`, not the background. One 16 s "latency" was the tr
 stop that brought no words was timed against the next sentence's final words; a new start of
 speech now clears it.
 
-The trial's code is `app/Ringback/SpeechTrial.swift`; the call goes through the app's own
-`CallService`, so it rings and shows as a call, named "Speech trial".
+The trial's code was `app/Ringback/SpeechTrial.swift` (in `a89043e`); its call went through the
+app's own `CallService`, so it rang and showed as a call, named "Speech trial". The app's
+on-device voice (`app/Ringback/PhoneSpeech.swift`) took its hearing from it.
