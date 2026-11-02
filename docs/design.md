@@ -818,21 +818,23 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        its ID. (Until 2026-10-30, ⓘ on the row opened them.)
    - **The hold switch** (Stage 5 step 2; built, tried in a simulator, not yet on the
      phone). One switch holds every call until you let them through (the switchboard's hold
-     switch, with your work hours setting it at their edges). It's in the bar above the tabs
-     (the tab bar's bottom accessory, where Music shows what's playing), on both tabs: "Taking
-     calls" with a green dot and "Holds calls at 19:00", or "Calls on hold" with an indigo mark
-     and "2 waiting · takes calls tomorrow at 08:15", and a button that's what pressing does,
-     as in a media player: pause while taking calls, play while on hold. Indigo, the colour of
-     iOS's Focus, keeps it apart from the red of missed calls and the orange of waiting ones.
-     The bar folds to one line beside the tab bar as you scroll. Pressing shows the new state
-     at once, then sets it at the switchboard (`/hold`); taking calls, the app fetches the
-     waiting calls and posts `/reask` to their voice servers, so they ring now. If the
-     switchboard can't be reached, it goes back and an alert says so. The app gets the switch
-     with the waiting calls, and asks again when the hours would change it.
+     switch, with your work hours setting it at their edges). It's a pill of Liquid Glass
+     floating beside the tabs, on both tabs, the same size as each tab, which are pills in one
+     capsule (`BottomBar`, after your sketch; it replaces the system tab bar, which is hidden:
+     its only button of its own beside the tabs is round, and for Search). Its symbol is what
+     pressing does, as in a media player: pause while taking calls, play while on hold; its
+     word is the state, "Taking calls" or "On hold". On hold it's indigo, the colour of iOS's
+     Focus, apart from the red of missed calls and the orange of waiting ones, with how many
+     calls wait in an orange badge. VoiceOver reads what's next too ("On hold, 2 waiting,
+     takes calls tomorrow at 08:15"). Pressing shows the new state at once, then sets it at
+     the switchboard (`/hold`); taking calls, the app fetches the waiting calls and posts
+     `/reask` to their voice servers, so they ring now. If the switchboard can't be reached,
+     it goes back and an alert says so. The app gets the switch with the waiting calls, and
+     asks again when the hours would change it.
      - The same switch is a control (`app/Controls`, a WidgetKit extension) for Control
        Center, which you can also put on the Lock Screen or the Action button: on, in indigo,
        holds calls. Its action (`SetHoldIntent`) runs in the extension, without opening the
-       app, and does what the bar's button does. It shows the switch as the switchboard has
+       app, and does what the pill does. It shows the switch as the switchboard has
        it, or as last heard. The app shares the switchboard's address, the push token and the
        switch with it in a keychain group, rather than an App Group: the team's provisioning
        profiles already allow any of its keychain groups, while an App Group needs a
@@ -841,8 +843,11 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        bar above the tabs, a button in the top corner with the state under the title, a
        status card at the top of Recents (as Uber Eats Orders shows "Paused"), a round
        button beside the tab bar, and Control Center with a Lock Screen Live Activity. The
-       bar was the only one on both tabs, under your thumb, with room to say the state in
-       words; Control Center joined it. The Live Activity is left out.
+       bar above the tabs went first, as the only one on both tabs, under your thumb, with
+       room to say the state in words, and Control Center joined it; the Live Activity is
+       left out. Seen on the phone, you chose the button beside the tabs instead, as a pill
+       rather than round, with the tabs as pills of the same size (2026-11-02). The state is
+       one word now, and what's next only for VoiceOver.
    - **Settings** live in the Settings app (Settings → Apps → Ringback), from the app's
      `Settings.bundle`; the app has no settings screen any more. Groups, each with a footer
      that says what the app's sections said:
@@ -1663,7 +1668,7 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         the cards and their menu included (one run, 2 min 20 s). The fetching every 3 s and
         the cards on the phone are untried.
    2. **A hold switch** (2026-11-02; built, tried offline and in a simulator, not yet on the
-      phone). One switch holds every call until you let them through, in the bar above the
+      phone). One switch holds every call until you let them through, in a pill beside the
       tabs and in Control Center; work hours set it at their edges (the switchboard's and the
       iPhone app's "hold switch", the voice server's held calls). Checks:
       - The switchboard (`switchboard/smoke-test.sh`, 29 new checks, 139 in all, 16 s): `/hold`
@@ -1688,9 +1693,11 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         rings when you take calls." with no time.
       - The app and its extension build with no Swift warnings, both signed with the shared
         keychain group. `tools/app-screens` showed the bar on hold over the waiting calls and
-        taking calls over the connection banner, in light and dark (one run, 2 min 23 s).
-      - Left for the phone: the bar's button, its folding as you scroll, the alert, the
-        switch changing by itself at an edge, `/reask` reaching a Mac over Nebula (the app
+        taking calls over the connection banner, in light and dark (one run, 2 min 23 s); then,
+        with the pill beside the tabs instead, the pill on hold with its badge, and taking
+        calls, the tabs as pills and no system tab bar, in light and dark (one run, 2 min 18 s).
+      - Left for the phone: the pill, the tabs' pills, the alert, the switch changing by
+        itself at an edge, `/reask` reaching a Mac over Nebula (the app
         reaches it only as an offer does, with no first `/ping` for a stale tunnel), the
         Control Center control and its action from a locked phone, and held calls ringing
         together when you take calls.

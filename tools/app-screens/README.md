@@ -13,7 +13,7 @@ appearance:
 - `recents`: waiting calls (one with a question, one without) under Waiting, and under
   Calls, calls answered, missed, declined, called back, called from Sessions, one that
   didn't connect, one on another call, from today, yesterday, this week and earlier; and the
-  hold switch above the tabs, on hold until tomorrow's work hours;
+  hold switch beside the tabs, on hold until tomorrow's work hours;
 - `recents-swipe`: the waiting call with a question swiped open to its "Claude App" action;
 - `call-details`, `call-details-outgoing`, `waiting-details`: a call's details from its ⓘ;
 - `sessions`, cards with two sessions in one project and both kinds of waiting call,
@@ -48,7 +48,10 @@ shown, the headers in both appearances, and the Claude App swipe under Waiting.
 
 2026-11-02, with the hold switch (one run, 2 min 23 s): every screen was shown; the bar was on
 hold in `recents` and taking calls in `banner`, in both appearances. The Control Center
-control can't be shown here: it's for the phone.
+control can't be shown here: it's for the phone. Then with the switch as a pill beside the
+tabs, which are pills too, instead of the system tab bar (one run, 2 min 18 s): every screen
+was shown, the test now finding the Sessions tab among the buttons; the pill was on hold
+with its badge in `recents` and `sessions`, and taking calls in `banner`.
 
 Result on 2026-10-30, after Contacts became Sessions, with cards: one run, 2 min 20 s, every
 screen shown in light and dark, the cards, a card held with its Call and Details, and the

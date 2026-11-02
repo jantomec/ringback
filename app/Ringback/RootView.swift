@@ -10,19 +10,26 @@ struct RootView: View {
     let calls: CallService
     @Environment(\.scenePhase) private var scenePhase
     @State private var showsCallBackProblem = false
+    @State private var page = Page.recents
+
+    enum Page: Hashable {
+        case recents, sessions
+    }
 
     var body: some View {
-        TabView {
-            Tab("Recents", systemImage: "clock.fill") {
+        // The tabs are pills in BottomBar, with the hold switch beside them, instead of the
+        // system tab bar.
+        TabView(selection: $page) {
+            Tab("Recents", systemImage: "clock.fill", value: Page.recents) {
                 RecentsView(state: state, push: push, calls: calls)
+                    .toolbarVisibility(.hidden, for: .tabBar)
             }
-            Tab("Sessions", systemImage: "terminal.fill") {
+            Tab("Sessions", systemImage: "terminal.fill", value: Page.sessions) {
                 SessionsView(state: state, calls: calls)
+                    .toolbarVisibility(.hidden, for: .tabBar)
             }
         }
-        // The hold switch, on both tabs.
-        .tabViewBottomAccessory { HoldBar(state: state) }
-        .tabBarMinimizeBehavior(.onScrollDown)
+        .safeAreaInset(edge: .bottom) { BottomBar(page: $page, state: state) }
         // Only checks you started, never the automatic one on opening.
         .sensoryFeedback(.success, trigger: state.confirmations)
         .fullScreenCover(isPresented: .constant(state.activeCall != nil), onDismiss: showCallBackProblem) {

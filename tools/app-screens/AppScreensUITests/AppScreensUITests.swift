@@ -48,7 +48,7 @@ final class AppScreensUITests: XCTestCase {
         shot("waiting-details")
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
-        app.tabBars.buttons["Sessions"].tap()
+        app.buttons["Sessions"].firstMatch.tap()
         note("sessions", app.navigationBars["Sessions"].waitForExistence(timeout: 5))
         shot("sessions")
         // Held, a card offers its details: ringback, with a briefing.

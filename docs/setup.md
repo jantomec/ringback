@@ -78,7 +78,7 @@ one notification for it. Swipe it left for **Claude App** to send the question t
 session's own dialog instead, which Remote Control shows in the Claude app (ringback turns
 Remote Control on in the session); the call then never rings.
 
-The bar above the tabs is the **hold switch**. Press pause and every call waits, listed under
+The pill beside the tabs is the **hold switch**. Press pause and every call waits, listed under
 Waiting; press play and they ring. With work hours on, it goes on hold when they end and
 takes calls when they start; in between, what you press stands. The same switch can go in
 Control Center: open Control Center, tap +, then Add a Control, and choose Ringback's Hold

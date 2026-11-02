@@ -5,9 +5,9 @@ import WidgetKit
 
 /// The phone's hold switch (Stage 5 step 2 in docs/design.md): on hold, every call waits; taking
 /// calls, they ring. The switchboard keeps it, and the work hours set it at their edges: on hold
-/// when they end, taking calls when they start. In between, you set it in the app (the bar above
-/// the tabs) or in Control Center (HoldControl). This file is in both the app and its Control
-/// Center extension.
+/// when they end, taking calls when they start. In between, you set it in the app (the pill
+/// beside the tabs, HoldButton) or in Control Center (HoldControl). This file is in both the app
+/// and its Control Center extension.
 struct HoldState: Codable, Equatable {
     var on: Bool
     /// When the work hours next change it by themselves; nil if they won't.

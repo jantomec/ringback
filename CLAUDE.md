@@ -46,7 +46,7 @@ tapping any call calls its session, answered calls too) and Sessions (Contacts u
 2026-10-30: the sessions with ringback on, on every Mac, which each voice server tells the
 switchboard, a card each, fetched every 3 s while the tab shows; tapping one calls it, and
 the voice opens with what's new); its settings moved to the Settings app
-(`app/Settings.bundle`). Stage 5, step 2 (2026-11-02) added a hold switch: in the bar above the
+(`app/Settings.bundle`). Stage 5, step 2 (2026-11-02) added a hold switch: in a pill beside the
 tabs and in Control Center (`app/Controls`), it holds every call until you let them through,
 and work hours set it at their edges; built and tried offline (the switchboard's smoke test,
 `tools/ask-check`) and in a simulator, not yet on the phone. Built and tried offline (`tools/phone-check --contacts`, the
