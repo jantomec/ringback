@@ -36,7 +36,8 @@ Build the hub first, then run from the repo root:
     uv run --project voice tools/hub-check/hub_check.py [--keep DIR]
 
 It prints the hub's log and one line per check. `--keep` keeps the throwaway HOME (config,
-state, log).
+state, log). `RINGBACK_HUB` runs another binary, such as the universal one `hub/build.sh`
+makes, and `RINGBACK_HUB_ARCH="arch -x86_64"` runs its Intel half under Rosetta.
 
 Result on 2026-11-02, the last version (five runs; the three timed took 9–11 s): all 25 checks passed each time.
 Without the hub clearing what you'd heard when cut off, the check of an empty `heard` fails
@@ -46,7 +47,9 @@ frames (20 ms); cut off 1.5 s into a long reply, the agent heard "This is a long
 up, the call was over at once and had lasted 7.05 s. The first run failed: Pion leaves
 loopback addresses out, so the hub on 127.0.0.1 offered none (fixed: loopback is included when
 the hub listens on one); then a reply after a finished one was taken as more of it, and the
-end of a reply wasn't reported as heard (both fixed). The cut-off checks came after: a reply
+end of a reply wasn't reported as heard (both fixed). The universal binary from `hub/build.sh` (libopus 1.6.1 linked in statically; it links only
+macOS's own libraries) passed all 25 too, its Apple silicon half and its Intel half alone
+(under Rosetta), and the switchboard's smoke test (139). The cut-off checks came after: a reply
 cut while still being written went on being spoken from the slices still coming, so replies
 are numbered now (`docs/protocol.md`); and at the end of a reply the last frame wasn't counted
 as heard ("Going on" for "Going on now.").

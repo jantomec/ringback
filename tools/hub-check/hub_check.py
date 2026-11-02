@@ -98,7 +98,7 @@ async def main() -> int:
     p.add_argument("--keep", type=Path, help="keep the hub's log and state in this directory")
     args = p.parse_args()
     root = Path(__file__).resolve().parents[2]
-    binary = root / "hub" / "build" / "ringback-hub"
+    binary = Path(os.environ.get("RINGBACK_HUB", root / "hub" / "build" / "ringback-hub"))
     if not binary.exists():
         sys.exit("build the hub first: (cd hub && go build -o build/ringback-hub .)")
     home = Path(tempfile.mkdtemp(prefix="ringback-hub-check-"))
@@ -107,7 +107,7 @@ async def main() -> int:
         f'listen = "{HUB}"\n[tokens]\nagent = "{TOKENS["agent"]}"\nspeech = "{TOKENS["speech"]}"\n'
     )
     log = home / "hub.log"
-    hub = subprocess.Popen([str(binary), "serve"], env=os.environ | {"HOME": str(home)}, stdout=log.open("w"), stderr=subprocess.STDOUT)
+    hub = subprocess.Popen([*os.environ.get("RINGBACK_HUB_ARCH", "").split(), str(binary), "serve"], env=os.environ | {"HOME": str(home)}, stdout=log.open("w"), stderr=subprocess.STDOUT)
     phone_check.VOICE = HUB
     agent, node = Link("agent"), Link("speech")
     try:
