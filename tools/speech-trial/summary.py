@@ -1,7 +1,11 @@
 """Summarises a live log of the on-device speech trial (the app's SpeechTrial, in debug builds):
-whether audio and results kept coming with the phone locked, how soon the final words came
-after you stopped speaking, the first words after you started, the app's memory and the
-battery. See README.md.
+whether audio and results kept coming in the background and with the phone locked, how soon
+the final words came once asked for, the first words after you started, the app's memory and
+the battery. See README.md.
+
+"Locked" is iOS's data protection: from the lock until Face ID or the passcode unlocks it,
+which a glance at the lock screen does while the screen stays locked. "Background" is the app
+not on screen, from the ticks every 5 s: the screen locked, or another app shown.
 
     python3 tools/speech-trial/summary.py LIVE.jsonl
 """
@@ -40,23 +44,37 @@ def main() -> None:
         return any(a <= t <= b for a, b in spans)
 
     ticks = [e for e in events if e["kind"] == "tick"]
-    locked_ticks = [e for e in ticks if locked(e["t"])]
-    rate = []
-    for a, b in zip(ticks, ticks[1:]):
-        if locked(b["t"]):
-            rate.append((b["buffers"] - a["buffers"]) / (b["t"] - a["t"]))
+
+    def background(t: float) -> bool:
+        """The app was in the background at t: the nearest tick says so."""
+        tick = min(ticks, key=lambda e: abs(e["t"] - t), default={})
+        return tick.get("background", False)
+
     finals = [e for e in events if e["kind"] == "final"]
-    print(f"locked: {sum(b - a for a, b in spans) / 60:.1f} min in {len(spans)} spans; "
-          f"buffers while locked {min(rate) if rate else 0:.0f}–{max(rate) if rate else 0:.0f} a second; "
-          f"final results while locked {sum(locked(e['t']) for e in finals)} of {len(finals)}; "
-          f"in the background at {sum(e.get('background', False) for e in locked_ticks)} of {len(locked_ticks)} ticks")  # fmt: skip
+    for name, inside in (("locked", locked), ("in the background", background)):
+        spanned = [(a, b) for a, b in zip(ticks, ticks[1:]) if inside(b["t"])]
+        audio = sum(b["audio_s"] - a["audio_s"] for a, b in spanned)
+        wall = sum(b["t"] - a["t"] for a, b in spanned)
+        print(f"{name}: {wall / 60:.1f} min between ticks, with {audio / max(wall, 1e-9) * 100:.0f}% of the audio arriving; "
+              f"final results {sum(inside(e['t']) for e in finals)} of {len(finals)}")  # fmt: skip
     errors = [e for e in events if e["kind"] == "error"]
     if errors:
         print("errors:", "; ".join(f"{e['t']:.0f} s: {e['text']}" for e in errors))
 
     latencies = [e["latency_s"] for e in events if "latency_s" in e]
-    print("final words after you stopped:", stats(latencies))
-    print("  of them while locked:", stats([e["latency_s"] for e in events if "latency_s" in e and locked(e["t"])]))
+    print("final words after your last loud audio (with the 0.6 s the trial waits):", stats(latencies))
+    # After the trial asked for them (finalize), at the end of speech: what a call's own end of
+    # turn would wait for.
+    asked = []
+    for i, e in enumerate(events):
+        if e["kind"] == "speech_end":
+            later = next((f for f in events[i + 1:] if f["kind"] in ("final", "speech_start")), None)
+            if later and later["kind"] == "final":
+                asked.append(later["t"] - e["t"])
+    print("final words after the trial asked for them:", stats(asked))
+    bursts = sorted({round(e["t"], 1) for e in events if e["kind"] == "volatile"})
+    gaps = [b - a for a, b in zip(bursts, bursts[1:]) if b - a > 0.5]
+    print("tentative words came in bursts, every", stats(gaps))
     print("first words after you started:", stats([e["first_words_s"] for e in events if "first_words_s" in e]))
     ends = sum(e["kind"] == "speech_end" for e in events)
     print(f"stops of speech found {ends}, timed {len(latencies)}")

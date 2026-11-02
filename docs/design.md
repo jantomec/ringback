@@ -1975,8 +1975,12 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
   - Accuracy (2026-11-02, on the phone, `tools/speech-trial`): Apple's SpeechTranscriber got
     10.3% of words wrong on `tools/stt-eval`'s recordings, Parakeet v2 5.9%; repaired by Haiku,
     8.2% and 4.6%. Its errors are technical words and answers to permission prompts ("allow
-    it once" as "I love it once"). Each utterance took a median of 0.09 s on the phone. Live in
-    a call, locked: not run yet.
+    it once" as "I love it once"). Each utterance took a median of 0.09 s on the phone.
+  - Live in a call (the first run, 1.4 min): in the background, the screen locked, all the audio
+    arrived and every final result came; the final words came 0.15 s after they were asked
+    for (median); the tentative ones came in bursts every 3.7 s; the app stayed at 27–32 MB.
+    Locked with its data protection on (no Face ID glance), it got no speech to hear: to run
+    again.
 7. **Several sessions + retries.** A second session waits for the first call to end.
    "Not now" retries on schedule while the queue waits. A final decline holds all calls
    until a call back releases them.

@@ -80,7 +80,23 @@ reference was corrected from one model's transcript, which favours that model th
 (`tools/stt-eval`). Parakeet's times aren't comparable: its 41 ms is on an Apple silicon Mac,
 and the speech node takes 70–90 ms.
 
-Live, in a call: not run yet.
+Live, in a call, the first run (2026-11-02, 1.4 min, the phone locked at the start, AirPods):
+- **In the background it hears.** The app was in the background for the whole call, the screen
+  locked; all the audio kept arriving (iOS gave it in 0.1 s buffers, 10 a second, rather than
+  47 in the foreground), and all 12 final results came then.
+- **Locked, untried.** iOS's data protection was locked only from 2.5 s to 10.5 s, before you
+  started talking: a glance at the lock screen unlocks it by Face ID while the screen stays
+  locked. Audio arrived through it; no speech fell in it.
+- **Final words 0.15 s after they're asked for** (median, 0.25 s at most, 9 turns): from the
+  end of speech the trial found to the final words, as a call's end of turn would ask. With
+  the 0.6 s of quiet the trial waits for, 0.76 s from your last loud audio.
+- **Tentative words in bursts**, every 3.7 s while you speak, not word by word; so the first
+  ones came 3.4 s after you started. A call acts on the final words, so this matters only for
+  interrupting the voice, which the call's own voice detection does.
+- **The app's memory** stayed at 27–32 MB: the model is outside it.
+- **Words:** "Parakeet" as "para kit" and "pararait", "compute node" as "compute note", "a
+  trial call" as "uh, trial, cool" in the final words (the tentative ones had it right).
+- **Battery:** 85% to 85%, too short to tell.
 
 The trial's code is `app/Ringback/SpeechTrial.swift`; the call goes through the app's own
 `CallService`, so it rings and shows as a call, named "Speech trial".
