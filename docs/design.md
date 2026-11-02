@@ -1979,8 +1979,13 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
   - Live in a call (the first run, 1.4 min): in the background, the screen locked, all the audio
     arrived and every final result came; the final words came 0.15 s after they were asked
     for (median); the tentative ones came in bursts every 3.7 s; the app stayed at 27–32 MB.
-    Locked with its data protection on (no Face ID glance), it got no speech to hear: to run
-    again.
+    Locked with its data protection on (no Face ID glance), it got no speech to hear; a second
+    run stayed in the foreground (0.09 s to the final words). The tentative words come in bursts
+    every 3.7–3.8 s in the foreground too: how the model reports without `fastResults`.
+  - So far: it hears in the background with the screen locked, as fast as a call needs, in the
+    app's 30 MB, but gets about 1.8 times Parakeet's words wrong, answers to permission prompts
+    among them, which suits a fallback for when the speech node is down. Untried: a phone
+    locked in a pocket (data protection on) through a call, and the battery over a long call.
 7. **Several sessions + retries.** A second session waits for the first call to end.
    "Not now" retries on schedule while the queue waits. A final decline holds all calls
    until a call back releases them.

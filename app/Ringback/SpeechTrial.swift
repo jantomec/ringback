@@ -366,7 +366,11 @@ private final class LiveRun: @unchecked Sendable {  // its shared state is under
             if !speaking && loudFor >= 0.12 {
                 speaking = true
                 let start = now.addingTimeInterval(-loudFor)
-                lock.withLock { speechStart = start }
+                // A stop that brought no words isn't timed against the next speech's.
+                lock.withLock {
+                    speechStart = start
+                    pending = nil
+                }
                 write(["kind": "speech_start", "audio": end - loudFor, "level": level, "floor": noiseFloor])
             }
         } else {

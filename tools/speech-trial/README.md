@@ -98,5 +98,12 @@ Live, in a call, the first run (2026-11-02, 1.4 min, the phone locked at the sta
   trial call" as "uh, trial, cool" in the final words (the tentative ones had it right).
 - **Battery:** 85% to 85%, too short to tell.
 
+The second run (1.1 min) stayed in the foreground, the phone never locked (face down doesn't
+lock it), so the locked case is still untried. Its final words came 0.09 s after they were
+asked for (median), and the tentative ones again in bursts every 3.8 s: so that's how the model
+reports without `fastResults`, not the background. One 16 s "latency" was the trial's own: a
+stop that brought no words was timed against the next sentence's final words; a new start of
+speech now clears it.
+
 The trial's code is `app/Ringback/SpeechTrial.swift`; the call goes through the app's own
 `CallService`, so it rings and shows as a call, named "Speech trial".
