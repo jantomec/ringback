@@ -52,24 +52,71 @@ acronyms spelled ("GPU"), word forms by misaki's rules ("milliseconds"), "the", 
 by context, and any other word through espeak-ng, mapped to Kokoro's phonemes as the Python
 voice's misaki does. Without espeak-ng such words are split into known words or spelled.
 
-## Install directory
+## Install
 
-Everything lives in one folder (by default `~/ringback-speech`), nothing outside it:
+On the speech node, Linux on x86-64 with an NVIDIA GPU of compute capability 7.5 (Turing) or
+later and its driver, 580 or later (CUDA 13):
 
-| Path | What |
-|---|---|
-| `sherpa-onnx/` | sherpa-onnx v2.0.1 prebuilt, the CUDA 13 / cuDNN 9 build (`lib/`, `include/`); its ONNX Runtime is 1.28.2 |
-| `lib/` | the NVIDIA runtime libraries it needs (cudart, cuBLAS, cuRAND, NVRTC, cuDNN 9), unpacked from their PyPI wheels |
-| `onnxruntime/include/` | the headers of ONNX Runtime 1.28.2, from its release `onnxruntime-linux-x64-1.28.2.tgz` |
-| `models/silero-vad-v5.onnx` | Silero VAD, the file Pipecat ships (snakers4/silero-vad, `src/silero_vad/data/silero_vad.onnx`) |
-| `models/smart-turn-v3.2-cpu.onnx` | Smart Turn v3.2, the file Pipecat ships (Hugging Face `pipecat-ai/smart-turn-v3`) |
-| `models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-fp16/` | Parakeet, from sherpa-onnx's asr-models release (fp16 on a GPU; the int8 one on a CPU) |
-| `models/kokoro-multi-lang-v1_0/` | Kokoro, from sherpa-onnx's tts-models release |
-| `espeak-ng/` | `lib/libespeak-ng.so.1` and `espeak-ng-data/` (only `en_dict`, `phon*`, `intonations`, `lang/`, `voices/`), from the `espeakng-loader` 0.2.4 wheel, as the Python voice uses; optional |
-| `go/` | a Go toolchain, if the machine has none; Go's caches go to `gopath/` and `gocache/` |
-| `env.sh` | sets `LD_LIBRARY_PATH` to `sherpa-onnx/lib` and `lib`: source it before running |
-| `speech.toml` | the settings, from `speech.example.toml` |
-| `bin/` | `ringback-speech` and `fakehub` (`build.sh` can build into another folder, such as `bin-next/`, to try a build beside the one that runs) |
+```sh
+speech/install.sh                   # into ~/ringback-speech, or the folder given
+speech/build.sh                     # into its bin/
+# set hub and token in ~/ringback-speech/speech.toml
+. ~/ringback-speech/env.sh && ~/ringback-speech/bin/ringback-speech serve
+```
+
+`install.sh` needs only curl (or wget), tar, unzip and sha256sum: no pip, Python or Docker
+(a wheel is a zip, fetched from PyPI by its URL). It checks each download against a SHA-256
+pinned in it, and each part of the folder against a SHA-256 of its files, pinned from the
+first install, which was made by hand, so every file is the same as there. Run again, it
+hashes what's there and fetches only what's missing or different; a part that differs is
+replaced, and nothing outside the folder is touched. One run at a time (`.installing`); a run
+that fails or is stopped keeps what it fetched in `download/` for the next. It stops on the
+wrong machine (not x86-64 Linux, no NVIDIA driver, a driver older than 580, a GPU older than
+Turing) and warns of a driver older than CUDA 13.3's (610.43.02), whose libraries these are:
+CUDA 13's minor version compatibility should cover it, but that's untried. sherpa-onnx's
+model releases are tags whose files can be uploaded again (Kokoro's was, 2026-10-26); then
+`install.sh` stops at its SHA-256 and the pin needs a look.
+
+Measured on the speech node (2026-11-02, 2.7 GB to download): the first run took 69 s, the
+parts side by side (Parakeet, 1.1 GB of bzip2, the longest; every other part was in place
+within 32 s); a second run took 0.9 s and fetched nothing. The folder is 3.8 GB, every file
+(16,341) the same SHA-256 as the hand-made install's; `build.sh` then took 4 s and added
+125 MB (`bin/` and Go's caches), and `check.sh` passed all 45 checks with it.
+
+Everything lives in that one folder, nothing outside it:
+
+| Path | Size | What |
+|---|---|---|
+| `sherpa-onnx/` | 307 MB | sherpa-onnx v2.0.1 prebuilt, the CUDA 13 / cuDNN 9 build (`lib/`, `include/` and five of its tools in `bin/`); its ONNX Runtime is 1.28.2 |
+| `lib/` | 1.7 GB | the NVIDIA runtime libraries it needs (cudart, cuBLAS, cuRAND, NVRTC, cuDNN 9), unpacked from their PyPI wheels (CUDA 13.3); not cuFFT or nvJitLink, which nothing loads |
+| `onnxruntime/` | 1 MB | the headers of ONNX Runtime 1.28.2 (`include/`) and its licence, from its release `onnxruntime-linux-x64-1.28.2.tgz` |
+| `models/silero-vad-v5.onnx` | 2 MB | Silero VAD, the file Pipecat 1.14.0 ships, from its wheel (snakers4/silero-vad's `silero_vad.onnx`) |
+| `models/smart-turn-v3.2-cpu.onnx` | 8 MB | Smart Turn v3.2, the file Pipecat 1.14.0 ships, from its wheel (Hugging Face `pipecat-ai/smart-turn-v3`) |
+| `models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-fp16/` | 1.2 GB | Parakeet, from sherpa-onnx's asr-models release (fp16 for a GPU; on a CPU the int8 one is faster, which `install.sh` doesn't fetch) |
+| `models/kokoro-multi-lang-v1_0/` | 384 MB | Kokoro, from sherpa-onnx's tts-models release |
+| `espeak-ng/` | 3 MB | `lib/libespeak-ng.so.1` and `espeak-ng-data/` (only `en_dict`, `phon*`, `intonations`, `lang/`, `voices/`), from the `espeakng-loader` 0.2.4 wheel, as the Python voice uses; optional |
+| `go/` | 283 MB | Go 1.27.3, if there's no Go on PATH as recent as `go.mod` asks; `build.sh` puts Go's caches in `gopath/` and `gocache/` (read-only: `chmod -R u+w gopath` before deleting it) |
+| `env.sh` | | sets `LD_LIBRARY_PATH` to `sherpa-onnx/lib` and `lib`: source it before running |
+| `speech.toml` | | the settings, copied from `speech.example.toml` if there are none: set `hub` and `token` |
+| `bin/` | 22 MB | `ringback-speech` and `fakehub`, from `build.sh` (which can build into another folder, such as `bin-next/`, to try a build beside the one that runs) |
+
+## As a service
+
+`ringback-speech.service` is a systemd user unit, an example that nothing installs: it runs
+`bin/ringback-speech serve` in `~/ringback-speech` (change `WorkingDirectory` for another
+folder) with `env.sh`'s environment, starts it again if it fails, and logs to the journal;
+the stop signal goes to `serve` alone, which stops its worker. To use it:
+
+```sh
+cp speech/ringback-speech.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now ringback-speech
+loginctl enable-linger              # so it runs from boot, not only while you're logged in
+journalctl --user -u ringback-speech -f
+```
+
+It passes `systemd-analyze --user verify`, and its command, run once through `systemd-run
+--user`, had `env.sh`'s library path and heard a recording on CUDA; it hasn't run enabled.
 
 ## Build, run, check
 
