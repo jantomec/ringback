@@ -6,6 +6,7 @@ token = "SAME AS [tokens] speech IN THE HUB'S CONFIG"
 name = "speech node"                  # for the hub's log
 provider = "cuda"                     # or "cpu"
 threads = 2                           # CPU threads for Parakeet and Kokoro
+idle = 60                             # seconds with no call before the models are let go
 
 [models]
 silero = "models/silero-vad-v5.onnx"

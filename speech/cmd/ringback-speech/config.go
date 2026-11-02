@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type config struct {
@@ -15,6 +16,9 @@ type config struct {
 	name     string
 	provider string // "cuda" or "cpu", for Parakeet and Kokoro
 	threads  int    // CPU threads per model
+	// How long the worker stays with no stream, no speech and no message before it exits,
+	// freeing the GPU and the memory; a new one loads the models for the next call.
+	idle time.Duration
 	// The models, relative to the config file's folder.
 	silero, smartTurn, parakeet, kokoro, espeak string
 }
@@ -26,6 +30,15 @@ func defaultConfig() string {
 		return "speech.toml"
 	}
 	return filepath.Join(filepath.Dir(filepath.Dir(exe)), "speech.toml")
+}
+
+// idleTime reads the idle time, in seconds.
+func idleTime(v string) (time.Duration, error) {
+	secs, err := strconv.ParseFloat(v, 64)
+	if err != nil || secs <= 0 {
+		return 0, fmt.Errorf("idle must be a number of seconds, not %q", v)
+	}
+	return time.Duration(secs * float64(time.Second)), nil
 }
 
 // loadConfig reads speech.toml: `[section]` headers, `key = "value"` lines and `#` comments,
@@ -92,6 +105,12 @@ func loadConfig(path string) (config, error) {
 	c.threads, _ = strconv.Atoi(values["threads"])
 	if c.threads <= 0 {
 		c.threads = 2
+	}
+	c.idle = 60 * time.Second
+	if v := values["idle"]; v != "" {
+		if c.idle, err = idleTime(v); err != nil {
+			return config{}, fmt.Errorf("%s: %v", path, err)
+		}
 	}
 	return c, nil
 }

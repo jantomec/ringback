@@ -1,12 +1,15 @@
-// fakehub stands in for the hub to check a speech node: it takes the node's link, asks for
-// speech and checks what comes back, then sends speech in 20 ms frames, in real time, and
-// checks the events and words. It measures the time from the end of your speech to `turn`
-// and from `speak` to the first audio, and, given the node's process ID, its memory.
+// fakehub stands in for the hub to check a speech node: it takes the node's link, warms it
+// up with a turn and speech sent before its models are loaded, asks for speech and checks
+// what comes back, then sends speech in 20 ms frames, in real time, and checks the events and
+// words. It measures the time from the end of your speech to `turn` and from `speak` to the
+// first audio. Given the node's process ID, it measures the memory of the node and its worker,
+// and checks that the worker exits after the idle time, that a new one starts for the next
+// call, and what happens when the worker or the link dies.
 //
-//	fakehub --listen 127.0.0.1:8799 --token T --wav sherpa-test.wav --out DIR [--pid N]
+//	fakehub --listen 127.0.0.1:8799 --token T --wav sherpa-test.wav --out DIR [--pid N --idle 5s]
 //
-// then start the node with --hub ws://127.0.0.1:8799/speech --token T. It exits after one
-// run, 0 if every check passed.
+// then start the node with --hub ws://127.0.0.1:8799/speech --token T --idle 5. It exits after
+// one run, 0 if every check passed.
 package main
 
 import (
@@ -21,9 +24,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/coder/websocket"
@@ -50,13 +56,17 @@ type audioChunk struct {
 
 // hub is the fake hub's side of one link.
 type hub struct {
-	conn    *websocket.Conn
-	mu      sync.Mutex
-	events  map[uint32][]event      // JSON messages per stream
-	audio   map[uint32][]audioChunk // binary messages per stream
-	changed chan struct{}
-	failed  int
-	wmu     sync.Mutex
+	conn     *websocket.Conn
+	mu       sync.Mutex
+	events   map[uint32][]event      // JSON messages per stream
+	audio    map[uint32][]audioChunk // binary messages per stream
+	changed  chan struct{}
+	gone     chan struct{} // closed when the link is
+	failed   int
+	wmu      sync.Mutex
+	lastSent time.Time
+	links    chan *websocket.Conn // the node's links after this one
+	loading  time.Duration        // from `warm` to the first event, while the models loaded
 }
 
 func main() {
@@ -64,12 +74,12 @@ func main() {
 	token := flag.String("token", "", "the node's token")
 	wavPath := flag.String("wav", "", "a recording of real speech (16 kHz)")
 	out := flag.String("out", "fakehub-out", "folder for the audio the node made")
-	pid := flag.Int("pid", 0, "the node's process ID, to measure its memory")
+	pid := flag.Int("pid", 0, "the node's process ID, to measure its memory and see its worker")
+	idle := flag.Duration("idle", 0, "the node's idle time (--idle), to check its worker exits; 0 skips that")
 	flag.Parse()
 	os.MkdirAll(*out, 0o755)
 
-	done := make(chan int, 1)
-	var once sync.Once
+	links := make(chan *websocket.Conn, 4)
 	http.HandleFunc("/speech", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+*token {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -79,11 +89,11 @@ func main() {
 		if err != nil {
 			return
 		}
-		once.Do(func() {
-			h := &hub{conn: conn, events: map[uint32][]event{}, audio: map[uint32][]audioChunk{}, changed: make(chan struct{}, 1)}
-			done <- h.run(*wavPath, *out, *pid)
-		})
-		conn.Close(websocket.StatusNormalClosure, "done")
+		select {
+		case links <- conn:
+		default:
+			conn.CloseNow()
+		}
 	})
 	srv := &http.Server{Addr: *listen}
 	go srv.ListenAndServe()
@@ -96,7 +106,16 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Println("waiting for the node at ws://" + *listen + "/speech")
-	os.Exit(<-done)
+	h := newHub(<-links)
+	h.links = links
+	code := h.run(*wavPath, *out, *pid, *idle)
+	h.conn.Close(websocket.StatusNormalClosure, "done")
+	os.Exit(code)
+}
+
+func newHub(conn *websocket.Conn) *hub {
+	return &hub{conn: conn, events: map[uint32][]event{}, audio: map[uint32][]audioChunk{},
+		changed: make(chan struct{}, 1), gone: make(chan struct{})}
 }
 
 func (h *hub) check(ok bool, format string, args ...any) {
@@ -113,7 +132,8 @@ func (h *hub) send(msg map[string]any) time.Time {
 	h.wmu.Lock()
 	defer h.wmu.Unlock()
 	h.conn.Write(context.Background(), websocket.MessageText, data)
-	return time.Now()
+	h.lastSent = time.Now()
+	return h.lastSent
 }
 
 func (h *hub) sendAudio(stream uint32, samples []int16) {
@@ -125,10 +145,12 @@ func (h *hub) sendAudio(stream uint32, samples []int16) {
 	h.wmu.Lock()
 	defer h.wmu.Unlock()
 	h.conn.Write(context.Background(), websocket.MessageBinary, b)
+	h.lastSent = time.Now()
 }
 
 // read takes everything the node sends.
 func (h *hub) read() {
+	defer close(h.gone)
 	for {
 		kind, data, err := h.conn.Read(context.Background())
 		if err != nil {
@@ -191,24 +213,22 @@ func (h *hub) eventsOf(stream uint32, kind string) []event {
 	return out
 }
 
-func (h *hub) run(wavPath, outDir string, pid int) int {
-	_, data, err := h.conn.Read(context.Background())
-	if err != nil {
-		fmt.Println("FAIL no hello:", err)
+func (h *hub) run(wavPath, outDir string, pid int, idle time.Duration) int {
+	if !h.welcome() {
 		return 1
 	}
-	var hello map[string]any
-	json.Unmarshal(data, &hello)
-	h.check(hello["type"] == "hello" && num(hello["version"]) == 1 && hello["hearing"] == true && hello["speaking"] == true,
-		"hello: %s", data)
-	h.send(map[string]any{"type": "welcome", "version": 1})
-	go h.read()
-
+	recording := h.recording(wavPath)
+	worker := h.warming(recording, pid)
 	clips := h.speaking(outDir)
 	h.cancelling()
-	h.hearing(clips, wavPath)
+	h.hearing(clips, recording)
 	if pid > 0 {
-		memory(pid)
+		h.check(worker == 0 || slices.Equal(children(pid), []int{worker}), "one worker did all of that: %v", children(pid))
+		h.memory("models loaded", pid)
+		if idle > 0 {
+			h.idling(pid, idle, recording)
+		}
+		h.dying(pid)
 	}
 	if h.failed > 0 {
 		fmt.Printf("%d checks failed\n", h.failed)
@@ -216,6 +236,225 @@ func (h *hub) run(wavPath, outDir string, pid int) int {
 	}
 	fmt.Println("all checks passed")
 	return 0
+}
+
+// welcome takes the node's hello and welcomes it.
+func (h *hub) welcome() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	_, data, err := h.conn.Read(ctx)
+	cancel()
+	if err != nil {
+		h.check(false, "no hello: %v", err)
+		return false
+	}
+	var hello map[string]any
+	json.Unmarshal(data, &hello)
+	h.check(hello["type"] == "hello" && num(hello["version"]) == 1 && hello["hearing"] == true && hello["speaking"] == true,
+		"hello: %s", data)
+	h.send(map[string]any{"type": "welcome", "version": 1})
+	go h.read()
+	return true
+}
+
+// recording reads the recording of real speech, at 16 kHz, trimmed.
+func (h *hub) recording(wavPath string) []int16 {
+	if wavPath == "" {
+		return nil
+	}
+	real, rate, err := wav.Read(wavPath)
+	if err != nil {
+		h.check(false, "%s: %v", wavPath, err)
+		return nil
+	}
+	return trim(wav.Resample(real, rate, hearRate))
+}
+
+var recordingWords = [][]string{{"wish"}, {"phebe", "phoebe"}, {"portrait"}}
+
+// --- Warming up, idling and dying
+
+// warming sends `warm` and at once a turn (its audio all at once) and a piece of speech, all
+// before the models are loaded, and checks that the link answers a ping meanwhile and that the
+// worker then hears the turn and speaks the piece. It returns the worker's process ID.
+func (h *hub) warming(recording []int16, pid int) int {
+	fmt.Println("== warming up")
+	if pid > 0 {
+		h.check(len(children(pid)) == 0, "no worker before `warm`: %v", children(pid))
+		h.memory("no worker", pid)
+	}
+	if recording == nil {
+		return 0
+	}
+	hearStream, speakStream := uint32(40), uint32(41)
+	audio := append(append(make([]int16, hearRate), recording...), make([]int16, 3*hearRate)...)
+	warm := h.send(map[string]any{"type": "warm"})
+	h.send(map[string]any{"type": "hear", "stream": hearStream, "sensitivity": 0.5, "gate": 0.5})
+	for i := 0; i+frame <= len(audio); i += frame {
+		h.sendAudio(hearStream, audio[i:i+frame])
+	}
+	text := "The models are loaded, and this is the first thing I say."
+	h.send(map[string]any{"type": "speak", "stream": speakStream, "piece": 1, "text": text})
+	sent := time.Since(warm)
+	// The link reads on while the worker loads: a ping comes back long before the models are
+	// loaded, although it follows everything just sent.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	err := h.conn.Ping(ctx)
+	cancel()
+	pong := time.Since(warm)
+	worker := 0
+	if pid > 0 {
+		h.waitFor(2*time.Second, func() bool { return len(children(pid)) > 0 })
+		kids := children(pid)
+		h.check(len(kids) == 1, "a worker started for `warm`: %v", kids)
+		if len(kids) == 1 {
+			worker = kids[0]
+		}
+	}
+
+	// The audio came at once, so the turns come within a moment of each other: once there is
+	// one, wait until 2 s pass with nothing more.
+	ok := h.waitFor(30*time.Second, func() bool {
+		return len(h.eventsOf(hearStream, "turn")) > 0 && len(h.eventsOf(speakStream, "spoken")) > 0
+	})
+	for ok {
+		h.mu.Lock()
+		n := len(h.events[hearStream])
+		h.mu.Unlock()
+		if !h.waitFor(2*time.Second, func() bool { return len(h.events[hearStream]) > n }) {
+			break
+		}
+	}
+	h.send(map[string]any{"type": "hear_end", "stream": hearStream})
+	h.mu.Lock()
+	turns := h.eventsOf(hearStream, "turn")
+	var spoken event
+	if s := h.eventsOf(speakStream, "spoken"); len(s) > 0 {
+		spoken = s[0]
+	}
+	first := time.Time{}
+	for _, s := range []uint32{hearStream, speakStream} {
+		if e := h.events[s]; len(e) > 0 && (first.IsZero() || e[0].at.Before(first)) {
+			first = e[0].at
+		}
+	}
+	var samples []int16
+	var firstAudio time.Time
+	for _, a := range h.audio[speakStream] {
+		if firstAudio.IsZero() {
+			firstAudio = a.at
+		}
+		samples = append(samples, a.samples...)
+	}
+	h.mu.Unlock()
+	h.check(err == nil && pong < first.Sub(warm), "the link answered a ping %.0f ms after `warm`, before the first event (%.0f ms): %v",
+		pong.Seconds()*1000, first.Sub(warm).Seconds()*1000, err)
+	h.check(sent < first.Sub(warm), "`warm`, `hear`, %.1f s of audio and `speak` sent in %.0f ms, all before the first event",
+		float64(len(audio))/hearRate, sent.Seconds()*1000)
+	var texts []string
+	for _, t := range turns {
+		s, _ := t.msg["text"].(string)
+		texts = append(texts, s)
+	}
+	missing := missingWords(strings.Join(texts, " "), recordingWords)
+	h.check(ok && len(missing) == 0, "the turn sent while loading: %d turns, %q%s", len(turns), strings.Join(texts, " | "), describeMissing(missing))
+	secs := float64(len(samples)) / speakRate
+	h.check(ok && len(samples) > 0 && math.Abs(secs-num(spoken.msg["secs"])) < 0.002,
+		"the piece asked for while loading: %.2f s of audio, `spoken` says %.3f s", secs, num(spoken.msg["secs"]))
+	if ok {
+		h.loading = first.Sub(warm)
+		fmt.Printf("      warm → first event %.0f ms, → first audio %.0f ms, → last turn %.0f ms\n", first.Sub(warm).Seconds()*1000,
+			firstAudio.Sub(warm).Seconds()*1000, turns[len(turns)-1].at.Sub(warm).Seconds()*1000)
+	}
+	return worker
+}
+
+// idling checks that the worker exits after the idle time, and that its memory and the GPU's
+// are free then; that `hear` starts a new one, which hears; and that one started by `warm`
+// alone exits too, the idle time after it has loaded the models.
+func (h *hub) idling(pid int, idle time.Duration, recording []int16) {
+	fmt.Println("== idling")
+	h.waitExit(pid, idle, 0, "after the last message")
+	h.memory("the worker gone", pid)
+
+	if recording != nil {
+		h.hearOne(50, hearCase{name: "a recording, the worker started by `hear`", speech: [][]int16{recording},
+			sensitivity: 0.5, gate: 0.5, minTurns: 1, maxTurns: 3, words: recordingWords})
+		h.waitExit(pid, idle, 0, "after the last message")
+	}
+
+	h.send(map[string]any{"type": "warm"})
+	h.waitFor(5*time.Second, func() bool { return len(children(pid)) > 0 })
+	h.check(len(children(pid)) == 1, "a worker started for `warm` alone: %v", children(pid))
+	h.waitExit(pid, idle, h.loading, "after `warm` alone")
+}
+
+// waitExit waits for the worker to exit, which it should once the idle time has passed since
+// the last message, and the time it took to load the models if it read that message only
+// then; and checks that the GPU no longer lists it.
+func (h *hub) waitExit(pid int, idle, loading time.Duration, since string) {
+	worker := children(pid)
+	from := h.lastSent
+	gone := h.waitFor(idle+loading+15*time.Second, func() bool { return len(children(pid)) == 0 })
+	after := time.Since(from)
+	h.check(len(worker) == 1 && gone && after >= idle && after < idle+loading+3*time.Second,
+		"worker %v exited %.1f s %s (the idle time is %s)", worker, after.Seconds(), since, idle)
+	if len(worker) == 1 && gone {
+		exited := time.Now()
+		listed := true
+		for time.Since(exited) < 10*time.Second {
+			if _, listed = gpuApps()[worker[0]]; !listed {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		h.check(!listed, "the GPU no longer lists worker %d, %.1f s after it exited", worker[0], time.Since(exited).Seconds())
+	}
+}
+
+// dying kills the worker during a call, and checks that the node then closes its link, so
+// that the hub ends the call, and links again; and that the worker exits with the link.
+func (h *hub) dying(pid int) {
+	fmt.Println("== a worker that dies, a link that drops")
+	h.send(map[string]any{"type": "hear", "stream": 60, "sensitivity": 0.5, "gate": 0.5})
+	h.send(map[string]any{"type": "speak", "stream": 61, "piece": 1, "text": "Hello."})
+	h.waitFor(30*time.Second, func() bool { return len(h.eventsOf(61, "spoken")) > 0 })
+	worker := children(pid)
+	if !h.checkf(len(worker) == 1, "a worker for a call: %v", worker) {
+		return
+	}
+	syscall.Kill(worker[0], syscall.SIGKILL)
+	killed := time.Now()
+	select {
+	case <-h.gone:
+		h.check(true, "the worker killed during a call: the node closed its link %.0f ms later", time.Since(killed).Seconds()*1000)
+	case <-time.After(5 * time.Second):
+		h.check(false, "the worker killed during a call: the node kept its link")
+		return
+	}
+	var again *hub
+	select {
+	case conn := <-h.links:
+		again = newHub(conn)
+		again.links = h.links
+	case <-time.After(10 * time.Second):
+		h.check(false, "the node didn't link again")
+		return
+	}
+	if !again.welcome() {
+		h.failed++
+		return
+	}
+	h.check(true, "the node linked again %.1f s after the worker was killed", time.Since(killed).Seconds())
+	h.check(len(children(pid)) == 0, "no worker after linking again: %v", children(pid))
+
+	again.send(map[string]any{"type": "warm"})
+	again.waitFor(5*time.Second, func() bool { return len(children(pid)) > 0 })
+	worker = children(pid)
+	again.conn.CloseNow()
+	dropped := time.Now()
+	gone := again.waitFor(5*time.Second, func() bool { return len(children(pid)) == 0 })
+	h.check(len(worker) == 1 && gone, "worker %v, loading for `warm`, exited %.1f s after the link dropped", worker, time.Since(dropped).Seconds())
+	h.failed += again.failed
 }
 
 // --- Speaking
@@ -340,7 +579,7 @@ type hearCase struct {
 	cutOff             bool // the audio stops in the middle of the speech, as if the phone had gone
 }
 
-func (h *hub) hearing(clips [][]int16, wavPath string) {
+func (h *hub) hearing(clips [][]int16, recording []int16) {
 	fmt.Println("== hearing")
 	at16 := func(c []int16) []int16 { return trim(wav.Resample(c, speakRate, hearRate)) }
 	var cases []hearCase
@@ -348,18 +587,14 @@ func (h *hub) hearing(clips [][]int16, wavPath string) {
 		cases = append(cases, hearCase{name: fmt.Sprintf("the voice's piece %d", i+1), speech: [][]int16{at16(c)},
 			sensitivity: 0.5, gate: 0.5, minTurns: 1, maxTurns: 3, words: speakCases[i].heard})
 	}
-	if wavPath != "" {
-		if real, rate, err := wav.Read(wavPath); err == nil {
-			cases = append(cases, hearCase{name: "a recording", speech: [][]int16{trim(wav.Resample(real, rate, hearRate))},
-				sensitivity: 0.5, gate: 0.5, minTurns: 1, maxTurns: 3, words: [][]string{{"wish"}, {"phebe", "phoebe"}, {"portrait"}}})
-			quiet := scale(trim(wav.Resample(real, rate, hearRate)), 0.1)
-			cases = append(cases,
-				hearCase{name: "the recording 20 dB quieter, filter off", speech: [][]int16{quiet}, sensitivity: 0.5, gate: 0, minTurns: 1, maxTurns: 3,
-					words: [][]string{{"portrait"}}},
-				hearCase{name: "the recording 20 dB quieter, filter strongest", speech: [][]int16{quiet}, sensitivity: 0.5, gate: 1})
-		} else {
-			h.check(false, "%s: %v", wavPath, err)
-		}
+	if recording != nil {
+		quiet := scale(recording, 0.1)
+		cases = append(cases,
+			hearCase{name: "a recording", speech: [][]int16{recording}, sensitivity: 0.5, gate: 0.5, minTurns: 1, maxTurns: 3,
+				words: recordingWords},
+			hearCase{name: "the recording 20 dB quieter, filter off", speech: [][]int16{quiet}, sensitivity: 0.5, gate: 0, minTurns: 1, maxTurns: 3,
+				words: [][]string{{"portrait"}}},
+			hearCase{name: "the recording 20 dB quieter, filter strongest", speech: [][]int16{quiet}, sensitivity: 0.5, gate: 1})
 	}
 	// Made by the node itself: a turn Smart Turn finds unfinished, which ends after the turn
 	// wait, and the same followed by the rest of it after a pause shorter than the wait,
@@ -542,24 +777,74 @@ func scale(s []int16, f float64) []int16 {
 	return out
 }
 
-// memory prints the node's resident memory and its GPU memory.
-func memory(pid int) {
-	data, _ := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
-	field := map[string]string{}
-	for _, line := range strings.Split(string(data), "\n") {
-		if k, v, ok := strings.Cut(line, ":"); ok {
-			field[k] = strings.TrimSpace(v)
+// memory prints the resident memory of the node's link process and of its worker, and the GPU
+// memory of each; the GPU must never list the link process.
+func (h *hub) memory(what string, pid int) {
+	apps := gpuApps()
+	describe := func(p int) string {
+		data, _ := os.ReadFile(fmt.Sprintf("/proc/%d/status", p))
+		field := map[string]string{}
+		for _, line := range strings.Split(string(data), "\n") {
+			if k, v, ok := strings.Cut(line, ":"); ok {
+				field[k] = strings.TrimSpace(v)
+			}
 		}
+		vram := "the GPU doesn't list it"
+		if v, ok := apps[p]; ok {
+			vram = "GPU " + v + " MiB"
+		}
+		return fmt.Sprintf("RSS %s (peak %s; %s its own, %s of mapped libraries and models), %s",
+			field["VmRSS"], field["VmHWM"], field["RssAnon"], field["RssFile"], vram)
 	}
-	vram := "?"
-	if out, err := exec.Command("nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits").Output(); err == nil {
-		for _, line := range strings.Split(string(out), "\n") {
-			f := strings.Split(line, ",")
-			if len(f) == 2 && strings.TrimSpace(f[0]) == fmt.Sprint(pid) {
-				vram = strings.TrimSpace(f[1]) + " MiB"
+	fmt.Printf("== memory, %s: the link process %d: %s\n", what, pid, describe(pid))
+	for _, w := range children(pid) {
+		fmt.Printf("      its worker %d: %s\n", w, describe(w))
+	}
+	if out, err := exec.Command("nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader").Output(); err == nil {
+		fmt.Printf("      the GPU's memory in use, by every process: %s\n", strings.TrimSpace(string(out)))
+	}
+	_, listed := apps[pid]
+	h.check(!listed, "the GPU doesn't list the link process")
+}
+
+// gpuApps is the GPU memory, in MiB, of each process the GPU lists; none without nvidia-smi.
+func gpuApps() map[int]string {
+	apps := map[int]string{}
+	out, err := exec.Command("nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits").Output()
+	if err != nil {
+		return apps
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Split(line, ",")
+		if len(f) == 2 {
+			if p, err := strconv.Atoi(strings.TrimSpace(f[0])); err == nil {
+				apps[p] = strings.TrimSpace(f[1])
 			}
 		}
 	}
-	fmt.Printf("== the node's memory: RSS %s (peak %s; %s its own, %s of mapped libraries and models), VRAM %s\n",
-		field["VmRSS"], field["VmHWM"], field["RssAnon"], field["RssFile"], vram)
+	return apps
+}
+
+// children are the live child processes of pid: the node's worker.
+func children(pid int) []int {
+	entries, _ := os.ReadDir("/proc")
+	parent := strconv.Itoa(pid)
+	var kids []int
+	for _, e := range entries {
+		p, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		data, err := os.ReadFile("/proc/" + e.Name() + "/stat")
+		if err != nil {
+			continue
+		}
+		s := string(data)
+		f := strings.Fields(s[strings.LastIndexByte(s, ')')+1:]) // the state, then the parent
+		if len(f) > 1 && f[1] == parent && f[0] != "Z" {
+			kids = append(kids, p)
+		}
+	}
+	sort.Ints(kids)
+	return kids
 }

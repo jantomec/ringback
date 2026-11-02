@@ -95,10 +95,10 @@ func loadModels(c config, hear, speak bool) (*models, error) {
 	return m, nil
 }
 
-// node hears and speaks for the hub's streams.
+// node hears and speaks for the hub's streams, in the worker process (work.go).
 type node struct {
 	m    *models
-	sink atomic.Pointer[sink] // the link to the hub, while there is one
+	sink atomic.Pointer[sink] // the pipe to the link process
 	gpu  *gpu
 
 	mu      sync.Mutex
@@ -112,7 +112,7 @@ func newNode(m *models) *node {
 	return n
 }
 
-// sink sends JSON and binary messages to the hub.
+// sink sends JSON and binary messages to the hub, through the link process.
 type sink struct {
 	text func(msg any)
 	bin  func(data []byte)
@@ -265,18 +265,12 @@ func (n *node) sendAudio(stream, number uint32, samples []float32) {
 	}
 }
 
-// endAll forgets every stream, when the link to the hub is gone.
-func (n *node) endAll() {
+// busy says whether a stream is open or speech is still to be made.
+func (n *node) busy() bool {
 	n.mu.Lock()
-	ids := make([]uint32, 0, len(n.streams))
-	for id := range n.streams {
-		ids = append(ids, id)
-	}
+	streams := len(n.streams)
 	n.mu.Unlock()
-	for _, id := range ids {
-		n.endHearing(id)
-	}
-	n.gpu.cancelAll()
+	return streams > 0 || n.gpu.busy()
 }
 
 // --- The GPU: one worker, so hearing and speaking take turns, as in the Python voice. Your
@@ -343,14 +337,10 @@ func (g *gpu) cancel(stream uint32) int {
 	return dropped
 }
 
-func (g *gpu) cancelAll() {
+func (g *gpu) busy() bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	for _, p := range g.pieces {
-		g.epochs[p.stream]++
-	}
-	g.pieces = nil
-	g.asr = nil
+	return len(g.pieces) > 0 || len(g.asr) > 0
 }
 
 func (g *gpu) run() {

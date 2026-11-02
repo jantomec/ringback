@@ -38,6 +38,7 @@ Hello: `{"type": "hello", "version": 1, "name": "…", "hearing": true, "speakin
 
 | Direction | Message |
 |---|---|
+| hub → node | `{"type": "warm"}`: a call is coming: load the models now. The node also loads them on `hear`, and lets them go when it has had no stream for a while (`idle` in its settings, 60 s) |
 | hub → node | `{"type": "hear", "stream": 7, "sensitivity": 0.5, "gate": 0.5}` opens it, with the app's interruption sensitivity and background filter (0 = off), mapped to Silero's thresholds as `voice/ringback_voice/hearing.py` does |
 | hub → node | binary: stream 7, then 20 ms of your audio at 16 kHz (320 samples) |
 | node → hub | `{"type": "speech_started", "stream": 7}` when Silero hears you start (the hub interrupts the voice on it) |

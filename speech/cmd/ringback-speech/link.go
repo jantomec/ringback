@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,12 +9,11 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-
-	"ringback/speech/internal/hearing"
 )
 
 // The link to the hub (docs/protocol.md, "The speech node"): a WebSocket the node opens, with
-// its token; JSON in text messages, audio in binary ones.
+// its token; JSON in text messages, audio in binary ones. The link process keeps it and relays
+// it to its worker (relay.go).
 
 const (
 	protocolVersion = 1
@@ -41,10 +39,10 @@ type outgoing struct {
 }
 
 // serve keeps a link to the hub, reconnecting after 1, 2, 4… up to 30 s.
-func serve(ctx context.Context, c config, n *node) {
+func serve(ctx context.Context, c config, r *relay) {
 	backoff := time.Second
 	for ctx.Err() == nil {
-		welcomed, err := link(ctx, c, n)
+		welcomed, err := link(ctx, c, r)
 		if ctx.Err() != nil {
 			return
 		}
@@ -62,7 +60,7 @@ func serve(ctx context.Context, c config, n *node) {
 }
 
 // link runs one connection until it fails; welcomed says whether the hub took the hello.
-func link(ctx context.Context, c config, n *node) (welcomed bool, err error) {
+func link(ctx context.Context, c config, r *relay) (welcomed bool, err error) {
 	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	conn, _, err := websocket.Dial(dialCtx, c.hub, &websocket.DialOptions{
 		HTTPHeader: http.Header{"Authorization": {"Bearer " + c.token}},
@@ -105,17 +103,11 @@ func link(ctx context.Context, c config, n *node) (welcomed bool, err error) {
 			}
 		}
 	}
-	n.sink.Store(&sink{
-		text: func(msg any) {
-			data, _ := json.Marshal(msg)
-			enqueue(outgoing{websocket.MessageText, data})
-		},
-		bin: func(data []byte) { enqueue(outgoing{websocket.MessageBinary, data}) },
+	r.linked(&hubLink{
+		send: func(kind websocket.MessageType, data []byte) { enqueue(outgoing{kind, data}) },
+		drop: stop,
 	})
-	defer func() {
-		n.sink.Store(nil)
-		n.endAll()
-	}()
+	defer r.unlinked()
 
 	go func() { // the writer
 		for {
@@ -158,44 +150,6 @@ func link(ctx context.Context, c config, n *node) (welcomed bool, err error) {
 		if err != nil {
 			return true, err
 		}
-		if kind == websocket.MessageBinary {
-			if len(data) < 4 || len(data)%2 != 0 {
-				continue
-			}
-			samples := make([]int16, (len(data)-4)/2)
-			for i := range samples {
-				samples[i] = int16(binary.LittleEndian.Uint16(data[4+2*i:]))
-			}
-			n.audio(binary.BigEndian.Uint32(data), samples)
-			continue
-		}
-		var m message
-		if err := json.Unmarshal(data, &m); err != nil {
-			logf("not JSON from the hub: %.80q", data)
-			continue
-		}
-		switch m.Type {
-		case "hear":
-			n.hear(m.Stream, setting(m.Sensitivity, hearing.DefaultSensitivity), setting(m.Gate, hearing.DefaultGate))
-		case "hear_end":
-			n.endHearing(m.Stream)
-		case "speak":
-			n.speak(m.Stream, m.Piece, m.Text)
-		case "speak_cancel":
-			n.cancel(m.Stream)
-		case "reply":
-			if m.Error != "" {
-				logf("the hub: %s", m.Error)
-			}
-		default:
-			logf("unknown message from the hub: %.80q", data)
-		}
+		r.fromHub(kind, data) // never waits: what's for the worker queues (pipe.go)
 	}
-}
-
-func setting(v *float64, fallback float64) float64 {
-	if v == nil {
-		return fallback
-	}
-	return *v
 }

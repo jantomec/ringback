@@ -19,18 +19,19 @@ import (
 
 const usage = `usage: ringback-speech [--config FILE] serve | say TEXT OUT.wav | phonemes TEXT | hear FILE.wav
 
-  serve     dial the hub and hear and speak for its calls
+  serve     dial the hub and hear and speak for its calls: the models load in a worker
+            process when a call is coming, which exits when it has been idle
   say       speak TEXT as the voice does, into a WAV file (24 kHz)
   phonemes  print the phonemes the voice would speak for TEXT, chunk by chunk
   hear      print Parakeet's words for a WAV file (16 kHz, one stretch of speech)
 
   --config FILE  the settings (default: speech.toml in the install directory, the folder
-                 above the binary's); the hub's address and token in it can be overridden
-                 with --hub URL and --token TOKEN`
+                 above the binary's); the hub's address, the token and the idle time in it
+                 can be overridden with --hub URL, --token TOKEN and --idle SECONDS`
 
 func main() {
 	args := os.Args[1:]
-	cfgPath, hub, token := defaultConfig(), "", ""
+	cfgPath, hub, token, idle := defaultConfig(), "", "", ""
 	for len(args) >= 2 && strings.HasPrefix(args[0], "--") {
 		switch args[0] {
 		case "--config":
@@ -39,6 +40,8 @@ func main() {
 			hub = args[1]
 		case "--token":
 			token = args[1]
+		case "--idle":
+			idle = args[1]
 		default:
 			fail(usage)
 		}
@@ -57,19 +60,24 @@ func main() {
 	if token != "" {
 		c.token = token
 	}
+	if idle != "" {
+		if c.idle, err = idleTime(idle); err != nil {
+			fail(err.Error())
+		}
+	}
 
 	switch {
 	case args[0] == "serve" && len(args) == 1:
 		if c.hub == "" || c.token == "" {
 			fail("No hub or token in " + c.path + ".")
 		}
-		m, err := loadModels(c, true, true)
-		if err != nil {
-			fail(err.Error())
-		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		serve(ctx, c, newNode(m))
+		r := newRelay(c)
+		serve(ctx, c, r)
+		r.wait()
+	case args[0] == "work" && len(args) == 1: // started by serve, which it talks to on stdin and stdout
+		work(c)
 	case args[0] == "say" && len(args) == 3:
 		m, err := loadModels(c, false, true)
 		if err != nil {
