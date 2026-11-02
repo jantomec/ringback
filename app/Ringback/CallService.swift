@@ -27,8 +27,11 @@ final class CallService: NSObject, CXProviderDelegate {
     /// Where each call's audio comes from: the calling Mac's voice server.
     private var voiceURLs: [UUID: URL] = [:]
     /// Each call's audio, one link at a time: a new offer goes only after the last one has
-    /// failed and its link is closed.
-    private var links: [UUID: AudioLink] = [:]
+    /// failed and its link is closed. WebRTC to the hub, or, while the hub has no speech
+    /// computer and On-device voice is on, the phone's own speech (PhoneSpeech).
+    private var links: [UUID: any CallLink] = [:]
+    /// CallKit has activated the audio session, which the phone's own speech waits for.
+    private var audioSessionActive = false
     /// Reaching each call's voice server from when the phone rings, then connecting the call's
     /// audio while it still rings. Its value is when the voice server answered and after how
     /// many tries; nil if it never did.
@@ -332,18 +335,48 @@ final class CallService: NSObject, CXProviderDelegate {
     private func connectWhileRinging(_ uuid: UUID, _ callID: String, _ voiceURL: URL) async {
         guard isRinging(uuid) else { return }
         AudioLink.useManualAudio(keepingCallAudio: state.activeCall != nil)
-        let link = makeLink(uuid, callID)
-        link.ringing = true
         ringingAudio[uuid] = RingingAudio()
         do {
-            let offered = try await link.start(voiceURL: voiceURL, callID: callID)
-            if links[uuid] === link { ringingAudio[uuid]?.offered = offered }
+            let started = try await startLink(uuid, callID, voiceURL, CallOffer(callID: callID), ringing: true)
+            if links[uuid] === started.link { ringingAudio[uuid]?.offered = started.ringing }
         } catch {
-            dropRingingLink(uuid, link, error.localizedDescription)
+            guard let failed = error as? LinkFailed else { return }
+            dropRingingLink(uuid, failed.link, failed.error.localizedDescription)
         }
     }
 
-    private func dropRingingLink(_ uuid: UUID, _ link: AudioLink, _ reason: String) {
+    /// Starts the call's audio: a WebRTC offer to the hub, or, if the hub has no speech
+    /// computer (503) and On-device voice is on, the phone's own speech instead, which says
+    /// hello as the offer would. Returns the link, and whether the phone still rang as the offer
+    /// or hello went. Throws `LinkFailed`.
+    @MainActor
+    private func startLink(
+        _ uuid: UUID, _ callID: String, _ hub: URL, _ offer: CallOffer, ringing: Bool = false
+    ) async throws -> (link: any CallLink, ringing: Bool) {
+        let link = makeLink(uuid, callID)
+        link.ringing = ringing
+        do {
+            let rang = try await link.start(
+                voiceURL: hub, callID: offer.callID, back: offer.kind == "back", now: offer.kind == "now",
+                contact: offer.session)
+            return (link, rang)
+        } catch is NoSpeech where OnDeviceVoice.isOn && links[uuid] === link {
+            links[uuid] = nil
+            link.stop()
+        } catch {
+            throw LinkFailed(link: link, error: error)
+        }
+        let speech = makeSpeech(uuid, callID)
+        // You may have answered while the offer went.
+        speech.ringing = isRinging(uuid)
+        do {
+            return (speech, try await speech.start(hub: hub, offer: offer))
+        } catch {
+            throw LinkFailed(link: speech, error: error)
+        }
+    }
+
+    private func dropRingingLink(_ uuid: UUID, _ link: any CallLink, _ reason: String) {
         guard links[uuid] === link else { return }
         links[uuid] = nil
         link.stop()
@@ -352,14 +385,15 @@ final class CallService: NSObject, CXProviderDelegate {
 
     /// Once you've answered: tells the voice server, if the offer went while the phone rang,
     /// so it starts talking. Otherwise connects the call's audio as a new offer. It first waits
-    /// for reaching the voice server and for an offer still on its way.
+    /// for reaching the voice server and for an offer still on its way. (The phone's own speech
+    /// tells the hub itself, over its link.)
     private func startAudio(_ uuid: UUID, _ callID: String, _ voiceURL: URL) {
         let answeredAt = Date.now
         Task { @MainActor [self] in
             let reached = await connecting[uuid]?.value
             guard callIDs[uuid] != nil else { return }
-            if links[uuid] != nil {
-                if ringingAudio[uuid]?.offered == true { await tellAnswered(uuid, callID, voiceURL) }
+            if let link = links[uuid] {
+                if ringingAudio[uuid]?.offered == true, link is AudioLink { await tellAnswered(uuid, callID, voiceURL) }
                 return
             }
             // The offer goes once the voice server has answered, so a retry can't start a
@@ -367,11 +401,11 @@ final class CallService: NSObject, CXProviderDelegate {
             guard let reached, reached.at.timeIntervalSince(answeredAt) < Self.reachTimeout else {
                 return audioFailed(uuid, callID, ReachError().localizedDescription, note: nil)
             }
-            let link = makeLink(uuid, callID)
             do {
-                _ = try await link.start(voiceURL: voiceURL, callID: callID)
+                _ = try await startLink(uuid, callID, voiceURL, CallOffer(callID: callID))
             } catch {
-                if links[uuid] === link { audioFailed(uuid, callID, error.localizedDescription, note: offerNote(uuid)) }
+                guard let failed = error as? LinkFailed, links[uuid] === failed.link else { return }
+                audioFailed(uuid, callID, failed.error.localizedDescription, note: offerNote(uuid))
             }
         }
     }
@@ -393,13 +427,16 @@ final class CallService: NSObject, CXProviderDelegate {
                 return nil
             }
             reportReached(callID, reached)
-            let link = makeLink(uuid, callID)
             do {
-                _ = try await link.start(voiceURL: voiceURL, callID: original, back: true)
-            } catch let refused as RefusedCall {
-                guard links[uuid] === link else { return reached }
+                _ = try await startLink(uuid, callID, voiceURL, CallOffer(callID: original, kind: "back"))
+            } catch {
+                guard let failed = error as? LinkFailed, links[uuid] === failed.link else { return reached }
+                guard let refused = failed.error as? RefusedCall else {
+                    audioFailed(uuid, callID, failed.error.localizedDescription, note: offerNote(uuid))
+                    return reached
+                }
                 await state.refreshContacts()
-                guard callIDs[uuid] != nil, links[uuid] === link else { return reached }
+                guard callIDs[uuid] != nil, links[uuid] === failed.link else { return reached }
                 let call = state.calls.first { $0.id == callID }
                 if let call, let contact = state.contact(for: call) {
                     await callInstead(uuid, callID, contact)
@@ -411,8 +448,6 @@ final class CallService: NSObject, CXProviderDelegate {
                         """
                     end(uuid)
                 }
-            } catch {
-                if links[uuid] === link { audioFailed(uuid, callID, error.localizedDescription, note: offerNote(uuid)) }
             }
             return reached
         }
@@ -463,19 +498,20 @@ final class CallService: NSObject, CXProviderDelegate {
 
     @MainActor
     private func offerContact(_ uuid: UUID, _ callID: String, _ contact: Contact) async {
-        let link = makeLink(uuid, callID)
         do {
-            _ = try await link.start(voiceURL: contact.voice, callID: callID, contact: contact.session)
-        } catch let refused as RefusedCall {
-            guard links[uuid] === link else { return }
+            _ = try await startLink(
+                uuid, callID, contact.voice, CallOffer(callID: callID, kind: "contact", session: contact.session))
+        } catch {
+            guard let failed = error as? LinkFailed, links[uuid] === failed.link else { return }
+            guard let refused = failed.error as? RefusedCall else {
+                return audioFailed(uuid, callID, failed.error.localizedDescription, note: offerNote(uuid))
+            }
             audioFailed(uuid, callID, refused.localizedDescription, note: offerNote(uuid))
             state.callBackProblem = refused.reason == "not listening"
                 ? "\(contact.project) isn't listening any more: ringback is off in that session, or it has ended."
                 : "\(contact.project)'s Mac can't take calls from Sessions yet: its ringback is from before them."
             end(uuid)
             await state.refreshContacts()
-        } catch {
-            if links[uuid] === link { audioFailed(uuid, callID, error.localizedDescription, note: offerNote(uuid)) }
         }
     }
 
@@ -496,15 +532,16 @@ final class CallService: NSObject, CXProviderDelegate {
                 return nil
             }
             reportReached(callID, reached)
-            let link = makeLink(uuid, callID)
             do {
-                _ = try await link.start(voiceURL: voiceURL, callID: callID, now: true)
-            } catch is RefusedCall {
-                guard links[uuid] === link else { return reached }
-                audioFailed(uuid, callID, RefusedCall().localizedDescription, note: offerNote(uuid))
-                callNowFailed(uuid, "This call isn't waiting any more.")
+                _ = try await startLink(uuid, callID, voiceURL, CallOffer(callID: callID, kind: "now"))
             } catch {
-                if links[uuid] === link { audioFailed(uuid, callID, error.localizedDescription, note: offerNote(uuid)) }
+                guard let failed = error as? LinkFailed, links[uuid] === failed.link else { return reached }
+                if failed.error is RefusedCall {
+                    audioFailed(uuid, callID, RefusedCall().localizedDescription, note: offerNote(uuid))
+                    callNowFailed(uuid, "This call isn't waiting any more.")
+                } else {
+                    audioFailed(uuid, callID, failed.error.localizedDescription, note: offerNote(uuid))
+                }
             }
             return reached
         }
@@ -539,6 +576,41 @@ final class CallService: NSObject, CXProviderDelegate {
             }
         }
         return link
+    }
+
+    /// The phone's own speech for the call, which tells the in-call screen and the switchboard
+    /// when it connects or fails, as a link does. While the phone rings, a failure only drops it,
+    /// and answering makes a new offer. Once you've answered, its failing ends the call, as does
+    /// the hub ending it (`end`): nothing more can be said on it.
+    @MainActor
+    private func makeSpeech(_ uuid: UUID, _ callID: String) -> PhoneSpeech {
+        let speech = PhoneSpeech()
+        links[uuid] = speech
+        if state.activeCall?.uuid == uuid, state.activeCall?.muted == true { speech.setMuted(true) }
+        speech.audioActive = audioSessionActive
+        speech.onConnected = { [self, weak speech] at in
+            guard let speech, links[uuid] === speech else { return }
+            if isRinging(uuid) {
+                ringingAudio[uuid]?.connectedAt = at
+            } else {
+                audioConnected(uuid, callID, at: at)
+            }
+        }
+        speech.onFailed = { [self, weak speech] reason in
+            guard let speech, links[uuid] === speech else { return }
+            if isRinging(uuid) { return dropRingingLink(uuid, speech, reason) }
+            audioFailed(uuid, callID, reason, note: offerNote(uuid))
+            state.callBackProblem = "The call ended. \(reason)"
+            provider.reportCall(with: uuid, endedAt: nil, reason: .failed)
+            finish(uuid, endedOutcome(uuid), event: "ended", extra: ["error": reason])
+        }
+        speech.onEnded = { [self, weak speech] in
+            guard let speech, links[uuid] === speech else { return }
+            let rang = isRinging(uuid)
+            provider.reportCall(with: uuid, endedAt: nil, reason: .remoteEnded)
+            finish(uuid, rang ? .missed : endedOutcome(uuid), event: rang ? "missed" : "ended", extra: ["note": "the hub ended it"])
+        }
+        return speech
     }
 
     /// Tells the voice server you answered, and the switchboard if that didn't get through.
@@ -734,6 +806,8 @@ final class CallService: NSObject, CXProviderDelegate {
         }
         #endif
         AudioLink.activate(audioSession)
+        audioSessionActive = true
+        for case let speech as PhoneSpeech in links.values { speech.audioActive = true }
     }
 
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
@@ -741,10 +815,37 @@ final class CallService: NSObject, CXProviderDelegate {
         if trialCall != nil { return }
         #endif
         AudioLink.deactivate(audioSession)
+        audioSessionActive = false
+        for case let speech as PhoneSpeech in links.values { speech.audioActive = false }
     }
 }
 
 /// The voice server didn't answer over Nebula in time.
 private struct ReachError: LocalizedError {
     var errorDescription: String? { "Can't reach the hub" }
+}
+
+/// A call's audio link: WebRTC to the hub (AudioLink), or the phone's own speech, which sends
+/// the hub only text (PhoneSpeech). Used on the main queue.
+protocol CallLink: AnyObject {
+    /// True while the phone rings: the link neither hears you nor plays the voice.
+    var ringing: Bool { get set }
+    /// Called once, on the main queue, when the call's audio is connected; with when.
+    var onConnected: ((Date) -> Void)? { get set }
+    var onFailed: ((String) -> Void)? { get set }
+    /// How it connected, for the switchboard's log.
+    var addresses: String { get }
+    func setMuted(_ muted: Bool)
+    func stop()
+    /// Stops, and gives `done` what the call's audio did, for the call's report.
+    func stop(reporting done: @escaping ([String: String]) -> Void)
+}
+
+extension AudioLink: CallLink {}
+
+/// A call's link failed to start: which one, which the caller compares with the call's link
+/// now (another may have taken its place), and why.
+private struct LinkFailed: Error {
+    let link: any CallLink
+    let error: Error
 }

@@ -160,6 +160,9 @@ final class AppState {
     var contacts: [Contact] = []
     /// Microphone access is off, so Claude can't hear you on calls.
     var microphoneOff = false
+    /// Why On-device voice can't be used: Apple's English speech model couldn't be installed
+    /// (OnDeviceVoice); nil while it's off or ready.
+    var onDeviceProblem: String?
     /// Counts successful checks you started yourself; the haptic tap plays on each.
     var confirmations = 0
     /// The last time the switchboard confirmed this phone, kept across launches.

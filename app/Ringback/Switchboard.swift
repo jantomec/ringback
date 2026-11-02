@@ -39,10 +39,13 @@ enum Switchboard {
     private static let retryDelays: [Double] = [0, 2, 4, 8, 15, 30]
 
     /// The notification token is for connection checks (ConnectionCheck), once iOS has
-    /// given it. `hours` are the work hours as WorkHours.fields gives them.
-    static func register(token: String, notificationToken: String?, hours: [String: String]) async throws {
-        var body = hours.merging(["token": token, "environment": environment, "device": await UIDevice.current.name]) { $1 }
+    /// given it. `hours` are the work hours as WorkHours.fields gives them. `onDevice` is On-device
+    /// voice: the hub then rings calls while no speech computer is linked, and the phone talks
+    /// them through itself (PhoneSpeech).
+    static func register(token: String, notificationToken: String?, hours: [String: String], onDevice: Bool) async throws {
+        var body: [String: Any] = hours.merging(["token": token, "environment": environment, "device": await UIDevice.current.name]) { $1 }
         body["notification_token"] = notificationToken
+        body["on_device"] = onDevice
         try await post("register", body)
     }
 
@@ -138,7 +141,7 @@ enum Switchboard {
     }
 
     @discardableResult
-    private static func post(_ path: String, _ body: [String: String], timeout: TimeInterval = 10) async throws -> Data {
+    private static func post(_ path: String, _ body: [String: Any], timeout: TimeInterval = 10) async throws -> Data {
         guard let base = url else { throw URLError(.badURL) }
         var request = URLRequest(url: base.appending(path: path), timeoutInterval: timeout)
         request.httpMethod = "POST"

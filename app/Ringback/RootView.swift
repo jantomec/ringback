@@ -46,11 +46,14 @@ struct RootView: View {
             guard phase == .active else { return }
             checkMicrophone()  // also after coming back from Settings
             Task { await push.connect() }  // with the work hours, which may have changed in Settings
+            Task { await OnDeviceVoice.prepare(state) }  // its model, while it's on
         }
         // A setting changed in the Settings app while the app ran, or the app wrote one: new work
-        // hours or a new address go to the switchboard at once.
+        // hours, a new address or On-device voice go to the switchboard at once, and On-device
+        // voice turned on gets its model.
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             Task { await push.settingsChanged() }
+            Task { await OnDeviceVoice.prepare(state, always: false) }
         }
         // Ask now: a locked phone in a call can't show the permission prompt. Notifications
         // are for the warning when calls can't reach the phone (ConnectionCheck), for a

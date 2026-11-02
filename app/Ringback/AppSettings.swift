@@ -1,11 +1,11 @@
 import Foundation
 
 /// The app's settings are in the Settings app (Settings → Apps → Ringback), from
-/// Settings.bundle: the switchboard's address, work hours, interruption sensitivity and the
-/// background filter. They're kept under the keys the app used when it had a settings screen
-/// of its own, so values carry over, and the app reads them when it needs them. The Settings
-/// app shows a bundle's defaults but doesn't store them, so the app registers the same ones at
-/// launch.
+/// Settings.bundle: the switchboard's address, work hours, interruption sensitivity, the
+/// background filter and On-device voice. They're kept under the keys the app used when it had
+/// a settings screen of its own, so values carry over, and the app reads them when it needs
+/// them. The Settings app shows a bundle's defaults but doesn't store them, so the app
+/// registers the same ones at launch.
 enum AppSettings {
     private static let migratedKey = "settingsMigrated"
 
@@ -17,6 +17,7 @@ enum AppSettings {
             AudioLink.sensitivityKey: AudioLink.defaultSensitivity,
             AudioLink.backgroundFilterOnKey: true,
             AudioLink.backgroundFilterKey: AudioLink.defaultBackgroundFilter,
+            OnDeviceVoice.key: false,
         ])
         migrate()
     }

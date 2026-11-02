@@ -198,43 +198,11 @@ struct TrialError: LocalizedError {
     init(_ text: String) { errorDescription = text }
 }
 
-/// Converts audio to the analyzer's format, keeping its state from one buffer to the next.
-private final class Converter {
-    private let converter: AVAudioConverter
-    private let format: AVAudioFormat
-
-    init(from: AVAudioFormat, to: AVAudioFormat) throws {
-        guard let converter = AVAudioConverter(from: from, to: to) else { throw TrialError("can't convert \(from) to \(to)") }
-        converter.primeMethod = .none
-        converter.downmix = true
-        self.converter = converter
-        format = to
-    }
-
-    /// `last`: no more audio follows, so everything left comes out.
-    func convert(_ buffer: AVAudioPCMBuffer, last: Bool = false) throws -> AVAudioPCMBuffer {
-        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * format.sampleRate / buffer.format.sampleRate) + 1024
-        guard let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { throw TrialError("no buffer") }
-        var given = false
-        var error: NSError?
-        converter.convert(to: out, error: &error) { _, status in
-            if given {
-                status.pointee = last ? .endOfStream : .noDataNow
-                return nil
-            }
-            given = true
-            status.pointee = .haveData
-            return buffer
-        }
-        if let error { throw error }
-        return out
-    }
-}
-
 /// One trial call's hearing: the microphone with the call's echo cancellation, through
 /// SpeechTranscriber with tentative results and time ranges, and a simple level detector that
 /// finds when you stop speaking (SpeechDetector reports none), finalizes the words through
-/// there, and times how long they take. Everything goes to a log, one JSON line per event.
+/// there, and times how long they take. Everything goes to a log, one JSON line per event. A
+/// call with On-device voice hears the same way (PhoneSpeech, whose Converter this uses).
 private final class LiveRun: @unchecked Sendable {  // its shared state is under `lock`
     private let engine = AVAudioEngine()
     private let analyzer: SpeechAnalyzer

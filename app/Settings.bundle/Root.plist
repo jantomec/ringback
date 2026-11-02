@@ -512,6 +512,24 @@
 			<key>Type</key>
 			<string>PSSliderSpecifier</string>
 		</dict>
+		<dict>
+			<key>FooterText</key>
+			<string>When your speech computer is offline, your iPhone hears and speaks calls itself, and only text goes to your hub. It gets more of your words wrong than the speech computer does. It speaks with the best English voice on this iPhone: you can download better ones in Accessibility settings. Changes reach your hub when Ringback next opens.</string>
+			<key>Title</key>
+			<string>On-device Voice</string>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+		</dict>
+		<dict>
+			<key>DefaultValue</key>
+			<false/>
+			<key>Key</key>
+			<string>onDeviceVoice</string>
+			<key>Title</key>
+			<string>On-device Voice</string>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+		</dict>
 	</array>
 </dict>
 </plist>

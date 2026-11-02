@@ -3,8 +3,8 @@ import UIKit
 
 /// What Recents shows above the calls, only while something's wrong: the app isn't set up,
 /// calls can't reach the phone (the hub can't be reached, or Apple refused its push), calls
-/// can't be talked through (no speech computer), or microphone access is off. Only the most
-/// serious shows, with the others a tap away.
+/// can't be talked through (no speech computer), On-device voice isn't ready, or microphone
+/// access is off. Only the most serious shows, with the others a tap away.
 struct Banners: View {
     let state: AppState
     let push: PushService
@@ -17,7 +17,7 @@ struct Banners: View {
 
     /// What's wrong, most serious first.
     private enum Problem: Hashable {
-        case notSetUp, unreachable, push(String), speech(waiting: Int), microphone
+        case notSetUp, unreachable, push(String), speech(waiting: Int), onDevice(String), microphone
     }
 
     private var problems: [Problem] {
@@ -35,6 +35,7 @@ struct Banners: View {
             if let problem = status.pushProblem { found.append(.push(problem)) }
             if !status.speechOK { found.append(.speech(waiting: status.waitingForSpeech)) }
         }
+        if let problem = state.onDeviceProblem { found.append(.onDevice(problem)) }
         if state.microphoneOff { found.append(.microphone) }
         return found
     }
@@ -92,10 +93,17 @@ struct Banners: View {
             Banner(
                 systemImage: "waveform.slash", title: "Claude can't talk on calls",
                 message: "Your speech computer isn't connected to your hub, so calls wait instead of ringing. "
-                    + "They ring once it's back."
+                    + "They ring once it's back, or now if you turn on On-device Voice in Ringback's settings."
                     + (waiting == 0 ? "" : waiting == 1 ? " One call is waiting." : " \(waiting) calls are waiting.")
             ) {
                 Button("Check Again") { checkAgain() }
+            }
+        case .onDevice(let problem):
+            Banner(
+                systemImage: "waveform.slash", title: "On-device voice isn't ready",
+                message: "\(problem) While your speech computer is offline, calls can't be talked through on this iPhone."
+            ) {
+                Button("Try Again") { Task { await OnDeviceVoice.prepare(state) } }
             }
         case .microphone:
             Banner(
