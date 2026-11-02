@@ -1,0 +1,11 @@
+{{define "content"}}
+<div class="head">
+  <h1>Log</h1>
+  <p class="updated">Updated {{.Updated}}</p>
+</div>
+<p class="lede">The hub's last 500 lines since it started, newest last. The whole log is in its log file.</p>
+<pre class="log" id="log">
+{{- range .Data}}<span class="line{{if .Bad}} bad{{end}}">{{.Text}}</span>
+{{- else}}Nothing logged yet.{{end -}}
+</pre>
+{{end}}

@@ -87,6 +87,7 @@ func offer(w http.ResponseWriter, r *http.Request) {
 	request := map[string]any{"type": "offer", "call_id": callID, "kind": kind, "ringing": ringing}
 	if contact != "" {
 		request["session_id"] = contact
+		noteContactCall(callID, contact)
 	}
 	agent, answer := ask(callID, contact, request)
 	if agent == nil {

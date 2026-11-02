@@ -1,0 +1,142 @@
+{{define "content"}}{{with .Data}}
+<div class="head">
+  <h1>Status</h1>
+  <p class="updated">Updated {{$.Updated}}</p>
+</div>
+
+{{range .Problems}}<p class="notice">{{.}}</p>{{end}}
+
+<div class="tiles">
+  <a class="tile" href="#speech">
+    <span class="label"><span class="dot {{if .Usable}}on{{else}}bad{{end}}"></span>Speech</span>
+    <span class="value">{{.Usable}}</span>
+    <span class="note">{{if eq .Usable 1}}node ready{{else}}nodes ready{{end}}</span>
+  </a>
+  <a class="tile" href="#macs">
+    <span class="label"><span class="dot {{if .Macs}}on{{end}}"></span>Macs</span>
+    <span class="value">{{len .Macs}}</span>
+    <span class="note">{{.Sessions}} {{if eq .Sessions 1}}session{{else}}sessions{{end}} listening</span>
+  </a>
+  <a class="tile" href="#calls">
+    <span class="label"><span class="dot {{if .Live}}on{{else if .Waiting}}wait{{end}}"></span>Calls</span>
+    <span class="value">{{len .Live}}</span>
+    <span class="note">live, {{len .Waiting}} waiting</span>
+  </a>
+  <a class="tile" href="#phones">
+    <span class="label"><span class="dot {{if .PushesBad}}bad{{else if .Phones}}on{{end}}"></span>Phones</span>
+    <span class="value">{{len .Phones}}</span>
+    <span class="note">{{if .PushesBad}}a push failed{{else if .Phones}}pushes fine{{else}}none registered{{end}}</span>
+  </a>
+</div>
+
+<section id="speech">
+  <h2>Speech nodes</h2>
+  <div class="group">
+  {{- range .Nodes}}
+    <div class="row">
+      <span class="dot {{if .Paused}}{{else if .Loaded}}on{{else if .Online}}idle{{end}}"></span>
+      <div class="body">
+        <div class="title">{{.Name}}{{if .Paused}} <span class="badge">Paused</span>{{end}}</div>
+        <div class="sub">{{.Linked}}{{if .Online}} · {{.Models}}{{end}}{{if .Paused}} · {{.PausedAt}}{{end}}</div>
+      </div>
+      <form method="post" action="/portal/nodes/{{if .Paused}}resume{{else}}pause{{end}}">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <input type="hidden" name="name" value="{{.Name}}">
+        <button type="submit" class="btn">{{if .Paused}}Resume{{else}}Pause{{end}}</button>
+      </form>
+    </div>
+  {{- else}}
+    <div class="row empty">No speech node is linked. <a href="/portal/setup#node">Add one</a></div>
+  {{- end}}
+  </div>
+  <p class="foot">A node loads its models when a call is coming and lets them go a minute after. A paused node stays linked, but the hub neither warms it nor gives it calls.</p>
+</section>
+
+<section id="macs">
+  <h2>Macs</h2>
+  {{- range .Macs}}
+  <div class="group">
+    <div class="row">
+      <span class="dot on"></span>
+      <div class="body">
+        <div class="title">{{.Name}}</div>
+        <div class="sub">{{.Linked}} · {{.Count}}</div>
+      </div>
+    </div>
+    {{- range .Sessions}}
+    <div class="row inset">
+      <div class="body">
+        <div class="title">{{.Project}}<span class="mono">{{.Short}}</span></div>
+        <div class="sub">{{if .Subject}}{{.Subject}}{{else}}No briefing yet{{end}}</div>
+      </div>
+      <div class="meta">{{.Since}}</div>
+    </div>
+    {{- end}}
+  </div>
+  {{- else}}
+  <div class="group"><div class="row empty">No Mac is linked. A Mac that sleeps drops off until it wakes. <a href="/portal/setup#mac">Add one</a></div></div>
+  {{- end}}
+</section>
+
+<section id="calls">
+  <h2>Calls</h2>
+  <h3>Live</h3>
+  <div class="group">
+  {{- range .Live}}
+    <div class="row">
+      <span class="dot {{if .Connected}}on{{else}}wait{{end}}"></span>
+      <div class="body">
+        <div class="title">{{or .Project "Call"}}<span class="mono">{{.Short}}</span></div>
+        <div class="sub">{{.State}} · {{.Mac}} · speech on {{.Node}}{{if .Subject}} · {{.Subject}}{{end}}</div>
+      </div>
+      <div class="meta">{{.For}}</div>
+    </div>
+  {{- else}}
+    <div class="row empty">No call is live.</div>
+  {{- end}}
+  </div>
+  <h3>Waiting</h3>
+  <div class="group">
+  {{- range .Waiting}}
+    <div class="row">
+      <span class="dot wait"></span>
+      <div class="body">
+        <div class="title wait">{{.Project}}<span class="mono">{{.Short}}</span>{{if .Question}} <span class="badge wait">Question</span>{{end}}</div>
+        <div class="sub">{{.Why}} · {{.Rings}}{{if .Subject}} · {{.Subject}}{{end}}</div>
+      </div>
+    </div>
+  {{- else}}
+    <div class="row empty">No call is waiting.</div>
+  {{- end}}
+  </div>
+  <p class="foot"><a href="/portal/calls">Recent calls</a></p>
+</section>
+
+<section id="phones">
+  <h2>Phones</h2>
+  {{- range .Phones}}
+  <div class="group">
+    <div class="row">
+      <span class="dot {{if .PushFailed}}bad{{else}}on{{end}}"></span>
+      <div class="body">
+        <div class="title">{{.Name}}<span class="mono">{{.Token}}</span></div>
+        <div class="sub">APNs {{.Environment}} · registered {{.Registered}}</div>
+      </div>
+    </div>
+    <dl class="facts">
+      <div><dt>Last check-in</dt><dd>{{.CheckedIn}}</dd></div>
+      <div><dt>Last push</dt><dd{{if .PushFailed}} class="bad"{{end}}>{{.Push}}</dd></div>
+    </dl>
+    <h4>Set on the phone</h4>
+    <dl class="facts">
+      <div><dt>Work hours</dt><dd>{{.Hours}}</dd></div>
+      <div><dt>Hold</dt><dd>{{.Hold}}{{if .HoldSet}}<span class="sub">{{.HoldSet}}</span>{{end}}</dd></div>
+      <div><dt>On-device voice</dt><dd>{{.OnDevice}}</dd></div>
+    </dl>
+  </div>
+  {{- else}}
+  <div class="group"><div class="row empty">No phone has registered. In the app's settings, enter the hub's address.</div></div>
+  {{- end}}
+  <p class="foot">The phone's settings are changed on the phone (Settings → Apps → Ringback, and the hold switch), and shown here as the hub last heard them.</p>
+</section>
+{{end}}{{end}}

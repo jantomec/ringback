@@ -21,7 +21,7 @@ say where else. Replace the example addresses (`10.0.0.1` for the hub) with your
 - **A Mac with Xcode** that can build for your phone's iOS version (Xcode 27 for iOS 27),
   with **XcodeGen**, **Go**, **CMake** and **pkg-config** (`brew install xcodegen go cmake
   pkgconf`), to build the app, the hub and the agent; and **uv** (`brew install uv`) for the
-  checks in step 8.
+  checks in step 9.
 - **A paid Apple Developer Program account.** VoIP pushes need it.
 - **An iPhone** on iOS 26 or later.
 - **An always-on Mac** for the hub, Intel or Apple silicon, on macOS 13 or later. It needs
@@ -81,7 +81,7 @@ Then start it:
 What it keeps is in `~/.local/state/ringback/`: the phones (`devices.json`), the calls that
 wait (`waiting.json`), the sessions you can call (`contacts.json`) and every call's events
 (`events.jsonl`). Every 30 min it wakes each phone with a background push, and the app checks
-in over the network; if it can't, the phone warns you. Once the app has registered (step 6),
+in over the network; if it can't, the phone warns you. Once the app has registered (step 7),
 `ringback-hub check` does that now, `ringback-hub devices` shows when each phone last checked
 in, and `ringback-hub ring --project myproject` rings every phone without audio, to try the
 push.
@@ -124,7 +124,48 @@ the network is down, it can't listen on its address, and launchd tries again. It
 `launchctl bootout gui/$(id -u)/ringback.hub`. On a Mac with FileVault and no automatic
 login, nothing starts after a reboot until someone logs in, not even Nebula.
 
-## 3. The speech node (the Linux machine with the GPU)
+## 3. The hub's portal
+
+The hub serves a few pages, for setting up and for the rare times something's wrong, at
+`http://10.0.0.1:8787/portal/` (its `listen` address). They show:
+- the speech nodes linked, since when, and whether their models are loaded (a node loads them
+  while a call rings and lets them go a minute after);
+- the Macs linked, with their sessions;
+- the calls: live, waiting (and why), and the last 50 the phone reported, with their events;
+- each phone: when it registered and last checked in, the last push to it, and what's set on
+  the phone (work hours, the hold switch, On-device voice), as the hub last heard them;
+- the hub's last 500 log lines.
+
+They refresh themselves every 5 s. **Setup** shows what a new speech node or Mac needs: the
+hub's address for its link, its token from `hub.toml` (hidden until you show it, and a button
+to copy the config) and the commands of steps 4 and 5. The portal changes only what the hub
+keeps in its state: you can **pause** a speech node, which stays linked, but the hub neither
+warms it nor gives it calls, so calls wait unless another node is linked (`nodes.json` in the
+state folder). Tokens and addresses stay in `hub.toml`, which the portal never changes.
+
+Signing in takes a user name and password, then a passcode from an authenticator app (6 digits,
+a new one every 30 s), such as the Passwords app on the iPhone. Make the account on the
+always-on Mac:
+
+```sh
+~/.local/bin/ringback-hub portal-user yourname
+```
+
+It asks for a password twice (at least 10 characters), without showing it, and prints an
+`otpauth://` link and a setup key: add either to your authenticator app. Running it again
+replaces the account and signs everyone out. The account is kept in `portal-user.json` in the
+state folder, readable only by you: the password hashed (PBKDF2-SHA256, 600,000 iterations)
+and the passcodes' secret. Until there's an account, the portal shows only how to make one.
+- A sign-in lasts until it's gone unused for 12 h (the pages' own refreshes don't count) or the
+  hub restarts.
+- After five failed sign-ins from an address, the portal refuses that address for a minute;
+  the log shows each failure.
+- Each passcode works once.
+- Like the rest of the hub, the portal is plain HTTP inside Nebula, so anything in your mesh
+  can reach it, which is why it asks for a passcode too. Passkeys (Face ID instead of the
+  passcode) need the portal on HTTPS under a domain name, so they come later.
+
+## 4. The speech node (the Linux machine with the GPU)
 
 With a copy of this repository on that machine:
 
@@ -173,7 +214,7 @@ journalctl --user -u ringback-speech -f      # its log
 `speech/check.sh` checks the node against a stand-in hub (about 2.5 min): its hearing, its
 speaking, and its memory before, during and after a call.
 
-## 4. The agent (every Mac that runs sessions)
+## 5. The agent (every Mac that runs sessions)
 
 ```sh
 mkdir -p ~/.local/bin ~/.config/ringback
@@ -236,7 +277,7 @@ Stop any agent you started by hand first: both would use the same socket. Its lo
 `~/Library/Logs/ringback-agent.log`; `launchctl kickstart -k gui/$(id -u)/ringback.agent`
 restarts it, and `launchctl bootout gui/$(id -u)/ringback.agent` stops it.
 
-## 5. The ringback mod (every Mac that runs sessions)
+## 6. The ringback mod (every Mac that runs sessions)
 
 The mod is how a session calls you. To load it in every session, add it to
 `~/.claude/settings.json`:
@@ -273,7 +314,7 @@ to the Claude app from the phone instead. `/ringback` turns on Remote Control fo
 (`/remote-control`); if it's on already, Claude Code shows its Remote Control menu, and Enter
 or Esc leaves it on. Remote Control needs a claude.ai subscription.
 
-## 6. The iPhone app
+## 7. The iPhone app
 
 ```sh
 cp app/Config/Local.xcconfig.example app/Config/Local.xcconfig   # your team ID and bundle ID
@@ -336,7 +377,7 @@ hold the Lock Screen, tap Customize, then the widgets, and add Ringback's Hold.
 and keeps up while it shows: tap one to call it, and the voice picks up with what's new since
 the session last reported. Hold one for its details.
 
-## 7. A test call
+## 8. A test call
 
 From a session: run `/ringback`, then give the session something to do. Or place one by hand
 through the agent, as a session's mod does, with a few sentences for the voice to talk about:
@@ -351,7 +392,7 @@ The phone rings as "myproject". The hub's log shows the call ringing, answered, 
 until its audio connected, what you said and what the voice said, and how it ended; the
 agent's log shows Haiku's side.
 
-## 8. Checking without the phone
+## 9. Checking without the phone
 
 These need uv (`brew install uv`); they run in the earlier stack's Python environment, which
 uv sets up the first time (about 1.7 GB).
@@ -366,7 +407,7 @@ uv sets up the first time (about 1.7 GB).
 
       (cd hub && go build -o build/ringback-hub .) && uv run --project voice tools/hub-check/hub_check.py
 
-- **The speech node,** on the node (step 3): `speech/check.sh` (about 2.5 min).
+- **The speech node,** on the node (step 4): `speech/check.sh` (about 2.5 min).
 
 ## Coming from the earlier stack
 

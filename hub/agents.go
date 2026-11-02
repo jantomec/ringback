@@ -131,18 +131,16 @@ func nodeOpened(l *link) {
 	stateMu.Lock()
 	ids := waitingFor("no speech")
 	stateMu.Unlock()
-	if len(ids) > 0 {
+	if len(ids) > 0 && nodeUsable(l) {
 		log(fmt.Sprintf("speech %s: %d calls waited for speech, they ask again", l.name, len(ids)))
 		broadcast(map[string]any{"type": "reask", "call_ids": ids})
 	}
 }
 
-// speechLinked says whether a speech node is linked, so the calls the hub carries can be
-// talked through.
+// speechLinked says whether a speech node is linked and not paused, so the calls the hub
+// carries can be talked through.
 func speechLinked() bool {
-	registryMu.Lock()
-	defer registryMu.Unlock()
-	return len(nodes) > 0
+	return aNode() != nil
 }
 
 // linked are the names of the speech nodes linked, and the Macs (agents) with how many of
@@ -179,12 +177,14 @@ func nodeClosed(l *link) {
 	}
 }
 
-// warmNodes tells every speech node a call is coming, so it loads its models.
+// warmNodes tells every speech node that isn't paused a call is coming, so it loads its models.
 func warmNodes() {
 	registryMu.Lock()
 	list := make([]*link, 0, len(nodes))
 	for l := range nodes {
-		list = append(list, l)
+		if nodeUsable(l) {
+			list = append(list, l)
+		}
 	}
 	registryMu.Unlock()
 	for _, l := range list {
@@ -192,12 +192,14 @@ func warmNodes() {
 	}
 }
 
-// aNode is a connected speech node, or nil.
+// aNode is a connected speech node that isn't paused, or nil.
 func aNode() *link {
 	registryMu.Lock()
 	defer registryMu.Unlock()
 	for l := range nodes {
-		return l
+		if nodeUsable(l) {
+			return l
+		}
 	}
 	return nil
 }

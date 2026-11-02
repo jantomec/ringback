@@ -45,9 +45,12 @@ func serve(listen string) {
 			case path == "/agent":
 				acceptLink(w, r, "agent", agentOpened, fromAgent, func(*link, []byte) {}, agentClosed)
 			case path == "/speech":
-				acceptLink(w, r, "speech", nodeOpened, fromNode, nodeAudio, nodeClosed)
+				acceptLink(w, r, "speech", nodeOpened, nodeMessage, nodeAudio, nodeClosed)
 			case path == "/phone-speech":
 				phoneSpeech(w, r)
+			case path == "/portal" || strings.HasPrefix(path, "/portal/"):
+				withDeadline(w, 15*time.Second)
+				portal(w, r)
 			case path == "/ping":
 				// The phone checks it can reach the hub while it rings.
 				phoneJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -115,7 +118,8 @@ func str(body map[string]any, key string) string {
 }
 
 // register: a phone registers its push tokens, and its work hours if it has any. A
-// registration without them clears them, and ones that can't be read are a 400.
+// registration without them clears them, and ones that can't be read are a 400. It also says
+// whether its On-device voice is on (on_device), which the portal shows.
 func register(body map[string]any) (map[string]any, error) {
 	token := str(body, "token")
 	hours, valid := workHoursFields(body)
@@ -125,20 +129,19 @@ func register(body map[string]any) (map[string]any, error) {
 	environment := orDefault(str(body, "environment"), "sandbox")
 	device := orDefault(str(body, "device"), "a phone")
 	notificationToken := str(body, "notification_token")
-	if err := registerDevice(token, environment, device, notificationToken, hours); err != nil {
+	onDevice := ""
+	if on, sent := body["on_device"].(bool); sent {
+		onDevice = map[bool]string{true: "yes", false: "no"}[on]
+	}
+	was := loadDevices()[token]["on_device"]
+	if err := registerDevice(token, environment, device, notificationToken, onDevice, hours); err != nil {
 		return nil, err
 	}
 	registeredAgain(token, notificationToken)
-	if onDevice, sent := body["on_device"].(bool); sent {
-		turnedOn, err := setOnDevice(token, onDevice)
-		if err != nil {
-			return nil, err
-		}
-		// The calls that waited for speech can be talked through on the phone now.
-		if ids := waitingFor("no speech"); turnedOn && len(ids) > 0 {
-			log(fmt.Sprintf("%s speaks itself now: %d calls waited for speech, they ask again", device, len(ids)))
-			broadcast(map[string]any{"type": "reask", "call_ids": ids})
-		}
+	// Its own voice turned on: the calls that waited for speech can be talked through now.
+	if ids := waitingFor("no speech"); onDevice == "yes" && was != "yes" && len(ids) > 0 {
+		log(fmt.Sprintf("%s speaks itself now: %d calls waited for speech, they ask again", device, len(ids)))
+		broadcast(map[string]any{"type": "reask", "call_ids": ids})
 	}
 	checks := ""
 	if notificationToken != "" {
@@ -176,6 +179,7 @@ func call(body map[string]any) (map[string]any, error) {
 		about = ": " + subject
 	}
 	log("call " + prefix(callID, 8) + ": asked by " + voice + " for " + project + about)
+	noteCall(callID, project, subject)
 	if held, until := heldUntil(now()); held {
 		question, _ := body["question"].(bool)
 		holding := "until you take calls"
@@ -328,9 +332,9 @@ func waiting(body map[string]any) (map[string]any, error) {
 }
 
 // status is what the app shows a banner for, with the waiting calls: whether calls can be
-// talked through (a speech node is linked, or no call the hub carries needs one: no agent is
-// linked and none waits for one), whether the last push to this phone got through, and the
-// Macs linked, with how many of their sessions listen.
+// talked through (a speech node is linked and not paused, or no call the hub carries needs
+// one: no agent is linked and none waits for one), whether the last push to this phone got
+// through, and the Macs linked, with how many of their sessions listen.
 func status(token string, device map[string]string, calls []map[string]any) map[string]any {
 	waitingForSpeech := 0
 	for _, call := range calls {
@@ -341,7 +345,7 @@ func status(token string, device map[string]string, calls []map[string]any) map[
 	nodes, macs := linked()
 	onDevice := device["on_device"] == "yes"
 	speech := map[string]any{
-		"ok":    len(nodes) > 0 || onDevice || (len(macs) == 0 && waitingForSpeech == 0),
+		"ok":    speechLinked() || onDevice || (len(macs) == 0 && waitingForSpeech == 0),
 		"nodes": nodes, "waiting": waitingForSpeech, "on_device": onDevice,
 	}
 	pushed := map[string]any{"ok": true}

@@ -34,6 +34,10 @@ speaking, both with the same number. Binary frames carry audio: 4 bytes of strea
 
 Hello: `{"type": "hello", "version": 1, "name": "…", "hearing": true, "speaking": true}`.
 
+| Direction | Message |
+|---|---|
+| node → hub | `{"type": "models", "loaded": true}` when its worker has loaded the models, and `"loaded": false` when the worker exits (idle, stopped, or failed). The hub shows it on its portal; until a node says, its models count as not loaded, as they are when it links |
+
 ### Hearing
 
 | Direction | Message |

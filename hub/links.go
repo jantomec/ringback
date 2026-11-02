@@ -31,6 +31,11 @@ type link struct {
 	nextID     atomic.Int64
 	waitMu     sync.Mutex
 	waiting    map[int64]chan map[string]any
+	since      time.Time // when it linked
+	// A speech node's models: whether they're loaded, as it last said (`models`), and when.
+	modelsMu sync.Mutex
+	loaded   bool
+	loadedAt time.Time
 }
 
 func (l *link) send(message map[string]any) error {
@@ -107,7 +112,7 @@ func acceptLink(w http.ResponseWriter, r *http.Request, kind string, opened func
 	}
 	ws.SetReadLimit(1 << 22)
 	ctx, cancel := context.WithCancel(context.Background())
-	l := &link{kind: kind, ws: ws, ctx: ctx, cancel: cancel, waiting: map[int64]chan map[string]any{}}
+	l := &link{kind: kind, ws: ws, ctx: ctx, cancel: cancel, waiting: map[int64]chan map[string]any{}, since: now()}
 	defer func() {
 		cancel()
 		ws.CloseNow()

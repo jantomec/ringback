@@ -13,6 +13,7 @@ import (
 )
 
 const usage = `usage: ringback-hub serve | ring [--project NAME] [--subject TEXT] [--voice URL] | check | devices
+       | portal-user NAME
 
   serve    serve the phone, the speech nodes and the agents: ring calls, carry their audio,
            and every 30 min ask each phone to check that it can still reach the hub
@@ -24,7 +25,10 @@ const usage = `usage: ringback-hub serve | ring [--project NAME] [--subject TEXT
   check    ask every phone to check its connection now; one that can't reach the
            hub shows a warning
   devices  list registered phones, when each last checked in, their work hours and
-           their hold switch`
+           their hold switch
+  portal-user NAME
+           make the account for the hub's portal (/portal/ on its address), or replace
+           it: asks for its password and prints the setup key for an authenticator app`
 
 func main() {
 	args := os.Args[1:]
@@ -68,6 +72,11 @@ func main() {
 		for _, token := range tokens {
 			fmt.Println(describeDevice(token, devices[token]))
 		}
+	case "portal-user":
+		if len(args) != 2 {
+			fail(usage)
+		}
+		createPortalUser(args[1])
 	case "-h", "--help":
 		fmt.Println(usage)
 	default:

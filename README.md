@@ -107,7 +107,7 @@ You need:
 - a private network all of them reach, the phone too on mobile data: Nebula, with a lighthouse
   that relays, is the one it's tested on.
 
-[docs/setup.md](docs/setup.md) takes you through it in eight steps. Once everything is set up, a
+[docs/setup.md](docs/setup.md) takes you through it in nine steps. Once everything is set up, a
 session calls you like this:
 
 ```sh
@@ -133,7 +133,7 @@ Ringback is a working prototype, built in stages and tested on real calls.
 - [ ] The hold switch, its breathing light, and the Lock Screen widget: built, partly tried on the phone
 - [ ] Speech on the iPhone itself, without a speech node: a trial with Apple's recognition is
       under way (it hears in the background, and gets more words wrong than Parakeet)
-- [ ] A small web page on the hub, to see and set up everything: planned
+- [ ] The hub's portal, to see and set up everything, behind a password and a passcode: built, tried offline (passkeys later)
 - [ ] Several sessions calling in turn, with retries: planned
 
 <details>

@@ -54,8 +54,9 @@ func loadDevices() map[string]map[string]string {
 
 func saveDevices(devices map[string]map[string]string) error { return writeJSON(devicesPath, devices) }
 
-// registerDevice keeps a phone's tokens and its work hours; empty hours clear them.
-func registerDevice(token, environment, device, notificationToken string, hours map[string]string) error {
+// registerDevice keeps a phone's tokens, whether its On-device voice is on ("yes" or "no",
+// missing if it didn't say) and its work hours; empty hours clear them.
+func registerDevice(token, environment, device, notificationToken, onDevice string, hours map[string]string) error {
 	devices := loadDevices()
 	entry := devices[token]
 	if entry == nil {
@@ -67,29 +68,14 @@ func registerDevice(token, environment, device, notificationToken string, hours 
 	if notificationToken != "" {
 		entry["notification_token"] = notificationToken
 	}
-	setHours(entry, hours)
-	devices[token] = entry
-	return saveDevices(devices)
-}
-
-// setOnDevice keeps whether a phone speaks itself when no speech node is linked (its On-device
-// voice); true if that turned it on.
-func setOnDevice(token string, on bool) (bool, error) {
-	devices := loadDevices()
-	entry := devices[token]
-	if entry == nil {
-		return false, nil
-	}
-	was := entry["on_device"] == "yes"
-	if on == was {
-		return false, nil
-	}
-	if on {
-		entry["on_device"] = "yes"
+	if onDevice != "" {
+		entry["on_device"] = onDevice
 	} else {
 		delete(entry, "on_device")
 	}
-	return on, saveDevices(devices)
+	setHours(entry, hours)
+	devices[token] = entry
+	return saveDevices(devices)
 }
 
 // phoneSpeaks says whether a registered phone speaks itself, so a call can be talked through

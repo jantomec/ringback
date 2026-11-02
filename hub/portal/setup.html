@@ -1,0 +1,96 @@
+{{define "content"}}{{with .Data}}
+<div class="head">
+  <h1>Setup</h1>
+</div>
+<p class="lede">What a new speech node or Mac needs to link to this hub. Addresses and tokens come from the hub's config, <code>{{.Config}}</code>, which the portal never changes: to change a token, edit it there, restart the hub, and change it on every node or Mac that uses it.</p>
+
+<section id="node">
+  <h2>Add a speech node</h2>
+  <div class="group pad">
+    <p class="step"><span class="n">1</span><span>On the Linux machine with the NVIDIA GPU, with a copy of the repository, install it (2.7 GB to download) and build it:</span></p>
+    <pre class="code">speech/install.sh
+speech/build.sh</pre>
+    <p class="step"><span class="n">2</span><span>Set the hub's address and the speech token in <code>~/ringback-speech/speech.toml</code>:</span></p>
+    {{- if .SpeechSet}}
+    <div class="snippet">
+      <pre class="code">hub = "ws://{{.Listen}}/speech"
+token = "<span class="secret" data-secret="{{.SpeechToken}}">••••••••••••••••</span>"</pre>
+      <div class="actions"><button type="button" class="btn" data-reveal>Show token</button><button type="button" class="btn" data-copy>Copy</button></div>
+    </div>
+    {{- else}}
+    <p class="notice">The hub's config has no speech token yet. Set <code>speech</code> under <code>[tokens]</code> to a long random string, such as <code>openssl rand -hex 32</code> prints, and restart the hub.</p>
+    {{- end}}
+    <p class="step"><span class="n">3</span><span>Start it. It links to the hub and shows under Status.</span></p>
+    <pre class="code">. ~/ringback-speech/env.sh &amp;&amp; ~/ringback-speech/bin/ringback-speech serve</pre>
+    <details id="node-service">
+      <summary>Run it as a service, from boot</summary>
+      <pre class="code">mkdir -p ~/.config/systemd/user
+cp speech/ringback-speech.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now ringback-speech
+loginctl enable-linger                       # so it runs from boot, not only while you're logged in
+journalctl --user -u ringback-speech -f      # its log</pre>
+    </details>
+  </div>
+</section>
+
+<section id="mac">
+  <h2>Add a Mac</h2>
+  <div class="group pad">
+    <p class="step"><span class="n">1</span><span>On the Mac that runs Claude Code sessions, from the repository, build the agent and copy its config:</span></p>
+    <pre class="code">mkdir -p ~/.local/bin ~/.config/ringback
+(cd agent &amp;&amp; go build -o ~/.local/bin/ringback-agent .)
+cp agent/agent.example.toml ~/.config/ringback/agent.toml</pre>
+    <p class="step"><span class="n">2</span><span>Set the hub's address and the agent token in <code>~/.config/ringback/agent.toml</code>:</span></p>
+    {{- if .AgentSet}}
+    <div class="snippet">
+      <pre class="code">hub = "{{.Listen}}"
+token = "<span class="secret" data-secret="{{.AgentToken}}">••••••••••••••••</span>"</pre>
+      <div class="actions"><button type="button" class="btn" data-reveal>Show token</button><button type="button" class="btn" data-copy>Copy</button></div>
+    </div>
+    {{- else}}
+    <p class="notice">The hub's config has no agent token yet. Set <code>agent</code> under <code>[tokens]</code> to a long random string, such as <code>openssl rand -hex 32</code> prints, and restart the hub.</p>
+    {{- end}}
+    <p class="step"><span class="n">3</span><span>Start it. It links to the hub and shows under Status, with its sessions.</span></p>
+    <pre class="code">~/.local/bin/ringback-agent serve</pre>
+    <details id="mac-launchd">
+      <summary>Start it at login, with launchd</summary>
+      <pre class="code">cat &gt; ~/Library/LaunchAgents/ringback.agent.plist &lt;&lt;EOF
+&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"&gt;
+&lt;plist version="1.0"&gt;
+&lt;dict&gt;
+  &lt;key&gt;Label&lt;/key&gt;
+  &lt;string&gt;ringback.agent&lt;/string&gt;
+  &lt;key&gt;ProgramArguments&lt;/key&gt;
+  &lt;array&gt;
+    &lt;string&gt;$HOME/.local/bin/ringback-agent&lt;/string&gt;
+    &lt;string&gt;serve&lt;/string&gt;
+  &lt;/array&gt;
+  &lt;key&gt;EnvironmentVariables&lt;/key&gt;
+  &lt;dict&gt;
+    &lt;key&gt;PATH&lt;/key&gt;
+    &lt;string&gt;$(dirname "$(which claude)"):/usr/bin:/bin:/usr/sbin:/sbin&lt;/string&gt;
+  &lt;/dict&gt;
+  &lt;key&gt;RunAtLoad&lt;/key&gt;
+  &lt;true/&gt;
+  &lt;key&gt;KeepAlive&lt;/key&gt;
+  &lt;true/&gt;
+  &lt;key&gt;ThrottleInterval&lt;/key&gt;
+  &lt;integer&gt;30&lt;/integer&gt;
+  &lt;key&gt;StandardOutPath&lt;/key&gt;
+  &lt;string&gt;$HOME/Library/Logs/ringback-agent.log&lt;/string&gt;
+  &lt;key&gt;StandardErrorPath&lt;/key&gt;
+  &lt;string&gt;$HOME/Library/Logs/ringback-agent.log&lt;/string&gt;
+&lt;/dict&gt;
+&lt;/plist&gt;
+EOF
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ringback.agent.plist</pre>
+    </details>
+    <p class="step"><span class="n">4</span><span>Load the ringback mod in Claude Code, for every session, in <code>~/.claude/settings.json</code>; then <code>/ringback</code> in a session turns calling on:</span></p>
+    <pre class="code">{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/ringback/mod" } }</pre>
+  </div>
+</section>
+
+<p class="foot">The whole setup, the hub's and the phone's too, is in the repository's <code>docs/setup.md</code>.</p>
+{{end}}{{end}}

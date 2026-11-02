@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -111,8 +112,33 @@ func parseISO8601(text string) (time.Time, bool) {
 	return t, err == nil
 }
 
+// The log's last logKept lines, for the portal: a ring, oldest at logStart once it's full.
+const logKept = 500
+
+var (
+	logMu    sync.Mutex
+	logLines = make([]string, 0, logKept)
+	logStart int
+)
+
 func log(line string) {
-	fmt.Printf("%s  %s\n", timeOfDay(now()), line)
+	text := timeOfDay(now()) + "  " + line
+	fmt.Println(text)
+	logMu.Lock()
+	defer logMu.Unlock()
+	if len(logLines) < logKept {
+		logLines = append(logLines, text)
+		return
+	}
+	logLines[logStart] = text
+	logStart = (logStart + 1) % logKept
+}
+
+// logTail is the log's last lines, oldest first.
+func logTail() []string {
+	logMu.Lock()
+	defer logMu.Unlock()
+	return append(append([]string{}, logLines[logStart:]...), logLines[:logStart]...)
 }
 
 func fail(message string) {

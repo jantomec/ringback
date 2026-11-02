@@ -126,19 +126,20 @@ Stages, by parts that each run anywhere:
   a node with its models unloaded until a call comes.
 - **The portal.** Pages the hub serves, for setup and for the rare times something's wrong:
   - **What it shows:**
-    - the nodes linked (their models loaded or not, memory) and the Macs with their sessions;
+    - the nodes linked (their models loaded or not; memory isn't shown yet) and the Macs with
+      their sessions;
     - calls: live, waiting and recent, with their events;
     - the phone's registration and the last push;
     - the log's tail;
     - the phone's settings, read-only (work hours, hold, On-device voice, sensitivity).
-  - **What it changes:** adding a node or a Mac (it makes a token and shows the command to
-    run there), and the nodes' settings.
+  - **What it changes:** adding a node or a Mac (it shows the hub's address, the token from
+    the hub's config, and the commands to run there), and the nodes' settings (pausing one).
   - **How it's built:** plain HTML from the hub's own binary, refreshing itself, with no
     JavaScript framework.
   - **One home for each setting:** secrets and addresses in the hub's config file; what the
     portal changes in the hub's state; what the phone owns on the phone, shown on the portal.
   - **Login:** a user name and password, then a second factor: a one-time passcode (TOTP,
-    from an authenticator app) or a passkey (WebAuthn). Both are supported. The hub listens
+    from an authenticator app), and later a passkey (WebAuthn) as well. The hub listens
     only on Nebula, but anything in the mesh could open the portal, and it shows your
     sessions' subjects; a public hub needs this anyway.
   - **Open:** passkeys need the portal on HTTPS under a domain name. Browsers offer WebAuthn
@@ -1927,8 +1928,8 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
      at the hub, 35.5 s on the phone). You found the voice clear and the delay small but
      noticeable. Not tried on the phone yet: held calls, call backs, Sessions, asks, Opus,
      a weak signal.
-- **Status and the hub's portal** (decided 2026-11-02; not started; "Status, the hub's
-  portal and speech on the phone" under Architecture). In order:
+- **Status and the hub's portal** (decided 2026-11-02; built but for passkeys, checked
+  offline; "Status, the hub's portal and speech on the phone" under Architecture). In order:
   1. `/status` on the hub, and the app's banner. A call with no speech goes to the waiting
      calls instead of ringing. Built 2026-11-02, checked offline (`tools/hub-check`, the
      agent's tests) and on the phone (2026-11-02, unlocked, on Wi-Fi): with the speech node
@@ -1955,10 +1956,52 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
        (503) ends the call with "The speech computer is offline".
      - Not tried: a push Apple refuses for the phone's registration ("phone"), which needs
        APNs to answer so.
-  2. The portal's pages, read-only.
+  2. The portal's pages, read-only. Built 2026-11-02 (`hub/portal.go`, templates in
+     `hub/portal/`, `docs/setup.md` step 3), checked offline only: under `/portal/` on the hub's
+     address, plain HTML from templates in the binary, refreshed every 5 s by a small script
+     that swaps the page's content (no framework), light and dark, laid out for a phone too.
+     Status shows the speech nodes (since when, models loaded or not), the Macs and their
+     sessions, the calls live (from the hub's registry) and waiting (with why and when they
+     ring), and each phone (its last check-in, the last push, and its work hours, hold switch
+     and On-device voice, read-only); Calls the last 50 calls in `events.jsonl`, with their
+     outcome, length and events; Log the last 500 lines, kept in a ring in the hub.
+     - A node now says whether its models are loaded (`models`, `docs/protocol.md`): its link
+       process sends it when its worker has loaded them and when the worker exits. Checked
+       only with the link process's code in a scratch test, not on the speech node.
+     - `/register` keeps `on_device` when the app sends it; the app doesn't yet.
+     - Looked at in headless Chrome, light and dark, at 1280 and 390 px wide, with a
+       throwaway hub, a fake phone, a stand-in agent and two stand-in nodes, a live call from
+       `tools/phone-check`'s stand-in phone, waiting calls and reported events. What looked
+       off was fixed: the sessions' times crushed their names on a phone, the calls' titles
+       took the setup page's link colour and indent, and a wrapped log line ran under the
+       times.
+     - What a call is about (its project and subject) isn't kept with the call, so the hub
+       keeps it in memory as it's placed: calls from before the hub last started show
+       without their project.
   3. Its login: password and passcode first, then passkeys once the portal has a name and a
-     certificate.
-  4. Setup on the portal: adding a node or a Mac, and the nodes' settings.
+     certificate. The passcode built 2026-11-02 (`hub/portal_auth.go`): `ringback-hub
+     portal-user NAME` makes the account (the password asked twice without echo, at least 10
+     characters, hashed with PBKDF2-SHA256 at 600,000 iterations and a random salt; a TOTP
+     secret, printed as an `otpauth://` link and a setup key), in `portal-user.json`, mode 600.
+     Signing in is the password, then the passcode (RFC 6238: SHA-1, 6 digits, 30 s, one step
+     either side; none at or before the last taken works again). A session is a random
+     32-byte ID in a cookie (`HttpOnly`, `SameSite=Strict`, `Path=/portal`), kept in memory
+     by its hash and ended after 12 h unused (the pages' own refreshes don't count) or by a
+     new account; every form carries a CSRF token; five failed sign-ins from an address
+     refuse it for a minute. Checked with Go tests (`hub/portal_test.go`, 10 tests, 1 s;
+     race-free over 3 runs): RFC 6238's vectors, the password hashing, the whole sign-in
+     through the pages (a wrong password, a wrong code, a reused and an older code, signing
+     out), forged and missing CSRF tokens, the rate limit, every page refusing without a
+     session, idle expiry, and paused nodes. Each protection was broken in turn and its test
+     failed (9 of 9). Also signed in through headless Chrome on a phone-sized window, and the
+     account made in a pseudo-terminal, which showed no password. Not built: passkeys.
+  4. Setup on the portal: adding a node or a Mac, and the nodes' settings. Built 2026-11-02:
+     Setup shows each link's address and token (from `hub.toml`, hidden until shown, copied
+     with a button) and the commands from `docs/setup.md`; a node can be paused, kept in
+     `nodes.json` by its name: the hub then neither warms it nor gives it calls (`nodeUsable`,
+     in `aNode`, `warmNodes` and `speechLinked`), the app's status counts only nodes not
+     paused, and resuming one has the calls that waited for speech ask again. Paused through
+     the page's button in Chrome, and in the tests. No other nodes' settings yet.
 - **Speech on the phone** (decided 2026-11-02; a trial in progress, `tools/speech-trial`). First a trial on an older iPhone (4 GB)
   with Apple's on-device recognition, measured: how soon your words come after you stop,
   their accuracy on `tools/stt-eval`'s recordings, the app's memory, battery over a

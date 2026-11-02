@@ -1,0 +1,36 @@
+{{define "base"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>{{.Title}} · ringback hub</title>
+<link rel="stylesheet" href="/portal/static/portal.css">
+<link rel="icon" href="/portal/static/icon.svg" type="image/svg+xml">
+<script src="/portal/static/portal.js" defer></script>
+</head>
+<body{{if not .User}} class="bare"{{end}}>
+{{- if .User}}
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="/portal/"><img class="mark" src="/portal/static/icon.svg" alt="">ringback hub</a>
+    <nav class="tabs" aria-label="Pages">
+      <a href="/portal/"{{if eq .Page "status"}} aria-current="page"{{end}}>Status</a>
+      <a href="/portal/calls"{{if eq .Page "calls"}} aria-current="page"{{end}}>Calls</a>
+      <a href="/portal/log"{{if eq .Page "log"}} aria-current="page"{{end}}>Log</a>
+      <a href="/portal/setup"{{if eq .Page "setup"}} aria-current="page"{{end}}>Setup</a>
+    </nav>
+    <form class="out" method="post" action="/portal/logout">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button type="submit" class="link">Sign out</button>
+    </form>
+  </div>
+</header>
+{{- end}}
+<main{{if .Refresh}} data-refresh="{{.Refresh}}"{{end}}>
+{{template "content" .}}
+</main>
+</body>
+</html>
+{{end}}

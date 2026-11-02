@@ -237,6 +237,7 @@ func (w *worker) fromWorker(f frame) {
 	switch {
 	case f.kind == frameControl && m.Type == "ready":
 		logf("worker %d: models loaded, %.2f s after `%s`", w.cmd.Process.Pid, time.Since(w.started).Seconds(), w.why)
+		r.models(true)
 	case f.kind == frameControl && m.Type == "idle":
 		// It has had no stream and no speech for the idle time. It goes only if it has seen
 		// everything sent to it; otherwise what's still on its way keeps it.
@@ -259,6 +260,16 @@ func (w *worker) fromWorker(f frame) {
 	}
 }
 
+// models tells the hub whether a worker's models are loaded (`models`), for its portal: when
+// a worker has loaded them, and when it exits. The caller holds r.mu.
+func (r *relay) models(loaded bool) {
+	if r.hub == nil {
+		return
+	}
+	data, _ := json.Marshal(map[string]any{"type": "models", "loaded": loaded})
+	r.hub.send(websocket.MessageText, data)
+}
+
 // exited: the worker's process has ended, or never started. If it went unasked with streams
 // open, the link to the hub closes and opens again, so that the hub ends their calls rather
 // than wait on a worker that's gone.
@@ -268,6 +279,7 @@ func (r *relay) exited(w *worker, err error) {
 	if r.w == w {
 		r.w = nil
 	}
+	r.models(false) // whatever it loaded went with its process
 	if w.cmd == nil {
 		logf("the worker didn't start: %v", err)
 	} else if w.closing {

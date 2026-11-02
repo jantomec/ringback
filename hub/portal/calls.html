@@ -1,0 +1,28 @@
+{{define "content"}}
+<div class="head">
+  <h1>Calls</h1>
+  <p class="updated">Updated {{.Updated}}</p>
+</div>
+<p class="lede">The last 50 calls the phone reported, newest first, with what happened to each. Tap one for its events.</p>
+<div class="group">
+{{- range .Data}}
+  <details class="call" id="{{.ID}}">
+    <summary>
+      <div class="body">
+        <div class="title{{if .Bad}} bad{{end}}">{{or .Project "Call"}}<span class="mono">{{.Short}}</span></div>
+        <div class="sub">{{.Outcome}}{{if .Duration}} · {{.Duration}}{{end}}{{if .Subject}} · {{.Subject}}{{end}}</div>
+      </div>
+      <div class="meta">{{.When}}</div>
+    </summary>
+    <ol class="events">
+    {{- range .Events}}
+      <li><time>{{.Time}}</time><span class="event{{if .Bad}} bad{{end}}">{{.Name}}</span>{{if .Detail}}<span class="detail">{{.Detail}}</span>{{end}}</li>
+    {{- end}}
+    </ol>
+  </details>
+{{- else}}
+  <div class="row empty">No calls yet.</div>
+{{- end}}
+</div>
+<p class="foot">From events.jsonl in the hub's state folder. A call placed before the hub last started shows without its project.</p>
+{{end}}

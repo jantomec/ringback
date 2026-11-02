@@ -21,7 +21,7 @@ What Apple's documentation says, checked on 2026-11-02 (sources in the design):
 
 ## Running it
 
-The phone needs the debug build installed (`docs/setup.md`, step 6), and to be unlocked and
+The phone needs the debug build installed (`docs/setup.md`, step 7), and to be unlocked and
 on the same Wi-Fi as the Mac for the copies. `UDID` is the phone's (`xcrun devicectl list
 devices`), `BUNDLE` the app's bundle ID (`RINGBACK_BUNDLE_ID` in `app/Config/Local.xcconfig`),
 and `DATA_DIR` the recordings folder of `tools/stt-eval`.

@@ -1,0 +1,18 @@
+{{define "content"}}
+<div class="auth">
+  <form class="card" method="post" action="/portal/login">
+    <img class="mark big" src="/portal/static/icon.svg" alt="">
+    <h1>ringback hub</h1>
+    <p class="sub">Sign in with your name and password, then a passcode.</p>
+    {{- if .Error}}
+    <p class="error" role="alert">{{.Error}}</p>
+    {{- end}}
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label for="name">User name</label>
+    <input id="name" name="name" value="{{.Data}}" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required autofocus>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button type="submit" class="primary">Continue</button>
+  </form>
+</div>
+{{end}}
