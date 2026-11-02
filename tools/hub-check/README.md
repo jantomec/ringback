@@ -36,7 +36,9 @@ state in a throwaway HOME, and checks:
   cut the voice off since the last (the agent answers a stop with no words only then);
 - hung up, the agent hears the call ended and how long you talked, within 3 s of the time on
   the phone, and the node to stop hearing;
-- with no node linked, a phone that speaks itself (`on_device` on `/register`): a call rings
+- with no node linked, a call waiting for speech asks again once the phone turns its own
+  voice on (`on_device` on `/register`);
+- with no node linked, a phone that speaks itself: a call rings
   rather than waiting, and the status says calls can be talked through; the phone's link is
   welcomed once the agent takes the call, and told to listen once you've answered; it gets the
   reply in pieces, the first sentence alone, and from its `playing` and `played` the agent

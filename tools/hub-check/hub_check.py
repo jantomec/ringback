@@ -336,10 +336,17 @@ async def main() -> int:
         # speaks it over its own link, saying what it plays (docs/protocol.md).
         await node.close()
         await until(lambda: "speech check-speech: disconnected" in log.read_text(), 5)
+        waits_id = "known-" + secrets.token_hex(12)
+        waits = await place(waits_id)
+        asked_before = len(agent.of("reask"))
         async with aiohttp.ClientSession() as http:
             async with http.post(f"http://{HUB}/register", json={"token": phone_token, "environment": "sandbox",
                                  "device": "check phone", "on_device": True}) as r:  # fmt: skip
                 pass
+        await until(lambda: len(agent.of("reask")) > asked_before, 3)
+        asked = agent.of("reask")[asked_before:]
+        check(f"the phone's own voice turned on, a call waiting for speech asks again: {waits.get('reason')}, {asked}",
+              waits.get("reason") == "no speech" and [m["call_ids"] for m in asked] == [[waits_id]])  # fmt: skip
         phone_id = "known-phone-" + secrets.token_hex(10)
         rings = await place(phone_id)
         check(f"no node, the phone speaks itself: the call rings: {rings}", rings.get("ok") is True and not rings.get("held"))
