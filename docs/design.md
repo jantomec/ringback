@@ -1847,7 +1847,11 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
      written is dropped as more of it comes. `hub/build.sh` makes it one universal binary with
      libopus linked in, which passed natively on the Intel Mac (the smoke test, 139).
   5. **Switching over:** the offline checks (`tools/phone-check`, `ask-check`,
-     `call-check`, `restart-check`) against the Go parts, then the phone.
+     `call-check`, `restart-check`) against the Go parts, then the phone. First,
+     `tools/line-check` places a call through the real hub, agent and speech node with a
+     stand-in phone: all 11 checks passed (44 s); the voice heard 0.62 s after answering, your
+     reply recognised word for word in 0.11 s, and the voice answering 2.02 s after your last
+     word (Haiku's first words after 1.53 s).
 7. **Several sessions + retries.** A second session waits for the first call to end.
    "Not now" retries on schedule while the queue waits. A final decline holds all calls
    until a call back releases them.
