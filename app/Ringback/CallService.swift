@@ -567,6 +567,8 @@ final class CallService: NSObject, CXProviderDelegate {
         var extra = ["error": reason]
         extra["note"] = note
         Switchboard.report(callID: callID, event: "audio failed", extra: extra)
+        // What the hub says now, so a banner can say why.
+        Task { @MainActor in await state.refreshWaiting() }
     }
 
     /// When the call's offer went, for the switchboard's log.

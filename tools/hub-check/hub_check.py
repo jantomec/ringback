@@ -122,7 +122,60 @@ async def main() -> int:
                 refused = e.status == 401
         check("a link with a wrong token is refused (401)", refused)
         check(f"the agent's hello is welcomed: {await agent.open()}", True)
+
+        # Before any speech node links, a call the agent places waits instead of ringing, and
+        # the app's status says why. The phone registers with a notification token, so the
+        # hub tries to tell it, and with no APNs key here, that push fails, which the status
+        # says too.
+        phone_token = "abcd" * 8
+        async with aiohttp.ClientSession() as http:
+            async with http.post(f"http://{HUB}/register", json={"token": phone_token, "environment": "sandbox",
+                                 "device": "check phone", "notification_token": "ef01" * 8}) as r:  # fmt: skip
+                registered = r.status
+        early_id = "known-" + secrets.token_hex(12)
+
+        async def place(call_id: str) -> dict:
+            n = len(agent.of("reply"))
+            await agent.ws.send_json({"type": "place", "id": 900 + n, "call_id": call_id, "project": "demo",
+                                      "subject": "Parser fix ready", "session_id": "s1", "question": False})  # fmt: skip
+            await until(lambda: len(agent.of("reply")) > n, 5)
+            return agent.of("reply")[-1]
+
+        async def waiting() -> dict:
+            async with aiohttp.ClientSession() as http:
+                async with http.post(f"http://{HUB}/waiting", json={"token": phone_token}) as r:
+                    return await r.json()
+
+        held = await place(early_id)
+        check(f"with no speech node linked, a call waits instead of ringing: {held}",
+              registered == 200 and held.get("held") is True and held.get("reason") == "no speech")  # fmt: skip
+        await asyncio.sleep(0.5)
+        answer = await waiting()
+        listed = [c for c in answer["calls"] if c["call_id"] == early_id]
+        status = answer.get("status", {})
+        check(f"the app's waiting calls list it, with its reason: {listed}", len(listed) == 1 and listed[0].get("reason") == "no speech")
+        check(f"and its status says calls can't be talked through: {status.get('speech')}",
+              status.get("speech", {}).get("ok") is False and status["speech"]["waiting"] == 1)  # fmt: skip
+        check(f"and that the last push to the phone failed: {status.get('push')}",
+              status.get("push", {}).get("ok") is False and status["push"].get("problem") == "key")  # fmt: skip
+        check(f"and the Macs linked: {status.get('macs')}", status.get("macs") == [{"name": "check-agent", "sessions": 0}])
+        async with aiohttp.ClientSession() as http:
+            async with http.post(f"http://{HUB}/register", json={"token": phone_token, "environment": "sandbox",
+                                 "device": "check phone", "notification_token": "ef01" * 8}) as r:  # fmt: skip
+                pass
+        again = (await waiting()).get("status", {}).get("push", {})
+        check(f"registering again doesn't hide a key problem: {again.get('problem')}", again.get("problem") == "key")
+
+        # A node links: the waiting call asks again, and rings.
         check(f"the speech node's hello is welcomed: {await node.open()}", True)
+        await until(lambda: agent.of("reask"), 3)
+        check(f"once a node links, the agent is asked to ask again: {agent.of('reask')}",
+              [m["call_ids"] for m in agent.of("reask")] == [[early_id]])  # fmt: skip
+        rang = await place(early_id)
+        answer = await waiting()
+        check(f"asked again, it rings, and the status is fine: {rang}, {answer.get('status', {}).get('speech')}",
+              rang.get("ok") is True and not rang.get("held") and not [c for c in answer["calls"] if c["call_id"] == early_id]
+              and answer["status"]["speech"]["ok"] is True)  # fmt: skip
 
         # The stand-in agent owns calls whose ID starts with "known-", and speaks a reply once
         # you've answered and the audio connected. The stand-in node makes a tone for each

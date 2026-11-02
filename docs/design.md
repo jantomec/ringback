@@ -1930,7 +1930,24 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
 - **Status and the hub's portal** (decided 2026-11-02; not started; "Status, the hub's
   portal and speech on the phone" under Architecture). In order:
   1. `/status` on the hub, and the app's banner. A call with no speech goes to the waiting
-     calls instead of ringing.
+     calls instead of ringing. Built 2026-11-02, checked offline (`tools/hub-check`, the
+     agent's tests), not yet on the phone:
+     - The status comes with the waiting calls (`status` in `/waiting`'s answer), which the
+       app fetches on opening, on pull to refresh, and now also when a call fails: speech
+       (ok while a node is linked, or while no Mac is linked and no call waits for one), the
+       last push to this phone (ok, or why not: Apple refused the hub's key, Apple no longer
+       knows the phone, the hub couldn't reach Apple, or something else), and the Macs
+       linked.
+     - A call an agent places while no node is linked waits, with the reason "no speech";
+       the phone gets one notification ("<project> wants to talk"), and the app lists it as
+       ringing when the speech computer is back. A node linking has the hub ask the agents
+       to ask again, and it rings.
+     - The app shows the most serious problem as a banner (not set up; the hub can't be
+       reached; calls can't ring this phone; Claude can't talk on calls; the microphone is
+       off), with "1 More Problem" for the rest. An offer the hub refuses for want of speech
+       (503) ends the call with "The speech computer is offline".
+     - Not tried: a push Apple refuses for the phone's registration ("phone"), which needs
+       APNs to answer so.
   2. The portal's pages, read-only.
   3. Its login: password and passcode first, then passkeys once the portal has a name and a
      certificate.

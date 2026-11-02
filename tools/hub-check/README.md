@@ -12,6 +12,11 @@ It runs the hub built in `hub/build` on localhost, with its config (tokens inclu
 state in a throwaway HOME, and checks:
 - a link with a wrong token is refused (401), and the agent's and node's hellos are
   welcomed;
+- before any speech node links, a call the agent places waits instead of ringing (held,
+  reason "no speech"); the app's waiting calls list it with its reason, and the status with
+  them says calls can't be talked through, that the last push to the phone failed for want of a
+  key (`problem` "key": there's no APNs key here), and which Macs are linked. Once the node links, the agent is asked to ask
+  again, and asked again, the call rings and the status is fine;
 - an offer for a call no agent owns is refused (403), as the voice server refused it;
 - an offer the agent accepts is answered; the agent hears `answered` and `connected`, and the
   node is told to warm up (`warm`, as for every offer and every call placed that rings), then

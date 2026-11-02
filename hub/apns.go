@@ -157,6 +157,71 @@ func push(ctx context.Context, config map[string]string, deviceToken, environmen
 	return response.StatusCode, answer.Reason, nil
 }
 
+// The last push to each phone, by the token it went to (its VoIP token or its notification
+// token), for the app's status: whether the hub can still reach it through APNs.
+var (
+	pushesMu sync.Mutex
+	pushes   = map[string]pushResult{}
+)
+
+type pushResult struct {
+	at     time.Time
+	status int
+	reason string
+	err    error
+}
+
+func (p pushResult) ok() bool { return p.err == nil && p.status == 200 }
+
+// problem is what a failed push says about how calls reach the phone, for the app's banner:
+// "key" (Apple refused the hub's key, or it has none), "phone" (Apple no longer knows this
+// phone's registration), "network" (the hub couldn't reach Apple), or "apple" (anything else
+// Apple refused).
+func (p pushResult) problem() string {
+	var setup apnsSetupError
+	switch {
+	case errors.As(p.err, &setup):
+		return "key"
+	case p.err != nil:
+		return "network"
+	case p.status == 403 && strings.HasSuffix(p.reason, "ProviderToken"), p.reason == "BadCertificate", p.reason == "BadCertificateEnvironment":
+		return "key"
+	case p.reason == "BadDeviceToken", p.reason == "Unregistered", p.reason == "DeviceTokenNotForTopic":
+		return "phone"
+	}
+	return "apple"
+}
+
+func recordPush(token string, status int, reason string, err error) {
+	pushesMu.Lock()
+	defer pushesMu.Unlock()
+	pushes[token] = pushResult{now(), status, reason, err}
+}
+
+// registeredAgain: the phone registered, which mends a push that failed because Apple no
+// longer knew it ("phone"); other failures stay until a push gets through.
+func registeredAgain(tokens ...string) {
+	pushesMu.Lock()
+	defer pushesMu.Unlock()
+	for _, token := range tokens {
+		if last, ok := pushes[token]; ok && !last.ok() && last.problem() == "phone" {
+			delete(pushes, token)
+		}
+	}
+}
+
+// lastPush is the latest push to a phone, to either of its tokens; false if none since the
+// hub started.
+func lastPush(device map[string]string, token string) (pushResult, bool) {
+	pushesMu.Lock()
+	defer pushesMu.Unlock()
+	last, found := pushes[token]
+	if other, ok := pushes[device["notification_token"]]; ok && (!found || other.at.After(last.at)) {
+		last, found = other, true
+	}
+	return last, found
+}
+
 // devicesByName are the registered phones sorted by name, as the lines about them are.
 func devicesByName(devices map[string]map[string]string) []map[string]string {
 	list := make([]map[string]string, 0, len(devices))
@@ -211,6 +276,7 @@ func ring(ctx context.Context, project, subject, voice, callID, session string) 
 			}
 		}
 		status, reason, err := push(ctx, config, token, orDefault(device["environment"], "sandbox"), voip, time.Time{}, payload)
+		recordPush(token, status, reason, err)
 		lines = append(lines, "call "+prefix(callID, 8)+" → "+orDefault(device["device"], "a phone")+": "+outcome(status, reason, err))
 		if err == nil && (reason == "BadDeviceToken" || reason == "Unregistered") {
 			stateMu.Lock()
@@ -228,24 +294,41 @@ func ring(ctx context.Context, project, subject, voice, callID, session string) 
 // shows and sounds. Tapping it opens the app, which lists the call. APNs keeps it until the
 // call would ring anyway (until), for a phone that's off meanwhile. One line per phone.
 func notifyQuestion(ctx context.Context, callID, project, subject string, until time.Time) []string {
+	return notifyWaiting(ctx, callID, "question", project+" has a question", orDefault(subject, "It waits until you take calls."), until)
+}
+
+// notifyNoSpeech tells every phone, as notifyQuestion does, that a call waits because no
+// speech node is linked: it can't be talked through, so it doesn't ring.
+func notifyNoSpeech(ctx context.Context, callID, project, subject string) []string {
+	body := "The speech computer is offline, so the call waits. It rings once it's back."
+	if subject != "" {
+		body = subject + ". " + body
+	}
+	return notifyWaiting(ctx, callID, "no speech", project+" wants to talk", body, time.Time{})
+}
+
+// notifyWaiting sends every phone one ordinary notification about a waiting call. One line per
+// phone, saying what it's about (what).
+func notifyWaiting(ctx context.Context, callID, what, title, body string, until time.Time) []string {
 	config := loadConfig()
 	stateMu.Lock()
 	devices := devicesByName(loadDevices())
 	stateMu.Unlock()
 	payload := map[string]any{"aps": map[string]any{
-		"alert":              map[string]string{"title": project + " has a question", "body": orDefault(subject, "It waits until you take calls.")},
+		"alert":              map[string]string{"title": title, "body": body},
 		"sound":              "default",
 		"interruption-level": "active",
 	}}
 	var lines []string
 	for _, device := range devices {
-		line := "call " + prefix(callID, 8) + ": question → " + orDefault(device["device"], "a phone")
+		line := "call " + prefix(callID, 8) + ": " + what + " → " + orDefault(device["device"], "a phone")
 		token, ok := device["notification_token"]
 		if !ok {
 			lines = append(lines, line+": no notification token")
 			continue
 		}
 		status, reason, err := push(ctx, config, token, orDefault(device["environment"], "sandbox"), alert, until, payload)
+		recordPush(token, status, reason, err)
 		lines = append(lines, line+": "+outcome(status, reason, err))
 	}
 	return lines
@@ -268,6 +351,7 @@ func askPhonesToCheck(ctx context.Context) []string {
 			continue
 		}
 		status, reason, err := push(ctx, config, token, orDefault(device["environment"], "sandbox"), background, time.Time{}, payload)
+		recordPush(token, status, reason, err)
 		lines = append(lines, "check → "+orDefault(device["device"], "a phone")+": "+outcome(status, reason, err))
 	}
 	return lines

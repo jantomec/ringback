@@ -169,14 +169,15 @@ func freshWaiting() map[string]map[string]string {
 }
 
 // holdCall keeps a call held until heldUntil (empty: until you take calls), new or asked
-// about again, with whether it has a question, as its voice server last said. True the first
-// time it has a question, when the phone is to be told: "notified" keeps when, so a restart or
-// asking again doesn't tell it twice.
-func holdCall(callID, project, subject, voice, heldUntil string, question bool, session string) (bool, error) {
+// about again, with whether it has a question, as its voice server last said, and why it
+// waits when it isn't your hours or the hold switch (reason: "no speech"). True the first time
+// it has a question or a reason, when the phone is to be told: "notified" keeps when, so a
+// restart or asking again doesn't tell it twice.
+func holdCall(callID, project, subject, voice, heldUntil string, question bool, session, reason string) (bool, error) {
 	calls := freshWaiting()
 	notified := calls[callID]["notified"]
 	call := map[string]string{"project": project, "voice": voice, "refreshed": isoNow()}
-	for key, value := range map[string]string{"held_until": heldUntil, "subject": subject, "session_id": session} {
+	for key, value := range map[string]string{"held_until": heldUntil, "subject": subject, "session_id": session, "reason": reason} {
 		if value != "" {
 			call[key] = value
 		}
@@ -184,7 +185,7 @@ func holdCall(callID, project, subject, voice, heldUntil string, question bool, 
 	if question {
 		call["question"] = "yes"
 	}
-	notify := question && notified == ""
+	notify := (question || reason != "") && notified == ""
 	if notify {
 		call["notified"] = isoNow()
 	} else if notified != "" {
@@ -192,6 +193,17 @@ func holdCall(callID, project, subject, voice, heldUntil string, question bool, 
 	}
 	calls[callID] = call
 	return notify, writeJSON(waitingPath, calls)
+}
+
+// waitingFor are the IDs of the calls that wait for a reason ("no speech").
+func waitingFor(reason string) []any {
+	ids := []any{}
+	for id, call := range loadWaiting() {
+		if call["reason"] == reason {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // removeWaiting takes a call off the list, as it rings, the app calls it now or sends its
@@ -234,7 +246,7 @@ func listWaiting() ([]map[string]any, error) {
 	listed := []map[string]any{}
 	for _, id := range ids {
 		item := map[string]any{"call_id": id, "question": calls[id]["question"] != ""}
-		for _, key := range []string{"project", "subject", "voice", "held_until", "session_id"} {
+		for _, key := range []string{"project", "subject", "voice", "held_until", "session_id", "reason"} {
 			if value, ok := calls[id][key]; ok {
 				item[key] = value
 			}

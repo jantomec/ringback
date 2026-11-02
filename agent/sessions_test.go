@@ -215,6 +215,24 @@ func TestHeldCalls(t *testing.T) {
 	outcome = a.waitMessage("s7-session", "outcome", 3*time.Second)
 	check(t, "the session is told you called", strings.HasPrefix(outcome["text"].(string), `The developer called about "Waiting" from the app while it waited and it lasted 24 s.`), outcome)
 	check(t, "and the hub wasn't asked about it again", placesFor(hub, nowID) == asked)
+
+	// Waiting for the speech computer: the mod hears why, and once a node links the hub's
+	// reask has it ask again, and it's placed.
+	hub.mu.Lock()
+	hub.place = func(map[string]any) map[string]any { return map[string]any{"held": true, "reason": "no speech"} }
+	hub.mu.Unlock()
+	speechID, answer := a.placeCall("s8-session", "No speech", "Waiting for the speech computer.")
+	check(t, "waiting for speech: the mod hears why", answer["held"] == true && answer["reason"] == "no speech", answer)
+	a.waitLog("call "+speechID[:8]+": held until the speech computer is back for demo", time.Second)
+	hub.mu.Lock()
+	hub.place = func(map[string]any) map[string]any { return map[string]any{"ok": true} }
+	hub.mu.Unlock()
+	from = hub.mark()
+	hub.send(map[string]any{"type": "reask", "call_ids": []any{speechID}})
+	m, _ = hub.wait(from, time.Second, is("place"))
+	check(t, "a node linked: asked again at once", m != nil && m["call_id"] == speechID, m)
+	a.waitLog("call "+speechID[:8]+": the speech computer is back, asking the hub again", time.Second)
+	a.waitLog("call "+speechID[:8]+": placed for demo (s8-sessi), held until now: No speech", time.Second)
 }
 
 // Calling back a call from the phone's history, and calling a session from Contacts.

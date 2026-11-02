@@ -71,7 +71,7 @@ Hello: `{"type": "hello", "version": 1, "name": "…"}`; the name is the Mac's, 
 | Direction | Message |
 |---|---|
 | agent → hub | `{"type": "sessions", "sessions": [{"session_id", "project", "since", "subject", "briefed_at"}]}` when they change and every 30 s, as `/sessions` today; the hub lists them with this agent as their place |
-| agent → hub | `{"type": "place", "id": 1, "call_id", "project", "subject", "session_id", "question": false}`, as `/call` today, to place a call or ask again about a held one. Reply: `{"ok": true}` (it rings) or `{"ok": true, "held": true, "held_until": "…"}` |
+| agent → hub | `{"type": "place", "id": 1, "call_id", "project", "subject", "session_id", "question": false}`, as `/call` today, to place a call or ask again about a held one. Reply: `{"ok": true}` (it rings), `{"ok": true, "held": true, "held_until": "…"}`, or, while no speech node is linked, `{"ok": true, "held": true, "reason": "no speech"}`: it waits, and the hub sends `reask` once a node links |
 | hub → agent | `{"type": "reask", "call_ids": [...]}`: you took calls; the held ones among them ask again now, as `/reask` today |
 
 ### The phone's requests

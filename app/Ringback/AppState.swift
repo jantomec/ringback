@@ -66,8 +66,25 @@ struct WaitingCall: Identifiable, Equatable {
     var question = false
     /// The session that placed it, if the switchboard says.
     var session: String?
+    /// Why it waits, when it isn't your work hours or the hold switch: "no speech", the
+    /// speech computer isn't linked to the hub, so it can't be talked through.
+    var reason: String?
 
     var callerName: String { project }
+    var waitsForSpeech: Bool { reason == "no speech" }
+}
+
+/// What the hub says about what calls need, with the waiting calls; the banners show what's
+/// wrong (Banners).
+struct HubStatus: Equatable {
+    /// Calls can be talked through: a speech computer is linked to the hub, or no call needs one.
+    var speechOK = true
+    /// Calls waiting for the speech computer.
+    var waitingForSpeech = 0
+    /// Why the last push to this phone failed: "key" (Apple refused the hub's key, or it has
+    /// none), "phone" (Apple no longer knows this phone), "network" (the hub couldn't reach
+    /// Apple) or "apple" (anything else); nil if it got through.
+    var pushProblem: String?
 }
 
 /// A session you can call: one with ringback on, on any of your Macs, as the switchboard lists
@@ -136,6 +153,9 @@ final class AppState {
     var waiting: [WaitingCall] = []
     /// The hold switch, as the switchboard last gave it with the waiting calls; nil until then.
     var hold: HoldState?
+    /// What the hub last said about what calls need, with the waiting calls; nil until then,
+    /// or from a switchboard from before the hub.
+    var status: HubStatus?
     /// The sessions you can call, by project, as the switchboard last gave them.
     var contacts: [Contact] = []
     /// Microphone access is off, so Claude can't hear you on calls.
@@ -167,6 +187,7 @@ final class AppState {
         guard Switchboard.url != nil, let token, let found = try? await Switchboard.waiting(token: token) else { return }
         if found.calls != waiting { waiting = found.calls }
         if let switched = found.hold, switched != hold { hold = HoldSwitch.remember(switched) }
+        if found.status != status { status = found.status }
         // The app's icon counts the waiting calls, and the Lock Screen widget says how many.
         HoldSwitch.remember(waiting: waiting.count)
         try? await UNUserNotificationCenter.current().setBadgeCount(waiting.count)

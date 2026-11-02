@@ -154,6 +154,7 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
         if (response as? HTTPURLResponse)?.statusCode == 403 {
             throw RefusedCall(reason: (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String)
         }
+        if (response as? HTTPURLResponse)?.statusCode == 503 { throw NoSpeech() }
         guard let answer = try JSONSerialization.jsonObject(with: data) as? [String: Any],
             let sdp = answer["sdp"] as? String
         else { throw URLError(.badServerResponse) }
@@ -345,6 +346,12 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
 /// The voice server answered `answered` with 404: it wasn't offered this call.
 private struct UnknownCall: LocalizedError {
     var errorDescription: String? { "The voice server doesn't know this call" }
+}
+
+/// The hub answered an offer 503: no speech computer is linked to it, so the call can't be
+/// talked through.
+struct NoSpeech: LocalizedError {
+    var errorDescription: String? { "The speech computer is offline" }
 }
 
 /// The voice server refused an offer (403): it didn't place the call, or for a call back, no

@@ -105,9 +105,13 @@ struct WaitingDetailsView: View {
                 }
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-                Section(call.heldUntil?.dayLabel ?? "On hold") {
-                    LabeledContent("Rings", value: call.heldUntil?.formatted(date: .omitted, time: .shortened) ?? "When you take calls")
+                Section(call.waitsForSpeech ? "Waiting" : call.heldUntil?.dayLabel ?? "On hold") {
+                    LabeledContent("Rings", value: call.waitsForSpeech ? "When the speech computer is back"
+                        : call.heldUntil?.formatted(date: .omitted, time: .shortened) ?? "When you take calls")
                         .foregroundStyle(.orange)
+                    if call.waitsForSpeech {
+                        Text("The speech computer isn't connected to your hub, so this call can't be talked through yet.")
+                    }
                     if call.question {
                         Text("The session asks you a question, and waits for your answer.")
                     }

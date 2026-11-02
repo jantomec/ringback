@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -126,6 +127,40 @@ func nodeOpened(l *link) {
 	registryMu.Lock()
 	nodes[l] = true
 	registryMu.Unlock()
+	// The calls that waited for speech ask again now, and ring.
+	stateMu.Lock()
+	ids := waitingFor("no speech")
+	stateMu.Unlock()
+	if len(ids) > 0 {
+		log(fmt.Sprintf("speech %s: %d calls waited for speech, they ask again", l.name, len(ids)))
+		broadcast(map[string]any{"type": "reask", "call_ids": ids})
+	}
+}
+
+// speechLinked says whether a speech node is linked, so the calls the hub carries can be
+// talked through.
+func speechLinked() bool {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	return len(nodes) > 0
+}
+
+// linked are the names of the speech nodes linked, and the Macs (agents) with how many of
+// their sessions listen, by name.
+func linked() ([]string, []map[string]any) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	names := []string{}
+	for l := range nodes {
+		names = append(names, l.name)
+	}
+	sort.Strings(names)
+	macs := []map[string]any{}
+	for l, sessions := range agents {
+		macs = append(macs, map[string]any{"name": l.name, "sessions": len(sessions)})
+	}
+	sort.Slice(macs, func(i, j int) bool { return macs[i]["name"].(string) < macs[j]["name"].(string) })
+	return names, macs
 }
 
 func nodeClosed(l *link) {

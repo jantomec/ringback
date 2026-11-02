@@ -56,10 +56,11 @@ enum Switchboard {
     }
 
     /// The calls that wait to ring, held while your phone holds calls, soonest first, with
-    /// whether each has a question (a switchboard from before doesn't say); and the hold switch
-    /// (nil from a switchboard before it). The switchboard gives them only to a phone that
+    /// whether each has a question (a switchboard from before doesn't say) and why it waits; the
+    /// hold switch (nil from a switchboard before it); and what the hub says about what calls
+    /// need (nil from a switchboard before the hub). The switchboard gives them only to a phone that
     /// registered, by its VoIP token: a call's ID lets whoever has it take the call.
-    static func waiting(token: String) async throws -> (calls: [WaitingCall], hold: HoldState?) {
+    static func waiting(token: String) async throws -> (calls: [WaitingCall], hold: HoldState?, status: HubStatus?) {
         let data = try await post("waiting", ["token": token], timeout: 5)
         guard let answer = try JSONSerialization.jsonObject(with: data) as? [String: Any],
             let calls = answer["calls"] as? [[String: Any]]
@@ -72,12 +73,20 @@ enum Switchboard {
             return WaitingCall(
                 id: id, project: project, subject: call["subject"] as? String, voice: voice,
                 heldUntil: (call["held_until"] as? String).flatMap(iso.date(from:)),
-                question: call["question"] as? Bool ?? false, session: call["session_id"] as? String)
+                question: call["question"] as? Bool ?? false, session: call["session_id"] as? String,
+                reason: call["reason"] as? String)
         }
         let hold = (answer["hold"] as? [String: Any]).flatMap { hold in
             (hold["hold"] as? Bool).map { HoldState(on: $0, until: (hold["until"] as? String).flatMap(iso.date(from:))) }
         }
-        return (waiting, hold)
+        let status = (answer["status"] as? [String: Any]).map { status in
+            let speech = status["speech"] as? [String: Any]
+            let push = status["push"] as? [String: Any]
+            return HubStatus(
+                speechOK: speech?["ok"] as? Bool ?? true, waitingForSpeech: speech?["waiting"] as? Int ?? 0,
+                pushProblem: push?["ok"] as? Bool == false ? push?["problem"] as? String ?? "apple" : nil)
+        }
+        return (waiting, hold, status)
     }
 
     /// The sessions you can call, with ringback on, on every Mac, by project, each with its

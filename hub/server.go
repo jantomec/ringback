@@ -126,6 +126,7 @@ func register(body map[string]any) (map[string]any, error) {
 	if err := registerDevice(token, environment, device, notificationToken, hours); err != nil {
 		return nil, err
 	}
+	registeredAgain(token, notificationToken)
 	checks := ""
 	if notificationToken != "" {
 		checks = ", with connection checks"
@@ -173,7 +174,7 @@ func call(body map[string]any) (map[string]any, error) {
 			with = ", with a question"
 		}
 		log("call " + prefix(callID, 8) + ": held " + holding + ", every phone on hold" + with)
-		notify, err := holdCall(callID, project, subject, voice, until, question, session)
+		notify, err := holdCall(callID, project, subject, voice, until, question, session, "")
 		if err != nil {
 			return nil, err
 		}
@@ -190,6 +191,24 @@ func call(body map[string]any) (map[string]any, error) {
 			answer["held_until"] = until
 		}
 		return answer, nil
+	}
+	// A call the hub carries (an agent's) needs a speech node: without one it can't be
+	// talked through, so it waits instead of ringing, and asks again once a node links.
+	if voice == hubURL() && !speechLinked() {
+		question, _ := body["question"].(bool)
+		log("call " + prefix(callID, 8) + ": waits, no speech node is linked")
+		notify, err := holdCall(callID, project, subject, voice, "", question, session, "no speech")
+		if err != nil {
+			return nil, err
+		}
+		if notify {
+			go func() {
+				for _, line := range notifyNoSpeech(context.Background(), callID, project, subject) {
+					log(line)
+				}
+			}()
+		}
+		return map[string]any{"ok": true, "held": true, "reason": "no speech"}, nil
 	}
 	if removed, err := removeWaiting(callID); err != nil {
 		return nil, err
@@ -284,7 +303,7 @@ func registered(body map[string]any) (string, map[string]string, error) {
 // switch (hold, as /hold answers). Only a phone that registered gets them, by its push
 // token: a call's ID lets whoever has it take the call.
 func waiting(body map[string]any) (map[string]any, error) {
-	_, device, err := registered(body)
+	token, device, err := registered(body)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +311,36 @@ func waiting(body map[string]any) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"calls": calls, "hold": newHold(device, now()).answer(device)}, nil
+	return map[string]any{"calls": calls, "hold": newHold(device, now()).answer(device), "status": status(token, device, calls)}, nil
+}
+
+// status is what the app shows a banner for, with the waiting calls: whether calls can be
+// talked through (a speech node is linked, or no call the hub carries needs one: no agent is
+// linked and none waits for one), whether the last push to this phone got through, and the
+// Macs linked, with how many of their sessions listen.
+func status(token string, device map[string]string, calls []map[string]any) map[string]any {
+	waitingForSpeech := 0
+	for _, call := range calls {
+		if call["reason"] == "no speech" {
+			waitingForSpeech++
+		}
+	}
+	nodes, macs := linked()
+	speech := map[string]any{"ok": len(nodes) > 0 || (len(macs) == 0 && waitingForSpeech == 0), "nodes": nodes, "waiting": waitingForSpeech}
+	pushed := map[string]any{"ok": true}
+	if last, found := lastPush(device, token); found {
+		pushed = map[string]any{"ok": last.ok(), "at": last.at.UTC().Format(time.RFC3339), "status": last.status}
+		if !last.ok() {
+			pushed["problem"] = last.problem()
+		}
+		if last.reason != "" {
+			pushed["reason"] = last.reason
+		}
+		if last.err != nil {
+			pushed["error"] = last.err.Error()
+		}
+	}
+	return map[string]any{"speech": speech, "push": pushed, "macs": macs}
 }
 
 // holdSwitch: the phone's hold switch. {"token", "hold": Bool} sets it, without "hold" it's

@@ -137,7 +137,7 @@ private struct WaitingRow: View {
     /// "Rings at 08:00 · subject", or "Question · rings at 08:00 · subject".
     private var detail: String {
         if isSending { return "Sending its question to the Claude app…" }
-        let when = call.heldUntil?.ringsLabel ?? "when you take calls"
+        let when = call.waitsForSpeech ? "when the speech computer is back" : call.heldUntil?.ringsLabel ?? "when you take calls"
         let rings = call.question ? "Question · rings \(when)" : "Rings \(when)"
         return [rings, call.subject].compactMap { $0 }.joined(separator: " · ")
     }

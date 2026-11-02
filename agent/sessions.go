@@ -119,6 +119,9 @@ const (
 	// itself (paused in the app, without work hours to take calls again): it rings when you
 	// take calls.
 	onHold = "on hold"
+	// noSpeech is a held call's heldUntil while no speech computer is linked to the hub, so it
+	// can't be talked through: it rings when one links (the hub asks it again then).
+	noSpeech = "no speech"
 	// The longest tool input and context the voice gets: the mod sends at most about this much.
 	inputMost   = 2000
 	contextMost = 1500
@@ -695,6 +698,9 @@ func (c *Calls) askHub(call *Call, question bool) (string, error) {
 	if heldUntil, _ := reply["held_until"].(string); heldUntil != "" {
 		return heldUntil, nil
 	}
+	if reason, _ := reply["reason"].(string); reason == noSpeech {
+		return noSpeech, nil
+	}
 	if held, _ := reply["held"].(bool); held {
 		return onHold, nil
 	}
@@ -802,7 +808,11 @@ func (c *Calls) reask(ids []string) int {
 	n := 0
 	for _, id := range ids {
 		if call, ok := c.calls.get(id); ok && call.HeldUntil != "" && call.holding != nil {
-			c.logCall(call, "you take calls, asking the hub again")
+			if call.HeldUntil == noSpeech {
+				c.logCall(call, "the speech computer is back, asking the hub again")
+			} else {
+				c.logCall(call, "you take calls, asking the hub again")
+			}
 			call.signalReask()
 			n++
 		}
@@ -1633,23 +1643,29 @@ func restarted(call *Call) string {
 	return about + " " + ended + ", before it was answered."
 }
 
-// until is a held call's heldUntil for the log: "until 2026-11-03T08:15:00+01:00", or "until
-// you take calls".
+// until is a held call's heldUntil for the log: "until 2026-11-03T08:15:00+01:00", "until
+// you take calls", or "until the speech computer is back".
 func until(heldUntil string) string {
 	if heldUntil == onHold {
 		return "until you take calls"
+	}
+	if heldUntil == noSpeech {
+		return "until the speech computer is back"
 	}
 	return "until " + heldUntil
 }
 
 // heldFields is what a session's mod hears of a held call: held, and when it rings
-// (held_until) if there's a time; nothing for a call that isn't held.
+// (held_until) if there's a time, or why it waits (reason); nothing for a call that isn't held.
 func heldFields(heldUntil string) map[string]any {
 	if heldUntil == "" {
 		return map[string]any{}
 	}
 	if heldUntil == onHold {
 		return map[string]any{"held": true}
+	}
+	if heldUntil == noSpeech {
+		return map[string]any{"held": true, "reason": noSpeech}
 	}
 	return map[string]any{"held": true, "held_until": heldUntil}
 }
