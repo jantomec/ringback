@@ -86,7 +86,7 @@ async def main() -> int:
         )  # fmt: skip
         node_pid = started.stdout.strip()
         node_up = await wait_for(hub_log, r"speech .*: connected", 120)
-        check(f"the speech node connected to the hub ({time.monotonic() - t:.1f} s, models loaded)", node_up is not None)
+        check(f"the speech node linked to the hub ({time.monotonic() - t:.1f} s)", node_up is not None)
         if not node_up:
             return 1
 
@@ -199,6 +199,13 @@ async def main() -> int:
         if node_pid:
             subprocess.run(["ssh", args.node, f"kill {node_pid}; sleep 1; tail -n 60 {args.node_dir}/line-check.log; rm -f {args.node_dir}/line-check.log"],
                            stdout=node_log.open("w"), stderr=subprocess.STDOUT, timeout=30)  # fmt: skip
+    # The node loads its models when the hub says a call is coming (`warm`, as the call is
+    # placed), and has them before you answer.
+    loaded = re.search(r"models loaded, ([\d.]+) s after `(\w+)`", node_log.read_text()) if node_log.exists() else None
+    check(f"the node loaded its models when the call was placed: {loaded and loaded[0]}",
+          loaded is not None and loaded[2] == "warm" and float(loaded[1]) < args.ring)  # fmt: skip
+    if loaded and "timing" in locals():
+        timing.insert(1, f"placed → the node's models loaded: {loaded[1]} s (warmed as the call was placed)")
     for name, path in (("hub", hub_log), ("agent", agent_log), ("speech node", node_log)):
         print(f"--- {name}\n{path.read_text()}")
     print("\n".join(lines))

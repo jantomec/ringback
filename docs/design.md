@@ -1882,7 +1882,14 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
      connection check reached it. Not yet tried through it: a ring, a held call, the hold
      switch and the app's lists, from the phone.
   2. **The speech node:** sherpa-onnx on CUDA, with Silero, Smart Turn v3, Parakeet v2 and
-     Kokoro; speed, RAM and VRAM measured on the workstation.
+     Kokoro; speed, RAM and VRAM measured on the workstation (`speech/README.md`). Between
+     calls it frees the GPU and its memory (2026-11-02): a small process keeps the hub's link
+     (16 MB, nothing on the GPU), and a worker process loads the models when the hub says a
+     call is coming (`warm`, sent as a call that rings is placed and on every offer) and exits
+     after 60 s without a call (2.8 GB and 2.9 GB of GPU memory while it runs). Loading takes
+     2.1–2.3 s, while the phone rings: through `tools/line-check` the models were loaded 2.11
+     s after the call was placed, and the voice was heard 0.57–0.67 s after answering, as
+     with the models always loaded (0.62 s).
   3. **The agent** (built 2026-11-02, checked with stand-ins; `agent/`, an 11 MB binary with
      no cgo): the mods' socket with the same routes and answers, the calls' state and its
      state file (read and written both ways with the voice server's Python), what sessions

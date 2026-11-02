@@ -10,6 +10,7 @@ It places a call for a session with phone-check's briefing, makes the phone's of
 rings, answers 6 s after placing, and once the opening has played says phone-check's reply
 ("Yes, push it and open the pull request.", spoken by another Kokoro voice). It checks:
 - the speech node and the agent link to the hub, with their tokens;
+- the node loads its models when the call is placed (the hub's `warm`), before you answer;
 - the call is placed through the hub, and the offer made while it rings is answered;
 - nothing is heard while it rings, then the voice within 3 s of answering;
 - the speech node heard your reply with its words (the hub's log), and the voice answered;
@@ -38,6 +39,9 @@ Results on 2026-11-02, the hub and agent on an Apple silicon Mac, the node on a 
 workstation with an NVIDIA GPU, over Nebula:
 - the first run failed on the check itself: it didn't turn the phone's microphone on when it
   answered, so the node heard nothing;
+- with the node unloading its models between calls (a later run, 12 checks with the warm-up,
+  44 s): the models were loaded 2.11 s after the call was placed, and the voice was heard
+  0.67 s after answering;
 - the second passed all 11 checks in 44 s. The node linked 2.2 s after it started, its models
   loaded. The voice was heard 0.62 s after answering (the hub sent its first audio 0.15 s
   after `/answered`, as in the first run). Haiku's first words came 2.21 s after the opening was
