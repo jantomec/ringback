@@ -94,6 +94,8 @@ answers as the voice server does today, and the hub answers the phone with the r
 | agent → hub | `{"type": "said", "call_id"}` at the end of a reply |
 | hub → agent | `{"type": "heard", "call_id", "text": "…"}` as the reply plays: everything of the current reply you've heard so far (for what's held until you've heard it announced) |
 | hub → agent | `{"type": "interrupted", "call_id", "heard": "…"}` when you cut the voice off: what you'd heard of its reply; the rest is never spoken |
-| hub → agent | `{"type": "turn", "call_id", "text": "…"}`: your words, for the next reply |
+| hub → agent | `{"type": "turn", "call_id", "text": "…"}`: your words, for the next reply. Empty when a stop held no words the recogniser caught: the voice carries on (the `NOISE` prompt today) |
+| hub → agent | `{"type": "speaking", "call_id"}` when the voice's audio starts playing; the first one is the opening, which the session's notes wait for |
+| hub → agent | `{"type": "idle", "call_id"}` when the voice has finished speaking and you aren't speaking. A note from the session (`[The session: …]`, a new ask) waits for it, then runs the next reply, as Pipecat holds a note today until the voice is done and you aren't talking |
 | agent → hub | `{"type": "hang_up", "call_id"}` when the call should end from the voice's side (none yet) |
 | hub → agent | `{"type": "ended", "call_id", "lasted": 12.3}` when the call ends; `lasted` is null if its audio never connected |
