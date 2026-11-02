@@ -72,6 +72,31 @@ Stages, by parts that each run anywhere:
 - **The first setup:** the hub on an always-on Intel Mac, the speech node on a Linux
   workstation with an NVIDIA GPU, natively (no Docker: it runs other work), and an agent on
   each Mac with sessions.
+- **Who does what in a call.** The hub owns the call's timing: the audio both ways, when you
+  start and stop speaking (from the node's events), stopping the voice the moment you
+  interrupt, cutting the reply into spoken pieces, and how much of it you've heard. The agent
+  owns what's said: the call's state as the voice server keeps it today (placed, held,
+  answered, remembered for calling back), Haiku and Opus, their tools, holding what's passed
+  on until you've heard it announced, and the transcript. The line between them is where
+  Pipecat's language-model service sits today (`claude_code.py`).
+- **The speech node's link** (`/speech`, a WebSocket the node opens, `Authorization: Bearer`
+  its token). JSON text frames for control, binary frames for audio, each starting with a
+  4-byte stream number. Hearing: the hub opens a stream with the call's sensitivity and
+  background filter, sends your audio (16 kHz, 16-bit mono, 20 ms frames), and the node
+  answers `speech started` (for interrupting), `speech stopped`, and `turn` with your words
+  once Smart Turn says you've finished (or after the wait, as today). Speaking: the hub sends
+  a piece of text, the node sends its audio back (24 kHz, 16-bit mono) as it's made, then
+  `spoken` with its length; the hub can cancel a stream. A node that's gone fails the call's
+  speech at once; there's no fallback yet.
+- **The agent's link** (`/agent`, a WebSocket the agent opens, `Authorization: Bearer` its
+  token). JSON messages, some as requests with an ID and a reply. The agent says which
+  sessions listen (as `/sessions` today) and places, re-asks and forgets calls (as `/call`
+  today; the hub answers held or ringing). When the phone offers a call, asks to call one now,
+  calls back, calls a session or sends a question to the Claude app, the hub asks the agent
+  that owns it, which accepts or refuses as the voice server does today. In a call the hub
+  sends `answered`, `connected`, your `turn`s, `interrupted` with what you'd heard, how much
+  of each reply you've heard as it plays, and `ended` with how long you talked; the agent
+  streams the reply's text back, and says when Opus takes over.
 - **Rejected:** a Python hub (its RAM and disk), Docker on the speech node (its footprint),
   Claude Code on the hub (it stays with the session, on its own Mac, and needs no server
   login), a Coral Edge TPU for speech (it can't run Kokoro or Parakeet).
