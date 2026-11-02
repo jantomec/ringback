@@ -1852,6 +1852,17 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
      stand-in phone: all 11 checks passed (44 s); the voice heard 0.62 s after answering, your
      reply recognised word for word in 0.11 s, and the voice answering 2.02 s after your last
      word (Haiku's first words after 1.53 s).
+     The first call on the phone (2026-11-02, locked, on mobile data, with AirPods; the hub on
+     the always-on Intel Mac, the node on the GPU workstation, the agent on an Apple silicon Mac)
+     worked end to end. The app made its offer 4 s after the push, and the audio connected
+     over Nebula 2.8 s before you answered; the voice started 0.31 s after you answered. You
+     cut the opening off and Haiku was told what you'd heard. All three of your turns were
+     recognised exactly, in 0.07–0.09 s. The voice answered 1.70–2.56 s after each turn,
+     Haiku's first words taking 1.43–2.37 s of that. What you asked to pass on went to the
+     session once you'd heard it announced, and hanging up ended the call at once (35.2 s
+     at the hub, 35.5 s on the phone). You found the voice clear and the delay small but
+     noticeable. Not tried on the phone yet: held calls, call backs, Sessions, asks, Opus,
+     a weak signal.
 7. **Several sessions + retries.** A second session waits for the first call to end.
    "Not now" retries on schedule while the queue waits. A final decline holds all calls
    until a call back releases them.
