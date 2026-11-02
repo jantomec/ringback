@@ -152,20 +152,13 @@ func totp(secret []byte, step int64, digits int) string {
 	return fmt.Sprintf("%0*d", digits, code%mod)
 }
 
-// takeCode checks a passcode against the steps around t (one either side, for clocks that
-// differ a little) and, if it's right and newer than the last one taken, takes it: no code
-// works twice. reused says it was right but already taken, or older than the last.
-func takeCode(code string, t time.Time) (ok, reused bool, err error) {
+// codeStep is the time step an account's passcode is right for, among the steps around t (one
+// either side, for clocks that differ a little), or -1.
+func codeStep(a *portalAccount, code string, t time.Time) (int64, error) {
 	code = strings.ReplaceAll(strings.TrimSpace(code), " ", "")
-	accountMu.Lock()
-	defer accountMu.Unlock()
-	a := loadAccount()
-	if a == nil {
-		return false, false, errors.New("no account")
-	}
 	secret, err := b32.DecodeString(strings.ToUpper(a.TOTPSecret))
 	if err != nil {
-		return false, false, err
+		return -1, err
 	}
 	current := t.Unix() / totpPeriod
 	var matched int64 = -1
@@ -174,7 +167,22 @@ func takeCode(code string, t time.Time) (ok, reused bool, err error) {
 			matched = step
 		}
 	}
+	return matched, nil
+}
+
+// takeCode checks a passcode and, if it's right and newer than the last one taken, takes it:
+// no code works twice. reused says it was right but already taken, or older than the last.
+func takeCode(code string, t time.Time) (ok, reused bool, err error) {
+	accountMu.Lock()
+	defer accountMu.Unlock()
+	a := loadAccount()
+	if a == nil {
+		return false, false, errors.New("no account")
+	}
+	matched, err := codeStep(a, code, t)
 	switch {
+	case err != nil:
+		return false, false, err
 	case matched < 0:
 		return false, false, nil
 	case matched <= a.LastStep:
@@ -192,7 +200,8 @@ func otpauthURI(a *portalAccount) string {
 }
 
 // createPortalUser is `ringback-hub portal-user NAME`: it asks for the password twice,
-// without showing it, and makes the account, printing what an authenticator app needs.
+// without showing it, prints what an authenticator app needs, and keeps the account once a
+// passcode from the app matches, so it can't end with an account whose key you didn't get.
 func createPortalUser(name string) {
 	if n := utf8.RuneCountInString(name); n < 1 || n > 64 || strings.ContainsAny(name, " \t\r\n:") {
 		fail("A user name is 1 to 64 characters, without spaces or colons.")
@@ -205,9 +214,42 @@ func createPortalUser(name string) {
 	if askPassword("Again: ", in) != password {
 		fail("The two passwords differ; nothing was changed.")
 	}
+	a := newAccount(name, password)
+	key := a.TOTPSecret
+	var groups []string
+	for len(key) > 4 {
+		groups, key = append(groups, key[:4]), key[4:]
+	}
+	groups = append(groups, key)
+	fmt.Printf(`Add the account %s to an authenticator app for its passcodes, with this link (open
+it on the device with the app) or the setup key:
+
+  %s
+
+  setup key: %s   (time-based, 6 digits, every 30 s)
+
+`, a.Name, otpauthURI(a), strings.Join(groups, " "))
+	for tries := 1; ; tries++ {
+		fmt.Fprint(os.Stderr, "The passcode the app shows, to check it: ")
+		line, err := in.ReadString('\n')
+		if err != nil && line == "" {
+			fail("\nNo passcode given; nothing was changed.")
+		}
+		step, err := codeStep(a, line, now())
+		if err != nil {
+			fail("Can't check the passcode: " + err.Error())
+		}
+		if step >= 0 {
+			a.LastStep = step
+			break
+		}
+		if tries == 3 {
+			fail("None of three passcodes matched; nothing was changed. Check the clocks of the phone and this computer, and run it again.")
+		}
+		fmt.Fprintln(os.Stderr, "That passcode doesn't match; try the one the app shows now.")
+	}
 	accountMu.Lock()
 	before := loadAccount()
-	a := newAccount(name, password)
 	err := saveAccount(a)
 	accountMu.Unlock()
 	if err != nil {
@@ -216,27 +258,13 @@ func createPortalUser(name string) {
 	if before != nil {
 		fmt.Printf("It replaces the account %s; whoever was signed in to it is signed out.\n", before.Name)
 	}
-	key := a.TOTPSecret
-	var groups []string
-	for len(key) > 4 {
-		groups, key = append(groups, key[:4]), key[4:]
-	}
-	groups = append(groups, key)
 	address := "http://<the hub's address>/portal/"
 	if data, err := os.ReadFile(configPath); err == nil && len(data) > 0 {
 		if listen := loadConfig()["listen"]; listen != "" {
 			address = "http://" + listen + "/portal/"
 		}
 	}
-	fmt.Printf(`The portal's account is %s. Add it to an authenticator app for its passcodes,
-with this link (open it on the device with the app) or the setup key:
-
-  %s
-
-  setup key: %s   (time-based, 6 digits, every 30 s)
-
-Then sign in at %s
-`, a.Name, otpauthURI(a), strings.Join(groups, " "), address)
+	fmt.Printf("The portal's account is %s. Sign in at %s\n", a.Name, address)
 }
 
 // askPassword reads a line from the terminal without echoing it (stty), or from whatever

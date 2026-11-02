@@ -152,8 +152,9 @@ always-on Mac:
 ```
 
 It asks for a password twice (at least 10 characters), without showing it, and prints an
-`otpauth://` link and a setup key: add either to your authenticator app. Running it again
-replaces the account and signs everyone out. The account is kept in `portal-user.json` in the
+`otpauth://` link and a setup key: add either to your authenticator app, then type the passcode
+the app shows. It keeps the account only once a passcode matches. Running it again replaces the
+account and signs everyone out. The account is kept in `portal-user.json` in the
 state folder, readable only by you: the password hashed (PBKDF2-SHA256, 600,000 iterations)
 and the passcodes' secret. Until there's an account, the portal shows only how to make one.
 - A sign-in lasts until it's gone unused for 12 h (the pages' own refreshes don't count) or the

@@ -1982,7 +1982,9 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
      certificate. The passcode built 2026-11-02 (`hub/portal_auth.go`): `ringback-hub
      portal-user NAME` makes the account (the password asked twice without echo, at least 10
      characters, hashed with PBKDF2-SHA256 at 600,000 iterations and a random salt; a TOTP
-     secret, printed as an `otpauth://` link and a setup key), in `portal-user.json`, mode 600.
+     secret, printed as an `otpauth://` link and a setup key; kept only once a passcode from the
+     authenticator app matches, so the command can't end with a key you didn't get), in
+     `portal-user.json`, mode 600.
      Signing in is the password, then the passcode (RFC 6238: SHA-1, 6 digits, 30 s, one step
      either side; none at or before the last taken works again). A session is a random
      32-byte ID in a cookie (`HttpOnly`, `SameSite=Strict`, `Path=/portal`), kept in memory
