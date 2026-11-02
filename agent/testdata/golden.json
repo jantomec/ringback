@@ -1,0 +1,3021 @@
+{
+ "outcomes": [
+  {
+   "name": "answered",
+   "subject": "Parser fix",
+   "answered": true,
+   "lasted": 75.4,
+   "contact": false,
+   "back": false,
+   "now": false,
+   "transcript": ".ringback/calls/x.md",
+   "text": "The call about \"Parser fix\" was answered and lasted 1 min 15 s. Its transcript: .ringback/calls/x.md"
+  },
+  {
+   "name": "answered, no transcript",
+   "subject": "Parser fix",
+   "answered": true,
+   "lasted": 44.5,
+   "contact": false,
+   "back": false,
+   "now": false,
+   "transcript": null,
+   "text": "The call about \"Parser fix\" was answered and lasted 44 s."
+  },
+  {
+   "name": "answered, no audio",
+   "subject": "Parser fix",
+   "answered": true,
+   "lasted": null,
+   "contact": false,
+   "back": false,
+   "now": false,
+   "transcript": null,
+   "text": "The call about \"Parser fix\" was answered, but its audio didn't connect."
+  },
+  {
+   "name": "answered, no subject",
+   "subject": "",
+   "answered": true,
+   "lasted": 120,
+   "contact": false,
+   "back": false,
+   "now": false,
+   "transcript": null,
+   "text": "The call was answered and lasted 2 min."
+  },
+  {
+   "name": "contact",
+   "subject": "Parser fix",
+   "answered": true,
+   "lasted": 61,
+   "contact": true,
+   "back": false,
+   "now": false,
+   "transcript": ".ringback/calls/y.md",
+   "text": "The developer called the session from the app's Contacts and it lasted 1 min 1 s. Its transcript: .ringback/calls/y.md"
+  },
+  {
+   "name": "contact, no audio",
+   "subject": "Parser fix",
+   "answered": true,
+   "lasted": null,
+   "contact": true,
+   "back": false,
+   "now": false,
+   "transcript": null,
+   "text": "The developer called the session from the app's Contacts, but the call didn't connect."
+  },
+  {
+   "name": "back",
+   "subject": "Parser fix",
+   "answered": true,
+   "lasted": 12.5,
+   "contact": false,
+   "back": true,
+   "now": false,
+   "transcript": ".ringback/calls/z.md",
+   "text": "The developer called back about \"Parser fix\" and it lasted 12 s. Its transcript: .ringback/calls/z.md"
+  },
+  {
+   "name": "back, no subject",
+   "subject": "",
+   "answered": true,
+   "lasted": 13.5,
+   "contact": false,
+   "back": true,
+   "now": false,
+   "transcript": null,
+   "text": "The developer called back about an earlier call and it lasted 14 s."
+  },
+  {
+   "name": "back, not connected",
+   "subject": "Parser fix",
+   "answered": false,
+   "lasted": null,
+   "contact": false,
+   "back": true,
+   "now": false,
+   "transcript": null,
+   "text": "The developer called back about \"Parser fix\", but the call didn't connect."
+  },
+  {
+   "name": "now",
+   "subject": "Parser fix",
+   "answered": true,
+   "lasted": 3600,
+   "contact": false,
+   "back": true,
+   "now": true,
+   "transcript": null,
+   "text": "The developer called about \"Parser fix\" from the app while it waited and it lasted 60 min."
+  },
+  {
+   "name": "now, not connected",
+   "subject": "Parser fix",
+   "answered": false,
+   "lasted": null,
+   "contact": false,
+   "back": true,
+   "now": true,
+   "transcript": null,
+   "text": "The developer called about \"Parser fix\" from the app while it waited, but the call didn't connect."
+  }
+ ],
+ "restarts": [
+  {
+   "name": "ringing",
+   "subject": "Parser fix",
+   "answered": false,
+   "contact": false,
+   "back": false,
+   "now": false,
+   "transcript": null,
+   "text": "The call about \"Parser fix\" ended when the voice server restarted, before it was answered."
+  },
+  {
+   "name": "ringing, no subject",
+   "subject": "",
+   "answered": false,
+   "contact": false,
+   "back": false,
+   "now": false,
+   "transcript": null,
+   "text": "The call ended when the voice server restarted, before it was answered."
+  },
+  {
+   "name": "answered",
+   "subject": "Parser fix",
+   "answered": true,
+   "contact": false,
+   "back": false,
+   "now": false,
+   "transcript": ".ringback/calls/a.md",
+   "text": "The call about \"Parser fix\" was answered, and ended when the voice server restarted. Its transcript: .ringback/calls/a.md"
+  },
+  {
+   "name": "answered, no transcript",
+   "subject": "Parser fix",
+   "answered": true,
+   "contact": false,
+   "back": false,
+   "now": false,
+   "transcript": null,
+   "text": "The call about \"Parser fix\" was answered, and ended when the voice server restarted."
+  },
+  {
+   "name": "contact",
+   "subject": "Parser fix",
+   "answered": false,
+   "contact": true,
+   "back": false,
+   "now": false,
+   "transcript": ".ringback/calls/b.md",
+   "text": "The developer called the session from the app's Contacts, and the call ended when the voice server restarted. Its transcript: .ringback/calls/b.md"
+  },
+  {
+   "name": "back",
+   "subject": "Parser fix",
+   "answered": false,
+   "contact": false,
+   "back": true,
+   "now": false,
+   "transcript": null,
+   "text": "The developer called back about \"Parser fix\", and the call ended when the voice server restarted."
+  },
+  {
+   "name": "now",
+   "subject": "Parser fix",
+   "answered": false,
+   "contact": false,
+   "back": true,
+   "now": true,
+   "transcript": ".ringback/calls/c.md",
+   "text": "The developer called about \"Parser fix\" from the app while it waited, and the call ended when the voice server restarted. Its transcript: .ringback/calls/c.md"
+  }
+ ],
+ "durations": [
+  {
+   "seconds": 0,
+   "text": "0 s"
+  },
+  {
+   "seconds": 0.4,
+   "text": "0 s"
+  },
+  {
+   "seconds": 0.5,
+   "text": "0 s"
+  },
+  {
+   "seconds": 1.5,
+   "text": "2 s"
+  },
+  {
+   "seconds": 2.5,
+   "text": "2 s"
+  },
+  {
+   "seconds": 29.5,
+   "text": "30 s"
+  },
+  {
+   "seconds": 30,
+   "text": "30 s"
+  },
+  {
+   "seconds": 44.5,
+   "text": "44 s"
+  },
+  {
+   "seconds": 59.5,
+   "text": "1 min"
+  },
+  {
+   "seconds": 60,
+   "text": "1 min"
+  },
+  {
+   "seconds": 61,
+   "text": "1 min 1 s"
+  },
+  {
+   "seconds": 89.5,
+   "text": "1 min 30 s"
+  },
+  {
+   "seconds": 90,
+   "text": "1 min 30 s"
+  },
+  {
+   "seconds": 119.5,
+   "text": "2 min"
+  },
+  {
+   "seconds": 150.5,
+   "text": "2 min 30 s"
+  },
+  {
+   "seconds": 3599.5,
+   "text": "60 min"
+  },
+  {
+   "seconds": 3600,
+   "text": "60 min"
+  },
+  {
+   "seconds": 7290.5,
+   "text": "121 min 30 s"
+  }
+ ],
+ "whileAgo": [
+  {
+   "seconds": 0,
+   "text": "less than a minute"
+  },
+  {
+   "seconds": 29,
+   "text": "less than a minute"
+  },
+  {
+   "seconds": 30,
+   "text": "less than a minute"
+  },
+  {
+   "seconds": 31,
+   "text": "a minute"
+  },
+  {
+   "seconds": 89,
+   "text": "a minute"
+  },
+  {
+   "seconds": 90,
+   "text": "2 minutes"
+  },
+  {
+   "seconds": 91,
+   "text": "2 minutes"
+  },
+  {
+   "seconds": 150,
+   "text": "2 minutes"
+  },
+  {
+   "seconds": 3569,
+   "text": "59 minutes"
+  },
+  {
+   "seconds": 3570,
+   "text": "about an hour"
+  },
+  {
+   "seconds": 3600,
+   "text": "about an hour"
+  },
+  {
+   "seconds": 5399,
+   "text": "about an hour"
+  },
+  {
+   "seconds": 5400,
+   "text": "about 2 hours"
+  },
+  {
+   "seconds": 9000,
+   "text": "about 2 hours"
+  },
+  {
+   "seconds": 86400,
+   "text": "about 24 hours"
+  }
+ ],
+ "leads": [
+  {
+   "kind": "back",
+   "briefing": "  The briefing.\n",
+   "ago": 3000,
+   "since": null,
+   "settled": [],
+   "talked": null,
+   "text": "This call is the developer calling back. The session called them 50 minutes ago about the\nbriefing below, and they didn't answer then. Now they've called you and you've picked up.\nSo don't introduce yourself, greet them at length, or say you're calling: open straight with\nwhat the missed call was about.\n\nThe missed call's briefing:\nThe briefing."
+  },
+  {
+   "kind": "back",
+   "briefing": "  The briefing.\n",
+   "ago": 3000,
+   "since": [
+    "Newer briefing.",
+    600
+   ],
+   "settled": [],
+   "talked": null,
+   "text": "This call is the developer calling back. The session called them 50 minutes ago about the\nbriefing below, and they didn't answer then. Now they've called you and you've picked up.\nSo don't introduce yourself, greet them at length, or say you're calling: open straight with\nwhat the missed call was about.\nThe session has written a newer briefing since, 10 minutes ago, which follows the missed call's.\nOpen with what changed since the missed call, then what needs the developer now. Where the\ntwo differ, the newer one is right.\n\nThe missed call's briefing:\nThe briefing.\n\nSince then, the session's latest briefing:\nNewer briefing."
+  },
+  {
+   "kind": "back",
+   "briefing": "  The briefing.\n",
+   "ago": 3000,
+   "since": null,
+   "settled": [
+    "permission abcd",
+    "question efgh"
+   ],
+   "talked": null,
+   "text": "This call is the developer calling back. The session called them 50 minutes ago about the\nbriefing below, and they didn't answer then. Now they've called you and you've picked up.\nSo don't introduce yourself, greet them at length, or say you're calling: open straight with\nwhat the missed call was about.\nThe session no longer waits for an answer to permission abcd or question efgh, which the missed call's briefing asks:\ndon't ask it.\n\nThe missed call's briefing:\nThe briefing."
+  },
+  {
+   "kind": "back",
+   "briefing": "  The briefing.\n",
+   "ago": 3000,
+   "since": null,
+   "settled": [],
+   "talked": 1200,
+   "text": "This call is the developer calling back. You talked with them about the briefing below 20 minutes\nago, on an earlier call; you don't know what was said then beyond it. Now they've called you\nagain and you've picked up. So don't introduce yourself, greet them at length, or say you're\ncalling. Open with what's changed since, briefly, if anything has; if nothing has, say so in\na few words and ask what they want.\n\nThe earlier call's briefing:\nThe briefing."
+  },
+  {
+   "kind": "back",
+   "briefing": "  The briefing.\n",
+   "ago": 3000,
+   "since": [
+    "Newer.",
+    30
+   ],
+   "settled": [
+    "permission abcd"
+   ],
+   "talked": 5,
+   "text": "This call is the developer calling back. You talked with them about the briefing below less than a minute\nago, on an earlier call; you don't know what was said then beyond it. Now they've called you\nagain and you've picked up. So don't introduce yourself, greet them at length, or say you're\ncalling. Open with what's changed since, briefly, if anything has; if nothing has, say so in\na few words and ask what they want.\nThe session has written a newer briefing since, less than a minute ago, which follows the earlier call's.\nOpen with what changed since the earlier call, then what needs the developer now. Where the\ntwo differ, the newer one is right.\nThe session no longer waits for an answer to permission abcd, which the earlier call's briefing asks:\ndon't ask it.\n\nThe earlier call's briefing:\nThe briefing.\n\nSince then, the session's latest briefing:\nNewer."
+  },
+  {
+   "kind": "back",
+   "briefing": " ",
+   "ago": 10,
+   "since": null,
+   "settled": [],
+   "talked": null,
+   "text": "This call is the developer calling back. The session called them less than a minute ago about the\nbriefing below, and they didn't answer then. Now they've called you and you've picked up.\nSo don't introduce yourself, greet them at length, or say you're calling: open straight with\nwhat the missed call was about.\n\nThe missed call's briefing:\n(none: the session hadn't written a briefing yet)"
+  },
+  {
+   "kind": "now",
+   "briefing": "The briefing.\n",
+   "text": "This call is the developer calling you. The session's call to them was waiting for their work\nhours to start; they saw it waiting in the app and called it now, and you've picked up. So\ndon't introduce yourself, greet them at length, or say you're calling: open straight with\nwhat the call is about.\n\nThe call's briefing:\nThe briefing."
+  },
+  {
+   "kind": "contact",
+   "briefing": null,
+   "ago": 0,
+   "heard": null,
+   "text": "This call is the developer calling the session: they chose it in their phone's contacts and\ncalled, and you've picked up. So don't introduce yourself, greet them at length, or say\nyou're calling.\nThe session hasn't written a briefing yet, so you know nothing of its work. Say so in a few\nwords, and ask what they want. You can pass their questions or instructions to the session.\n"
+  },
+  {
+   "kind": "contact",
+   "briefing": "  ",
+   "ago": 0,
+   "heard": null,
+   "text": "This call is the developer calling the session: they chose it in their phone's contacts and\ncalled, and you've picked up. So don't introduce yourself, greet them at length, or say\nyou're calling.\nThe session hasn't written a briefing yet, so you know nothing of its work. Say so in a few\nwords, and ask what they want. You can pass their questions or instructions to the session.\n"
+  },
+  {
+   "kind": "contact",
+   "briefing": "The latest.",
+   "ago": 700,
+   "heard": null,
+   "text": "This call is the developer calling the session: they chose it in their phone's contacts and\ncalled, and you've picked up. So don't introduce yourself, greet them at length, or say\nyou're calling.\nBelow is the session's latest briefing, written 12 minutes ago. Open with what's new in it,\nbriefly, then what needs the developer.\n\nThe session's latest briefing:\nThe latest."
+  },
+  {
+   "kind": "contact",
+   "briefing": "The latest.",
+   "ago": 700,
+   "heard": 300,
+   "text": "This call is the developer calling the session: they chose it in their phone's contacts and\ncalled, and you've picked up. So don't introduce yourself, greet them at length, or say\nyou're calling.\nBelow is the session's latest briefing, written 12 minutes ago. The developer already heard it\non a call 5 minutes ago, and the session hasn't reported anything since, so nothing is new.\nDon't retell it: open by saying in a few words that nothing new has come in since that\ncall, then ask what they want, and if the briefing leaves a question open, remind them of\nit in one short sentence. You can pass their questions or instructions to the session.\n\nThe session's latest briefing:\nThe latest."
+  }
+ ],
+ "instructions": [
+  {
+   "report": null,
+   "session": false,
+   "listening": true,
+   "text": "You are the voice of a Claude Code session, on a phone call with the developer who runs\nthat session. The phone already shows who is calling, so don't introduce yourself. Open\nthe call with what's new, then what needs the developer's attention.\n\nHow to talk:\n- Everything you write is spoken aloud by a speech synthesizer. Write plain spoken\n  sentences only: no lists, headings, tables, code, markdown, emoji or links.\n- Keep each turn short: one to three short sentences, about 40 words at most, unless\n  the developer asks for more. Offer detail instead of reciting it.\n- Round numbers, and say them the way people say them.\n- When several things need the developer's answer, say how many there are, then ask them\n  one at a time: ask the first, wait for their answer, then ask the next. Don't put them\n  all in one turn, unless the developer asks to hear them all.\n- Answer everything the developer says, even a short \"yeah\" or \"mhm\", if only briefly.\n\nUnderstanding the developer:\n- Their words reach you through speech recognition, and English may not be their first\n  language. Expect similar-sounding wrong words, especially technical terms and names,\n  and read them in context.\n- When a reply is too garbled to be sure what they meant, ask instead of guessing.\n\nNotes in square brackets come from the call, not from the developer:\n- \"You were interrupted\" tells you how much of your last reply the developer heard\n  before they spoke. They heard nothing after that. Answer what they said, and don't\n  repeat what they already heard. Don't mention the interruption, or what they didn't\n  hear.\n- Other notes say what happened on the call. Follow them.\n\nA better model:\n- If the developer asks for a better or smarter model, or for Opus, say a short line such\n  as \"Sure, I'll put Opus on.\", then call better_model. Opus then takes over the call,\n  with everything said so far. Don't offer it unprompted.\n\nYou can't act on the session yet: you can't pass it messages or approve anything for it.\nIf the developer asks you to, say that this isn't possible yet.\n\nThe session's report:\nThis is a test call of ringback's conversation. There's no real session behind it yet,\nso there's nothing to report. Say so briefly, then talk about whatever the developer\nwants.\n"
+  },
+  {
+   "report": "A report.",
+   "session": false,
+   "listening": true,
+   "text": "You are the voice of a Claude Code session, on a phone call with the developer who runs\nthat session. The phone already shows who is calling, so don't introduce yourself. Open\nthe call with what's new, then what needs the developer's attention.\n\nHow to talk:\n- Everything you write is spoken aloud by a speech synthesizer. Write plain spoken\n  sentences only: no lists, headings, tables, code, markdown, emoji or links.\n- Keep each turn short: one to three short sentences, about 40 words at most, unless\n  the developer asks for more. Offer detail instead of reciting it.\n- Round numbers, and say them the way people say them.\n- When several things need the developer's answer, say how many there are, then ask them\n  one at a time: ask the first, wait for their answer, then ask the next. Don't put them\n  all in one turn, unless the developer asks to hear them all.\n- Answer everything the developer says, even a short \"yeah\" or \"mhm\", if only briefly.\n\nUnderstanding the developer:\n- Their words reach you through speech recognition, and English may not be their first\n  language. Expect similar-sounding wrong words, especially technical terms and names,\n  and read them in context.\n- When a reply is too garbled to be sure what they meant, ask instead of guessing.\n\nNotes in square brackets come from the call, not from the developer:\n- \"You were interrupted\" tells you how much of your last reply the developer heard\n  before they spoke. They heard nothing after that. Answer what they said, and don't\n  repeat what they already heard. Don't mention the interruption, or what they didn't\n  hear.\n- Other notes say what happened on the call. Follow them.\n\nA better model:\n- If the developer asks for a better or smarter model, or for Opus, say a short line such\n  as \"Sure, I'll put Opus on.\", then call better_model. Opus then takes over the call,\n  with everything said so far. Don't offer it unprompted.\n\nYou can't act on the session yet: you can't pass it messages or approve anything for it.\nIf the developer asks you to, say that this isn't possible yet.\n\nThe session's report:\nA report.\n"
+  },
+  {
+   "report": "Brief.\n",
+   "session": true,
+   "listening": true,
+   "text": "You are the voice of a Claude Code session, on a phone call with the developer who runs\nthat session. The phone already shows who is calling, so don't introduce yourself. Open\nthe call with what's new, then what needs the developer's attention.\n\nHow to talk:\n- Everything you write is spoken aloud by a speech synthesizer. Write plain spoken\n  sentences only: no lists, headings, tables, code, markdown, emoji or links.\n- Keep each turn short: one to three short sentences, about 40 words at most, unless\n  the developer asks for more. Offer detail instead of reciting it.\n- Round numbers, and say them the way people say them.\n- When several things need the developer's answer, say how many there are, then ask them\n  one at a time: ask the first, wait for their answer, then ask the next. Don't put them\n  all in one turn, unless the developer asks to hear them all.\n- Answer everything the developer says, even a short \"yeah\" or \"mhm\", if only briefly.\n\nUnderstanding the developer:\n- Their words reach you through speech recognition, and English may not be their first\n  language. Expect similar-sounding wrong words, especially technical terms and names,\n  and read them in context.\n- When a reply is too garbled to be sure what they meant, ask instead of guessing.\n\nNotes in square brackets come from the call, not from the developer:\n- \"You were interrupted\" tells you how much of your last reply the developer heard\n  before they spoke. They heard nothing after that. Answer what they said, and don't\n  repeat what they already heard. Don't mention the interruption, or what they didn't\n  hear.\n- Other notes say what happened on the call. Follow them.\n\nA better model:\n- If the developer asks for a better or smarter model, or for Opus, say a short line such\n  as \"Sure, I'll put Opus on.\", then call better_model. Opus then takes over the call,\n  with everything said so far. Don't offer it unprompted.\n\nPassing things to the session:\n- You're only the session's voice, and do no work yourself. Whatever the developer wants\n  written, made, changed, run or looked up is for the session, even something short you\n  could make up on the spot, such as a poem: pass it on, and don't do it yourself.\n- Your pass_to_session tool passes a message to the session. Use it for what the\n  developer wants the session to do or know: an instruction, a decision, an answer to its\n  question, or a question the briefing doesn't answer. Write the message as from the\n  developer, keeping their own words where they matter. If what they said was too garbled\n  to be sure, ask them first.\n- Before you call the tool, say in a few words that you're passing it on. The message\n  goes only once the developer has heard you say so; that's for you to know, not to tell\n  them. After the tool, don't say it again.\n- Pass each thing once. Don't make up what the session will answer or do: you only know\n  what's in the briefing and in its notes.\n- While you're asking several things one at a time, don't pass each answer on as it comes:\n  nothing you say after the tool is heard, so the next question would be lost. Keep the\n  answers, ask the next question, and pass them all on together in one message once\n  you have them. If the developer wants to stop before then, pass on what they've\n  answered.\n- The session works on it, which can take a while, and its answer comes back to you as a\n  note: \"[The session: ...]\". Only such a note is the session's answer. Tell the developer\n  what it says, briefly and in your own spoken words.\n\nWhen the session asks the developer something:\n- The session can stop to ask the developer's permission for something it wants to do, or\n  ask them questions with options. A note says so, or the briefing if this call is about\n  it, with an id. The session waits for the answer.\n- Permission: explain in plain spoken words what it wants to do, and why, if what it was\n  doing says. Don't read commands, code or paths aloud; say what they do. If it deletes,\n  overwrites, pushes or spends something, say so. Then ask for a yes or no.\n- Only a clear yes is allow, and only a clear no is deny. Anything else, such as a\n  question (\"what does it do?\"), \"hmm\", or words too garbled to be sure of: answer it and\n  ask again. Never decide by yourself.\n- Questions: ask them one at a time, each with its options in plain spoken words, and wait\n  for its answer before the next. You can skip the options' descriptions unless they\n  matter or the developer asks. Take their choice, or their own answer if no option fits.\n  If it's unclear, ask again. Never choose for them. answer_question takes every\n  question's answer at once, so call it only when all of them have one.\n- Once they've answered, first say in a few words what you'll answer, such as \"Okay, I'll\n  let it run that.\", and only then call answer_permission or answer_question. The answer\n  counts only once the developer has heard you say it; don't tell them that, or how answers\n  reach the session. Put their own words in said.\n- Several can wait at once: answer each with its own id. Don't say the ids aloud.\n- If a note says the session no longer needs an answer, drop it.\n- You can only answer what the session asks. You can't approve anything else for it.\n\nThe session's briefing:\nBrief.\n"
+  },
+  {
+   "report": "Brief.",
+   "session": true,
+   "listening": false,
+   "text": "You are the voice of a Claude Code session, on a phone call with the developer who runs\nthat session. The phone already shows who is calling, so don't introduce yourself. Open\nthe call with what's new, then what needs the developer's attention.\n\nHow to talk:\n- Everything you write is spoken aloud by a speech synthesizer. Write plain spoken\n  sentences only: no lists, headings, tables, code, markdown, emoji or links.\n- Keep each turn short: one to three short sentences, about 40 words at most, unless\n  the developer asks for more. Offer detail instead of reciting it.\n- Round numbers, and say them the way people say them.\n- When several things need the developer's answer, say how many there are, then ask them\n  one at a time: ask the first, wait for their answer, then ask the next. Don't put them\n  all in one turn, unless the developer asks to hear them all.\n- Answer everything the developer says, even a short \"yeah\" or \"mhm\", if only briefly.\n\nUnderstanding the developer:\n- Their words reach you through speech recognition, and English may not be their first\n  language. Expect similar-sounding wrong words, especially technical terms and names,\n  and read them in context.\n- When a reply is too garbled to be sure what they meant, ask instead of guessing.\n\nNotes in square brackets come from the call, not from the developer:\n- \"You were interrupted\" tells you how much of your last reply the developer heard\n  before they spoke. They heard nothing after that. Answer what they said, and don't\n  repeat what they already heard. Don't mention the interruption, or what they didn't\n  hear.\n- Other notes say what happened on the call. Follow them.\n\nA better model:\n- If the developer asks for a better or smarter model, or for Opus, say a short line such\n  as \"Sure, I'll put Opus on.\", then call better_model. Opus then takes over the call,\n  with everything said so far. Don't offer it unprompted.\n\nThe session isn't listening any more: ringback was switched off in it, or the session has\nended. So you can't pass it messages, answer what it asked, or approve anything for it. If\nthe developer asks you to, say so briefly: they can do it at the terminal.\n\nThe session's briefing:\nBrief.\n"
+  }
+ ],
+ "asks": [
+  {
+   "id": "abcd",
+   "kind": "permission",
+   "request": {
+    "tool": "Bash",
+    "description": "Push the branch",
+    "input": "{\n  \"command\": \"git push\"\n}",
+    "context": "I fixed the parser.",
+    "project": "demo",
+    "cwd": "/tmp/demo",
+    "subject": "Permission to run"
+   },
+   "details": "Permission abcd: the session wants to use its tool Bash. Push the branch\nIts input:\n{\n  \"command\": \"git push\"\n}",
+   "note": "The session asks, and waits for the answer.\nPermission abcd: the session wants to use its tool Bash. Push the branch\nIts input:\n{\n  \"command\": \"git push\"\n}\nWhat the session was doing, in its own last words:\nI fixed the parser.\nPut it to the developer, then answer with answer_permission, once they've clearly said yes or no.",
+   "briefing": "The session has stopped because it needs the developer's permission, and this call is about that. Open the call by asking it.\n\nPermission abcd: the session wants to use its tool Bash. Push the branch\nIts input:\n{\n  \"command\": \"git push\"\n}\n\nWhat the session was doing, in its own last words:\nI fixed the parser."
+  },
+  {
+   "id": "efgh",
+   "kind": "question",
+   "request": {
+    "project": "demo",
+    "cwd": "/tmp/demo",
+    "subject": "2 questions: Branch, Checks",
+    "questions": [
+     {
+      "question": "Where should the fix go?",
+      "header": "Branch",
+      "options": [
+       {
+        "label": "A new branch",
+        "description": "fix-parser"
+       },
+       {
+        "label": "Main",
+        "description": ""
+       }
+      ],
+      "multiSelect": false
+     },
+     {
+      "question": "Which checks to run?",
+      "header": "Checks",
+      "options": [
+       {
+        "label": "Unit tests",
+        "description": ""
+       },
+       {
+        "label": "Lint",
+        "description": "ruff"
+       }
+      ],
+      "multiSelect": true
+     }
+    ],
+    "context": ""
+   },
+   "details": "Question efgh, with 2 question(s) for the developer:\n1. Where should the fix go? (Branch) Options: \"A new branch\": fix-parser; \"Main\".\n2. Which checks to run? (Checks) Options: \"Unit tests\"; \"Lint\": ruff. They can choose more than one.",
+   "note": "The session asks, and waits for the answer.\nQuestion efgh, with 2 question(s) for the developer:\n1. Where should the fix go? (Branch) Options: \"A new branch\": fix-parser; \"Main\".\n2. Which checks to run? (Checks) Options: \"Unit tests\"; \"Lint\": ruff. They can choose more than one.\nPut it to the developer, then answer with answer_question, once they've clearly chosen or answered.",
+   "briefing": "The session has stopped because it has questions for the developer, and this call is about that. Open the call by asking it.\n\nQuestion efgh, with 2 question(s) for the developer:\n1. Where should the fix go? (Branch) Options: \"A new branch\": fix-parser; \"Main\".\n2. Which checks to run? (Checks) Options: \"Unit tests\"; \"Lint\": ruff. They can choose more than one.\n"
+  },
+  {
+   "id": "ijkl",
+   "kind": "permission",
+   "request": {
+    "tool": "Read",
+    "description": "",
+    "input": "",
+    "context": "",
+    "project": "",
+    "cwd": "",
+    "subject": ""
+   },
+   "details": "Permission ijkl: the session wants to use its tool Read.",
+   "note": "The session asks, and waits for the answer.\nPermission ijkl: the session wants to use its tool Read.\nPut it to the developer, then answer with answer_permission, once they've clearly said yes or no.",
+   "briefing": "The session has stopped because it needs the developer's permission, and this call is about that. Open the call by asking it.\n\nPermission ijkl: the session wants to use its tool Read.\n"
+  }
+ ],
+ "answered": [
+  {
+   "kind": "permission",
+   "request": {
+    "tool": "Bash",
+    "description": "Push the branch",
+    "input": "{\n  \"command\": \"git push\"\n}",
+    "context": "I fixed the parser.",
+    "project": "demo",
+    "cwd": "/tmp/demo",
+    "subject": "Permission to run"
+   },
+   "id": "abcd",
+   "outcome": "allow",
+   "said": "Yes, go ahead.",
+   "answers": null,
+   "text": "permission abcd: allow (they said \"Yes, go ahead.\")"
+  },
+  {
+   "kind": "permission",
+   "request": {
+    "tool": "Bash",
+    "description": "Push the branch",
+    "input": "{\n  \"command\": \"git push\"\n}",
+    "context": "I fixed the parser.",
+    "project": "demo",
+    "cwd": "/tmp/demo",
+    "subject": "Permission to run"
+   },
+   "id": "abcd",
+   "outcome": "deny",
+   "said": null,
+   "answers": null,
+   "text": "permission abcd: deny"
+  },
+  {
+   "kind": "question",
+   "request": {
+    "project": "demo",
+    "cwd": "/tmp/demo",
+    "subject": "2 questions: Branch, Checks",
+    "questions": [
+     {
+      "question": "Where should the fix go?",
+      "header": "Branch",
+      "options": [
+       {
+        "label": "A new branch",
+        "description": "fix-parser"
+       },
+       {
+        "label": "Main",
+        "description": ""
+       }
+      ],
+      "multiSelect": false
+     },
+     {
+      "question": "Which checks to run?",
+      "header": "Checks",
+      "options": [
+       {
+        "label": "Unit tests",
+        "description": ""
+       },
+       {
+        "label": "Lint",
+        "description": "ruff"
+       }
+      ],
+      "multiSelect": true
+     }
+    ],
+    "context": ""
+   },
+   "id": "efgh",
+   "outcome": "answered",
+   "said": "Main.",
+   "answers": {
+    "Where should the fix go?": "Main",
+    "Which checks to run?": "Lint"
+   },
+   "text": "question efgh: Where should the fix go? \"Main\"; Which checks to run? \"Lint\" (they said \"Main.\")"
+  },
+  {
+   "kind": "question",
+   "request": {
+    "project": "demo",
+    "cwd": "/tmp/demo",
+    "subject": "2 questions: Branch, Checks",
+    "questions": [
+     {
+      "question": "Where should the fix go?",
+      "header": "Branch",
+      "options": [
+       {
+        "label": "A new branch",
+        "description": "fix-parser"
+       },
+       {
+        "label": "Main",
+        "description": ""
+       }
+      ],
+      "multiSelect": false
+     },
+     {
+      "question": "Which checks to run?",
+      "header": "Checks",
+      "options": [
+       {
+        "label": "Unit tests",
+        "description": ""
+       },
+       {
+        "label": "Lint",
+        "description": "ruff"
+       }
+      ],
+      "multiSelect": true
+     }
+    ],
+    "context": ""
+   },
+   "id": "efgh",
+   "outcome": "none",
+   "said": null,
+   "answers": null,
+   "text": "question efgh: none"
+  }
+ ],
+ "matches": [
+  {
+   "given": [
+    {
+     "question": "Where should the fix go?",
+     "answer": "a new branch"
+    },
+    {
+     "question": "checks",
+     "answer": "unit tests, lint"
+    }
+   ],
+   "answers": [
+    [
+     "Where should the fix go?",
+     "A new branch"
+    ],
+    [
+     "Which checks to run?",
+     "Unit tests, Lint"
+    ]
+   ],
+   "missing": []
+  },
+  {
+   "given": [
+    {
+     "question": "x",
+     "answer": "main"
+    },
+    {
+     "question": "y",
+     "answer": "Lint"
+    }
+   ],
+   "answers": [
+    [
+     "Where should the fix go?",
+     "Main"
+    ],
+    [
+     "Which checks to run?",
+     "Lint"
+    ]
+   ],
+   "missing": []
+  },
+  {
+   "given": [
+    {
+     "question": "Where should the fix go?",
+     "answer": "Somewhere else"
+    }
+   ],
+   "answers": [
+    [
+     "Where should the fix go?",
+     "Somewhere else"
+    ]
+   ],
+   "missing": [
+    "Which checks to run?"
+   ]
+  },
+  {
+   "given": [
+    {
+     "question": "Branch",
+     "answer": "  MAIN  "
+    },
+    {
+     "question": "Which checks to run?",
+     "answer": "lint, docs"
+    }
+   ],
+   "answers": [
+    [
+     "Where should the fix go?",
+     "Main"
+    ],
+    [
+     "Which checks to run?",
+     "lint, docs"
+    ]
+   ],
+   "missing": []
+  },
+  {
+   "given": "not a list",
+   "answers": [],
+   "missing": [
+    "Where should the fix go?",
+    "Which checks to run?"
+   ]
+  },
+  {
+   "given": [],
+   "answers": [],
+   "missing": [
+    "Where should the fix go?",
+    "Which checks to run?"
+   ]
+  },
+  {
+   "given": [
+    {
+     "question": "Where should the fix go?",
+     "answer": ""
+    },
+    {
+     "answer": "Lint"
+    }
+   ],
+   "answers": [
+    [
+     "Which checks to run?",
+     "Lint"
+    ]
+   ],
+   "missing": [
+    "Where should the fix go?"
+   ]
+  }
+ ],
+ "plain": [
+  {
+   "text": "Where should the fix go?",
+   "plain": "where should the fix go"
+  },
+  {
+   "text": "  A New-Branch!  ",
+   "plain": "a new branch"
+  },
+  {
+   "text": "Ünïcode ok",
+   "plain": "n code ok"
+  },
+  {
+   "text": "",
+   "plain": ""
+  }
+ ],
+ "cut": [
+  {
+   "text": "short",
+   "most": 10,
+   "cut": "short"
+  },
+  {
+   "text": "exactly10!",
+   "most": 10,
+   "cut": "exactly10!"
+  },
+  {
+   "text": "one too long",
+   "most": 11,
+   "cut": "one too lo…"
+  },
+  {
+   "text": "üüüüü",
+   "most": 3,
+   "cut": "üü…"
+  }
+ ],
+ "heldFields": [
+  {
+   "held_until": null,
+   "fields": {}
+  },
+  {
+   "held_until": "",
+   "fields": {}
+  },
+  {
+   "held_until": "on hold",
+   "fields": {
+    "held": true
+   }
+  },
+  {
+   "held_until": "2026-11-03T08:15:00+01:00",
+   "fields": {
+    "held": true,
+    "held_until": "2026-11-03T08:15:00+01:00"
+   }
+  }
+ ],
+ "until": [
+  {
+   "held_until": "on hold",
+   "text": "until you take calls"
+  },
+  {
+   "held_until": "2026-11-03T08:15:00+01:00",
+   "text": "until 2026-11-03T08:15:00+01:00"
+  }
+ ],
+ "sentences": [
+  {
+   "text": "Okay, I'll",
+   "end": 0
+  },
+  {
+   "text": "Sure.",
+   "end": 5
+  },
+  {
+   "text": "Hello there. How are",
+   "end": 12
+  },
+  {
+   "text": "Okay, I will",
+   "end": 0
+  },
+  {
+   "text": "Dr. Smith is here. Yes",
+   "end": 18
+  },
+  {
+   "text": "It costs 3.5 dollars. Ok",
+   "end": 21
+  },
+  {
+   "text": "Done! Next",
+   "end": 5
+  },
+  {
+   "text": "Yes; and",
+   "end": 0
+  },
+  {
+   "text": "e.g. this is it. And",
+   "end": 16
+  },
+  {
+   "text": "I said \"stop.\" Then",
+   "end": 14
+  },
+  {
+   "text": "Okay… so",
+   "end": 0
+  },
+  {
+   "text": "The U.S. is big. Yes",
+   "end": 16
+  },
+  {
+   "text": "Okay, I'll tell it to push. Anything else?",
+   "end": 27
+  },
+  {
+   "text": "I'll tell it to push. Anything else?",
+   "end": 21
+  },
+  {
+   "text": "Got it, a new branch with both checks.",
+   "end": 38
+  },
+  {
+   "text": "What should I tell it?",
+   "end": 22
+  },
+  {
+   "text": "Right? Yes.",
+   "end": 6
+  },
+  {
+   "text": "Wait... what",
+   "end": 0
+  }
+ ],
+ "reprs": [
+  {
+   "text": "plain",
+   "repr": "'plain'"
+  },
+  {
+   "text": "it's",
+   "repr": "\"it's\""
+  },
+  {
+   "text": "say \"hi\"",
+   "repr": "'say \"hi\"'"
+  },
+  {
+   "text": "both ' and \"",
+   "repr": "'both \\' and \"'"
+  },
+  {
+   "text": "line\nbreak\ttab",
+   "repr": "'line\\nbreak\\ttab'"
+  },
+  {
+   "text": "back\\slash",
+   "repr": "'back\\\\slash'"
+  },
+  {
+   "text": "uni … ü",
+   "repr": "'uni … ü'"
+  },
+  {
+   "text": "\u0007bell",
+   "repr": "'\\x07bell'"
+  }
+ ],
+ "replies": [
+  {
+   "name": "announced, then passed",
+   "spoken": [
+    "Sure, ",
+    "I'll ",
+    "pass ",
+    "that ",
+    "on."
+   ],
+   "reply": "Sure, I'll pass that on.",
+   "answers": [
+    "Held until the developer has heard you say you're passing it on, then passed to the session; if they cut you off before that, it's dropped and you'll be told. The session's answer comes later, in a note \"[The session: ...]\". Until then you don't know what it will say or do. You've told the developer already: end your reply now, unless there's something else to say."
+   ],
+   "held": [
+    {
+     "kind": "message",
+     "text": "Push the branch.",
+     "words": 5,
+     "needed": 5
+    }
+   ],
+   "unsaid": "",
+   "cuts": [
+    {
+     "heard": "",
+     "note": "[You were interrupted before the developer heard any of your last reply.]\n[Not passed to the session, because the developer cut you off before hearing you say so: \"Push the branch.\". Pass it again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Sure,",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Sure,\"]\n[Not passed to the session, because the developer cut you off before hearing you say so: \"Push the branch.\". Pass it again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Sure, I'll",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Sure, I'll\"]\n[Not passed to the session, because the developer cut you off before hearing you say so: \"Push the branch.\". Pass it again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Sure, I'll pass",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Sure, I'll pass\"]\n[Not passed to the session, because the developer cut you off before hearing you say so: \"Push the branch.\". Pass it again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Sure, I'll pass that",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Sure, I'll pass that\"]\n[Not passed to the session, because the developer cut you off before hearing you say so: \"Push the branch.\". Pass it again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Sure, I'll pass that on.",
+     "note": "",
+     "left": 0
+    }
+   ],
+   "sent": []
+  },
+  {
+   "name": "passed before saying anything",
+   "spoken": [
+    "Okay. ",
+    "I'll tell ",
+    "it ",
+    "to ",
+    "push. ",
+    "Anything ",
+    "else?"
+   ],
+   "reply": "Okay. I'll tell it to push. Anything else?",
+   "answers": [
+    "Held until the developer has heard you say you're passing it on, then passed to the session; if they cut you off before that, it's dropped and you'll be told. The session's answer comes later, in a note \"[The session: ...]\". Until then you don't know what it will say or do. You've told the developer already: end your reply now, unless there's something else to say."
+   ],
+   "held": [
+    {
+     "kind": "message",
+     "text": "Push.",
+     "words": null,
+     "needed": 6
+    }
+   ],
+   "unsaid": "",
+   "cuts": [
+    {
+     "heard": "",
+     "note": "[You were interrupted before the developer heard any of your last reply.]\n[Not passed to the session, because the developer cut you off before hearing you say so: \"Push.\". Pass it again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay.",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay.\"]\n[Not passed to the session, because the developer cut you off before hearing you say so: \"Push.\". Pass it again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. I'll",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. I'll\"]\n[Not passed to the session, because the developer cut you off before hearing you say so: \"Push.\". Pass it again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. I'll tell",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. I'll tell\"]\n[Not passed to the session, because the developer cut you off before hearing you say so: \"Push.\". Pass it again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. I'll tell it",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. I'll tell it\"]\n[Not passed to the session, because the developer cut you off before hearing you say so: \"Push.\". Pass it again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. I'll tell it to",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. I'll tell it to\"]\n[Not passed to the session, because the developer cut you off before hearing you say so: \"Push.\". Pass it again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. I'll tell it to push.",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. I'll tell it to push.\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. I'll tell it to push. Anything",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. I'll tell it to push. Anything\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. I'll tell it to push. Anything else?",
+     "note": "",
+     "left": 0
+    }
+   ],
+   "sent": []
+  },
+  {
+   "name": "said again after the tool",
+   "spoken": [
+    "Passing ",
+    "that ",
+    "on ",
+    "now."
+   ],
+   "reply": "Passing that on now.",
+   "answers": [
+    "Held until the developer has heard you say you're passing it on, then passed to the session; if they cut you off before that, it's dropped and you'll be told. The session's answer comes later, in a note \"[The session: ...]\". Until then you don't know what it will say or do. You've told the developer already: end your reply now, unless there's something else to say."
+   ],
+   "held": [
+    {
+     "kind": "message",
+     "text": "Push it.",
+     "words": 4,
+     "needed": 4
+    }
+   ],
+   "unsaid": "",
+   "cuts": [
+    {
+     "heard": "",
+     "note": "[You were interrupted before the developer heard any of your last reply.]\n[Not passed to the session, because the developer cut you off before hearing you say so: \"Push it.\". Pass it again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Passing",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Passing\"]\n[Not passed to the session, because the developer cut you off before hearing you say so: \"Push it.\". Pass it again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Passing that",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Passing that\"]\n[Not passed to the session, because the developer cut you off before hearing you say so: \"Push it.\". Pass it again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Passing that on",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Passing that on\"]\n[Not passed to the session, because the developer cut you off before hearing you say so: \"Push it.\". Pass it again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Passing that on now.",
+     "note": "",
+     "left": 0
+    }
+   ],
+   "sent": []
+  },
+  {
+   "name": "permission allowed",
+   "spoken": [
+    "Okay, ",
+    "I'll ",
+    "let ",
+    "it ",
+    "run ",
+    "that."
+   ],
+   "reply": "Okay, I'll let it run that.",
+   "answers": [
+    "Held until the developer has heard you say what you'll answer, then given to the session; if they cut you off before that, it's dropped and you'll be told. You've told the developer already: end your reply now, unless there's something else to say."
+   ],
+   "held": [
+    {
+     "kind": "answer",
+     "text": "permission perm: allow ('Yes, go ahead.')",
+     "words": 6,
+     "needed": 6
+    }
+   ],
+   "unsaid": "",
+   "cuts": [
+    {
+     "heard": "",
+     "note": "[You were interrupted before the developer heard any of your last reply.]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: permission perm: allow ('Yes, go ahead.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay,",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay,\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: permission perm: allow ('Yes, go ahead.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay, I'll",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay, I'll\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: permission perm: allow ('Yes, go ahead.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay, I'll let",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay, I'll let\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: permission perm: allow ('Yes, go ahead.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay, I'll let it",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay, I'll let it\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: permission perm: allow ('Yes, go ahead.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay, I'll let it run",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay, I'll let it run\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: permission perm: allow ('Yes, go ahead.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay, I'll let it run that.",
+     "note": "",
+     "left": 0
+    }
+   ],
+   "sent": []
+  },
+  {
+   "name": "permission unknown and malformed",
+   "spoken": [
+    "Okay. "
+   ],
+   "reply": "Okay. ",
+   "answers": [
+    "Nothing answered: no permission 'zzzz' waits. Waiting for an answer: permission perm, question ques.",
+    "Nothing answered: answer_permission needs allow, true or false."
+   ],
+   "held": [],
+   "unsaid": "",
+   "cuts": [
+    {
+     "heard": "",
+     "note": "[You were interrupted before the developer heard any of your last reply.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay.",
+     "note": "",
+     "left": 0
+    }
+   ],
+   "sent": []
+  },
+  {
+   "name": "questions answered",
+   "spoken": [
+    "Got ",
+    "it, ",
+    "a ",
+    "new ",
+    "branch ",
+    "with ",
+    "both ",
+    "checks."
+   ],
+   "reply": "Got it, a new branch with both checks.",
+   "answers": [
+    "Held until the developer has heard you say what you'll answer, then given to the session; if they cut you off before that, it's dropped and you'll be told. You've told the developer already: end your reply now, unless there's something else to say."
+   ],
+   "held": [
+    {
+     "kind": "answer",
+     "text": "question ques: {'Where should the fix go?': 'A new branch', 'Which checks to run?': 'Unit tests, Lint'} ('A new branch, and both checks.')",
+     "words": 8,
+     "needed": 8
+    }
+   ],
+   "unsaid": "",
+   "cuts": [
+    {
+     "heard": "",
+     "note": "[You were interrupted before the developer heard any of your last reply.]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: question ques: {'Where should the fix go?': 'A new branch', 'Which checks to run?': 'Unit tests, Lint'} ('A new branch, and both checks.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Got",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Got\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: question ques: {'Where should the fix go?': 'A new branch', 'Which checks to run?': 'Unit tests, Lint'} ('A new branch, and both checks.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Got it,",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Got it,\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: question ques: {'Where should the fix go?': 'A new branch', 'Which checks to run?': 'Unit tests, Lint'} ('A new branch, and both checks.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Got it, a",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Got it, a\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: question ques: {'Where should the fix go?': 'A new branch', 'Which checks to run?': 'Unit tests, Lint'} ('A new branch, and both checks.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Got it, a new",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Got it, a new\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: question ques: {'Where should the fix go?': 'A new branch', 'Which checks to run?': 'Unit tests, Lint'} ('A new branch, and both checks.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Got it, a new branch",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Got it, a new branch\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: question ques: {'Where should the fix go?': 'A new branch', 'Which checks to run?': 'Unit tests, Lint'} ('A new branch, and both checks.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Got it, a new branch with",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Got it, a new branch with\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: question ques: {'Where should the fix go?': 'A new branch', 'Which checks to run?': 'Unit tests, Lint'} ('A new branch, and both checks.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Got it, a new branch with both",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Got it, a new branch with both\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: question ques: {'Where should the fix go?': 'A new branch', 'Which checks to run?': 'Unit tests, Lint'} ('A new branch, and both checks.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Got it, a new branch with both checks.",
+     "note": "",
+     "left": 0
+    }
+   ],
+   "sent": []
+  },
+  {
+   "name": "questions half answered",
+   "spoken": [
+    "Okay. ",
+    "Which checks ",
+    "should ",
+    "it ",
+    "run?"
+   ],
+   "reply": "Okay. Which checks should it run?",
+   "answers": [
+    "Nothing answered: answer_question needs an answer to each question. Missing: ['Which checks to run?']"
+   ],
+   "held": [],
+   "unsaid": "",
+   "cuts": [
+    {
+     "heard": "",
+     "note": "[You were interrupted before the developer heard any of your last reply.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay.",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay.\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. Which",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. Which\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. Which checks",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. Which checks\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. Which checks should",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. Which checks should\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. Which checks should it",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. Which checks should it\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. Which checks should it run?",
+     "note": "",
+     "left": 0
+    }
+   ],
+   "sent": []
+  },
+  {
+   "name": "questions in order",
+   "spoken": [
+    "Main, ",
+    "with ",
+    "lint."
+   ],
+   "reply": "Main, with lint.",
+   "answers": [
+    "Held until the developer has heard you say what you'll answer, then given to the session; if they cut you off before that, it's dropped and you'll be told. You've told the developer already: end your reply now, unless there's something else to say."
+   ],
+   "held": [
+    {
+     "kind": "answer",
+     "text": "question ques: {'Where should the fix go?': 'Main', 'Which checks to run?': 'Lint'} ('Main, and lint.')",
+     "words": 3,
+     "needed": 3
+    }
+   ],
+   "unsaid": "",
+   "cuts": [
+    {
+     "heard": "",
+     "note": "[You were interrupted before the developer heard any of your last reply.]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: question ques: {'Where should the fix go?': 'Main', 'Which checks to run?': 'Lint'} ('Main, and lint.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Main,",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Main,\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: question ques: {'Where should the fix go?': 'Main', 'Which checks to run?': 'Lint'} ('Main, and lint.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Main, with",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Main, with\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: question ques: {'Where should the fix go?': 'Main', 'Which checks to run?': 'Lint'} ('Main, and lint.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Main, with lint.",
+     "note": "",
+     "left": 0
+    }
+   ],
+   "sent": []
+  },
+  {
+   "name": "a better model",
+   "spoken": [
+    "Sure, ",
+    "I'll ",
+    "put ",
+    "Opus ",
+    "on."
+   ],
+   "reply": "Sure, I'll put Opus on.",
+   "answers": [
+    "Held until the developer has heard you say you're putting Opus on; then Opus takes over this call, with everything said so far, and speaks next. If they cut you off before that, it doesn't happen and you'll be told. End your reply now, after saying so if you haven't yet."
+   ],
+   "held": [
+    {
+     "kind": "model",
+     "text": "Opus takes the call over from Haiku",
+     "words": 5,
+     "needed": 5
+    }
+   ],
+   "unsaid": "",
+   "cuts": [
+    {
+     "heard": "",
+     "note": "[You were interrupted before the developer heard any of your last reply.]\n[Opus didn't take over, because the developer cut you off before hearing you say so. Call better_model again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Sure,",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Sure,\"]\n[Opus didn't take over, because the developer cut you off before hearing you say so. Call better_model again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Sure, I'll",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Sure, I'll\"]\n[Opus didn't take over, because the developer cut you off before hearing you say so. Call better_model again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Sure, I'll put",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Sure, I'll put\"]\n[Opus didn't take over, because the developer cut you off before hearing you say so. Call better_model again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Sure, I'll put Opus",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Sure, I'll put Opus\"]\n[Opus didn't take over, because the developer cut you off before hearing you say so. Call better_model again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Sure, I'll put Opus on.",
+     "note": "",
+     "left": 0
+    }
+   ],
+   "sent": []
+  },
+  {
+   "name": "Opus asked for a better model",
+   "spoken": [
+    "Okay. ",
+    "I'm Opus already."
+   ],
+   "reply": "Okay. I'm Opus already.",
+   "answers": [
+    "Nothing done: you're Opus, the better model, already. If the developer asked for one, tell them so."
+   ],
+   "held": [],
+   "unsaid": "",
+   "cuts": [
+    {
+     "heard": "",
+     "note": "[You were interrupted before the developer heard any of your last reply.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay.",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay.\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. I'm",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. I'm\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. I'm Opus",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. I'm Opus\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. I'm Opus already.",
+     "note": "",
+     "left": 0
+    }
+   ],
+   "sent": []
+  },
+  {
+   "name": "not listening",
+   "spoken": [
+    "Okay. ",
+    "I can't pass ",
+    "that ",
+    "on."
+   ],
+   "reply": "Okay. I can't pass that on.",
+   "answers": [
+    "Nothing done: the session isn't listening any more."
+   ],
+   "held": [],
+   "unsaid": "",
+   "cuts": [
+    {
+     "heard": "",
+     "note": "[You were interrupted before the developer heard any of your last reply.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay.",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay.\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. I",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. I\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. I can't",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. I can't\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. I can't pass",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. I can't pass\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. I can't pass that",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. I can't pass that\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. I can't pass that on.",
+     "note": "",
+     "left": 0
+    }
+   ],
+   "sent": []
+  },
+  {
+   "name": "no message",
+   "spoken": [
+    "Okay. ",
+    "What should ",
+    "I ",
+    "tell ",
+    "it?"
+   ],
+   "reply": "Okay. What should I tell it?",
+   "answers": [
+    "Nothing passed: pass_to_session needs a message."
+   ],
+   "held": [],
+   "unsaid": "",
+   "cuts": [
+    {
+     "heard": "",
+     "note": "[You were interrupted before the developer heard any of your last reply.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay.",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay.\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. What",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. What\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. What should",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. What should\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. What should I",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. What should I\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. What should I tell",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay. What should I tell\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. What should I tell it?",
+     "note": "",
+     "left": 0
+    }
+   ],
+   "sent": []
+  },
+  {
+   "name": "short answer after the ack",
+   "spoken": [
+    "Okay. ",
+    "Done."
+   ],
+   "reply": "Okay. Done.",
+   "answers": [
+    "Held until the developer has heard you say you're passing it on, then passed to the session; if they cut you off before that, it's dropped and you'll be told. The session's answer comes later, in a note \"[The session: ...]\". Until then you don't know what it will say or do. You've told the developer already: end your reply now, unless there's something else to say."
+   ],
+   "held": [
+    {
+     "kind": "message",
+     "text": "Yes.",
+     "words": null,
+     "needed": 2
+    }
+   ],
+   "unsaid": "",
+   "cuts": [
+    {
+     "heard": "",
+     "note": "[You were interrupted before the developer heard any of your last reply.]\n[Not passed to the session, because the developer cut you off before hearing you say so: \"Yes.\". Pass it again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay.",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay.\"]\n[Not passed to the session, because the developer cut you off before hearing you say so: \"Yes.\". Pass it again only if they still want it.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay. Done.",
+     "note": "",
+     "left": 0
+    }
+   ],
+   "sent": []
+  },
+  {
+   "name": "the opening",
+   "spoken": [
+    "Hi, ",
+    "the ",
+    "parser ",
+    "fix ",
+    "is ",
+    "done. ",
+    "It ",
+    "needs ",
+    "your ",
+    "yes ",
+    "to ",
+    "push."
+   ],
+   "reply": "Hi, the parser fix is done. It needs your yes to push.",
+   "answers": [],
+   "held": [],
+   "unsaid": "",
+   "cuts": [
+    {
+     "heard": "",
+     "note": "[You were interrupted before the developer heard any of your last reply.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Hi,",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Hi,\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Hi, the",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Hi, the\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Hi, the parser",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Hi, the parser\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Hi, the parser fix",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Hi, the parser fix\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Hi, the parser fix is",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Hi, the parser fix is\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Hi, the parser fix is done.",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Hi, the parser fix is done.\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Hi, the parser fix is done. It",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Hi, the parser fix is done. It\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Hi, the parser fix is done. It needs",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Hi, the parser fix is done. It needs\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Hi, the parser fix is done. It needs your",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Hi, the parser fix is done. It needs your\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Hi, the parser fix is done. It needs your yes",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Hi, the parser fix is done. It needs your yes\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Hi, the parser fix is done. It needs your yes to",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Hi, the parser fix is done. It needs your yes to\"]\n",
+     "left": 0
+    },
+    {
+     "heard": "Hi, the parser fix is done. It needs your yes to push.",
+     "note": "",
+     "left": 0
+    }
+   ],
+   "sent": []
+  }
+ ],
+ "scripts": {
+  "announced, then passed": {
+   "said": "Tell it to push the branch.",
+   "model": "",
+   "listening": true,
+   "asks": false,
+   "steps": [
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "text"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "Sure, "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "I'll "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "pass "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "that "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "on."
+      }
+     }
+    },
+    {
+     "tool": "pass_to_session",
+     "input": {
+      "message": "Push the branch."
+     }
+    },
+    {
+     "type": "result",
+     "is_error": false
+    }
+   ]
+  },
+  "passed before saying anything": {
+   "said": "Tell it to push.",
+   "model": "",
+   "listening": true,
+   "asks": false,
+   "steps": [
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "tool_use"
+      }
+     }
+    },
+    {
+     "tool": "pass_to_session",
+     "input": {
+      "message": "Push."
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "text"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "Okay, "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "I'll "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "tell "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "it "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "to "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "push. "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "Anything "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "else?"
+      }
+     }
+    },
+    {
+     "type": "result",
+     "is_error": false
+    }
+   ]
+  },
+  "said again after the tool": {
+   "said": "Push it.",
+   "model": "",
+   "listening": true,
+   "asks": false,
+   "steps": [
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "text"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "Passing "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "that "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "on "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "now."
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "tool_use"
+      }
+     }
+    },
+    {
+     "tool": "pass_to_session",
+     "input": {
+      "message": "Push it."
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "text"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "I've "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "passed "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "it "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "on."
+      }
+     }
+    },
+    {
+     "type": "result",
+     "is_error": false
+    }
+   ]
+  },
+  "permission allowed": {
+   "said": "Yes, go ahead.",
+   "model": "",
+   "listening": true,
+   "asks": true,
+   "steps": [
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "text"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "Okay, "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "I'll "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "let "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "it "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "run "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "that."
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "tool_use"
+      }
+     }
+    },
+    {
+     "tool": "answer_permission",
+     "input": {
+      "permission": "perm",
+      "allow": true,
+      "said": "Yes, go ahead."
+     }
+    },
+    {
+     "type": "result",
+     "is_error": false
+    }
+   ]
+  },
+  "permission unknown and malformed": {
+   "said": "Yes.",
+   "model": "",
+   "listening": true,
+   "asks": true,
+   "steps": [
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "tool_use"
+      }
+     }
+    },
+    {
+     "tool": "answer_permission",
+     "input": {
+      "permission": "zzzz",
+      "allow": true
+     }
+    },
+    {
+     "tool": "answer_permission",
+     "input": {
+      "permission": "perm",
+      "allow": "yes"
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "text"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "Okay."
+      }
+     }
+    },
+    {
+     "type": "result",
+     "is_error": false
+    }
+   ]
+  },
+  "questions answered": {
+   "said": "A new branch, and both checks.",
+   "model": "",
+   "listening": true,
+   "asks": true,
+   "steps": [
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "text"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "Got "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "it, "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "a "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "new "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "branch "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "with "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "both "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "checks."
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "tool_use"
+      }
+     }
+    },
+    {
+     "tool": "answer_question",
+     "input": {
+      "question": "ques",
+      "answers": [
+       {
+        "question": "Where should the fix go?",
+        "answer": "a new branch"
+       },
+       {
+        "question": "checks",
+        "answer": "unit tests, lint"
+       }
+      ],
+      "said": "A new branch, and both checks."
+     }
+    },
+    {
+     "type": "result",
+     "is_error": false
+    }
+   ]
+  },
+  "questions half answered": {
+   "said": "Main.",
+   "model": "",
+   "listening": true,
+   "asks": true,
+   "steps": [
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "tool_use"
+      }
+     }
+    },
+    {
+     "tool": "answer_question",
+     "input": {
+      "question": "ques",
+      "answers": [
+       {
+        "question": "Where should the fix go?",
+        "answer": "Main"
+       }
+      ]
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "text"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "Which "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "checks "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "should "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "it "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "run?"
+      }
+     }
+    },
+    {
+     "type": "result",
+     "is_error": false
+    }
+   ]
+  },
+  "questions in order": {
+   "said": "Main, and lint.",
+   "model": "",
+   "listening": true,
+   "asks": true,
+   "steps": [
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "text"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "Main, "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "with "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "lint."
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "tool_use"
+      }
+     }
+    },
+    {
+     "tool": "answer_question",
+     "input": {
+      "question": "ques",
+      "answers": [
+       {
+        "question": "1",
+        "answer": "main"
+       },
+       {
+        "question": "2",
+        "answer": "Lint"
+       }
+      ],
+      "said": "Main, and lint."
+     }
+    },
+    {
+     "type": "result",
+     "is_error": false
+    }
+   ]
+  },
+  "a better model": {
+   "said": "Can I talk to a smarter model?",
+   "model": "",
+   "listening": true,
+   "asks": false,
+   "steps": [
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "text"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "Sure, "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "I'll "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "put "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "Opus "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "on."
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "tool_use"
+      }
+     }
+    },
+    {
+     "tool": "better_model",
+     "input": {}
+    },
+    {
+     "type": "result",
+     "is_error": false
+    }
+   ]
+  },
+  "Opus asked for a better model": {
+   "said": "A better model, please.",
+   "model": "opus",
+   "listening": true,
+   "asks": false,
+   "steps": [
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "tool_use"
+      }
+     }
+    },
+    {
+     "tool": "better_model",
+     "input": {}
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "text"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "I'm "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "Opus "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "already."
+      }
+     }
+    },
+    {
+     "type": "result",
+     "is_error": false
+    }
+   ]
+  },
+  "not listening": {
+   "said": "Tell it to stop.",
+   "model": "",
+   "listening": false,
+   "asks": false,
+   "steps": [
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "tool_use"
+      }
+     }
+    },
+    {
+     "tool": "pass_to_session",
+     "input": {
+      "message": "Stop."
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "text"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "I "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "can't "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "pass "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "that "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "on."
+      }
+     }
+    },
+    {
+     "type": "result",
+     "is_error": false
+    }
+   ]
+  },
+  "no message": {
+   "said": "Tell it.",
+   "model": "",
+   "listening": true,
+   "asks": false,
+   "steps": [
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "tool_use"
+      }
+     }
+    },
+    {
+     "tool": "pass_to_session",
+     "input": {
+      "message": "  "
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "text"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "What "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "should "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "I "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "tell "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "it?"
+      }
+     }
+    },
+    {
+     "type": "result",
+     "is_error": false
+    }
+   ]
+  },
+  "short answer after the ack": {
+   "said": "Yes.",
+   "model": "",
+   "listening": true,
+   "asks": false,
+   "steps": [
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "tool_use"
+      }
+     }
+    },
+    {
+     "tool": "pass_to_session",
+     "input": {
+      "message": "Yes."
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "text"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "Done."
+      }
+     }
+    },
+    {
+     "type": "result",
+     "is_error": false
+    }
+   ]
+  },
+  "the opening": {
+   "said": "",
+   "model": "",
+   "listening": true,
+   "asks": false,
+   "steps": [
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "text"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "Hi, "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "the "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "parser "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "fix "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "is "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "done. "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "It "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "needs "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "your "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "yes "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "to "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "push."
+      }
+     }
+    },
+    {
+     "type": "result",
+     "is_error": false
+    }
+   ]
+  }
+ }
+}
