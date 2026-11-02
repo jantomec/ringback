@@ -100,9 +100,66 @@ Stages, by parts that each run anywhere:
 - **Rejected:** a Python hub (its RAM and disk), Docker on the speech node (its footprint),
   Claude Code on the hub (it stays with the session, on its own Mac, and needs no server
   login), a Coral Edge TPU for speech (it can't run Kokoro or Parakeet).
-- **Later:** speech on the phone (Parakeet and Kokoro through Core ML on the Neural Engine;
-  whether they run on a locked phone during a call is unknown), and a public hub with
-  pairing and TLS instead of Nebula.
+- **Later:** speech on the phone (see the next section), and a public hub with pairing and
+  TLS instead of Nebula.
+
+### Status, the hub's portal and speech on the phone (decided 2026-11-02)
+
+- **Where a call's speech runs.** Each call uses the first of:
+  1. a speech node linked to the hub;
+  2. the phone's own speech, if "On-device voice" is on in the Settings app;
+  3. neither: the call doesn't ring. It goes to the waiting calls with the reason, as a held
+     call does, and asks again once speech is back (a node links, or the phone's own is
+     turned on), as a held call does when work hours start.
+
+  A node needs no address anywhere: it links to the hub itself, with its token. Nothing
+  about nodes is set in the app. What's set about them (adding one, its token, turning one
+  off for a while) is set on the hub's portal.
+- **Status in the app.** The hub says what's up (`/status`): speech (the nodes linked, and
+  whether the phone's own is on), the Macs linked and their sessions, and the last push to
+  the phone. The app checks on opening, at the connection check every 30 min, and when a
+  call fails. It shows one banner, for the most serious problem, in plain words with what to
+  do; tapping it shows the rest. For example: "Can't reach your hub. Is Nebula on?"; "Calls
+  can't be talked through: the speech computer is offline. Start it, or turn on On-device
+  voice in Settings."; "The hub can't ring this phone: Apple refused its push key."; the
+  microphone not allowed. Normal states raise none: a Mac asleep (shown in the Sessions tab),
+  a node with its models unloaded until a call comes.
+- **The portal.** Pages the hub serves, for setup and for the rare times something's wrong:
+  - **What it shows:**
+    - the nodes linked (their models loaded or not, memory) and the Macs with their sessions;
+    - calls: live, waiting and recent, with their events;
+    - the phone's registration and the last push;
+    - the log's tail;
+    - the phone's settings, read-only (work hours, hold, On-device voice, sensitivity).
+  - **What it changes:** adding a node or a Mac (it makes a token and shows the command to
+    run there), and the nodes' settings.
+  - **How it's built:** plain HTML from the hub's own binary, refreshing itself, with no
+    JavaScript framework.
+  - **One home for each setting:** secrets and addresses in the hub's config file; what the
+    portal changes in the hub's state; what the phone owns on the phone, shown on the portal.
+  - **Login:** a user name and password, then a second factor: a one-time passcode (TOTP,
+    from an authenticator app) or a passkey (WebAuthn). Both are supported. The hub listens
+    only on Nebula, but anything in the mesh could open the portal, and it shows your
+    sessions' subjects; a public hub needs this anyway.
+  - **Open:** passkeys need the portal on HTTPS under a domain name. Browsers offer WebAuthn
+    only to a secure origin, and an IP address can't be its relying party (unverified). So
+    the portal needs a name with a certificate: a domain of your own with Let's Encrypt
+    (its DNS challenge works for a name pointing at a Nebula address), or a private
+    certificate authority installed on each device that opens it. The passcode works
+    without either.
+- **Speech on the phone.** With the phone's own speech, your audio never leaves the phone:
+  the app hears and speaks, and sends the hub only text. The app is the call's speech node,
+  over a link instead of WebRTC.
+  - **Gains:** a weak signal matters little, since only text crosses; less mobile data;
+    your voice stays on the phone; and what you've heard is exact, since the phone knows
+    what it played.
+  - **Costs:** battery, heat and memory on an older iPhone (4 GB) during a background call.
+  - **Hearing:** Apple's on-device speech recognition first (SpeechAnalyzer and
+    SpeechTranscriber, iOS 26 and later). Unverified: that it runs in a system process,
+    outside the app's memory; how soon your words come; and that it works on a locked phone
+    during a call.
+  - **Speaking:** Kokoro through Core ML, or Apple's own voices; decided after the trial.
+  - **Later:** on a weak signal, the phone's own speech even when a node is linked.
 
 1. **Ringback mod** (in each session, in `mod/`). A Claude Code mod is code that runs
    inside Claude Code: it's installed once, as a plugin, and loads in every session
@@ -1863,6 +1920,20 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
      at the hub, 35.5 s on the phone). You found the voice clear and the delay small but
      noticeable. Not tried on the phone yet: held calls, call backs, Sessions, asks, Opus,
      a weak signal.
+- **Status and the hub's portal** (decided 2026-11-02; not started; "Status, the hub's
+  portal and speech on the phone" under Architecture). In order:
+  1. `/status` on the hub, and the app's banner. A call with no speech goes to the waiting
+     calls instead of ringing.
+  2. The portal's pages, read-only.
+  3. Its login: password and passcode first, then passkeys once the portal has a name and a
+     certificate.
+  4. Setup on the portal: adding a node or a Mac, and the nodes' settings.
+- **Speech on the phone** (decided 2026-11-02; not started). First a trial on an older iPhone (4 GB)
+  with Apple's on-device recognition, measured: how soon your words come after you stop,
+  their accuracy on `tools/stt-eval`'s recordings, the app's memory, battery over a
+  10-minute call, and whether it hears on a locked phone during a call. If it holds up: the
+  phone as the call's speech node, the "On-device voice" switch in the Settings app, and the
+  choice of voice.
 7. **Several sessions + retries.** A second session waits for the first call to end.
    "Not now" retries on schedule while the queue waits. A final decline holds all calls
    until a call back releases them.
