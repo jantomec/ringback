@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The hold switch, as a pill of Liquid Glass floating beside the tabs (BottomBar), the same size
-/// as each tab. Its symbol is what pressing does, as in a media player: pause while taking calls,
+/// The hold switch, as a pill of Liquid Glass floating beside the tabs (BottomBar), as wide as a
+/// tab and as tall as the tabs' capsule. Its symbol is what pressing does, as in a media player: pause while taking calls,
 /// play while on hold; its word is the state, "Taking calls" or "On hold". On hold it's indigo,
 /// apart from the red of missed calls and the orange of waiting ones, with how many calls wait.
 /// Control Center has the same switch (HoldControl).
@@ -19,7 +19,7 @@ struct HoldButton: View {
                 Text(word).font(.caption2.weight(.medium)).lineLimit(1)
             }
             .foregroundStyle(on ? .white : .primary)
-            .frame(width: BottomBar.pillWidth, height: BottomBar.pillHeight)
+            .frame(width: BottomBar.pillWidth, height: BottomBar.pillHeight + 2 * BottomBar.inset)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -87,7 +87,7 @@ struct HoldButton: View {
 }
 
 /// The app's tabs and the hold switch, as pills in Liquid Glass, after your sketch: Recents and
-/// Sessions in one capsule, and the switch floating beside it at the same size. It takes the
+/// Sessions in one capsule, and the switch floating beside it, as tall as the capsule. It takes the
 /// place of the system tab bar (hidden), whose only button of its own beside the tabs is round,
 /// and for Search.
 struct BottomBar: View {
@@ -96,15 +96,17 @@ struct BottomBar: View {
 
     static let pillWidth: CGFloat = 100
     static let pillHeight: CGFloat = 52
+    /// Between the tabs and the capsule's edge.
+    static let inset: CGFloat = 4
 
     var body: some View {
         GlassEffectContainer(spacing: 10) {
             HStack(spacing: 10) {
-                HStack(spacing: 4) {
+                HStack(spacing: Self.inset) {
                     tab(.recents, "Recents", "clock.fill")
                     tab(.sessions, "Sessions", "terminal.fill")
                 }
-                .padding(4)
+                .padding(Self.inset)
                 .glassEffect(.regular, in: .capsule)
                 HoldButton(state: state)
             }

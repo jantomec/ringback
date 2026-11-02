@@ -819,8 +819,8 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
    - **The hold switch** (Stage 5 step 2; built, tried in a simulator, not yet on the
      phone). One switch holds every call until you let them through (the switchboard's hold
      switch, with your work hours setting it at their edges). It's a pill of Liquid Glass
-     floating beside the tabs, on both tabs, the same size as each tab, which are pills in one
-     capsule (`BottomBar`, after your sketch; it replaces the system tab bar, which is hidden:
+     floating beside the tabs, on both tabs, as wide as a tab and as tall as the capsule the
+     tabs are pills in (`BottomBar`, after your sketch; it replaces the system tab bar, which is hidden:
      its only button of its own beside the tabs is round, and for Search). Its symbol is what
      pressing does, as in a media player: pause while taking calls, play while on hold; its
      word is the state, "Taking calls" or "On hold". On hold it's indigo, the colour of iOS's
@@ -846,7 +846,8 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        bar above the tabs went first, as the only one on both tabs, under your thumb, with
        room to say the state in words, and Control Center joined it; the Live Activity is
        left out. Seen on the phone, you chose the button beside the tabs instead, as a pill
-       rather than round, with the tabs as pills of the same size (2026-11-02). The state is
+       rather than round, with the tabs as pills (2026-11-02), and the switch as tall as their
+       capsule. The state is
        one word now, and what's next only for VoiceOver.
    - **Settings** live in the Settings app (Settings → Apps → Ringback), from the app's
      `Settings.bundle`; the app has no settings screen any more. Groups, each with a footer
