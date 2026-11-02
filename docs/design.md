@@ -1931,7 +1931,13 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
   portal and speech on the phone" under Architecture). In order:
   1. `/status` on the hub, and the app's banner. A call with no speech goes to the waiting
      calls instead of ringing. Built 2026-11-02, checked offline (`tools/hub-check`, the
-     agent's tests), not yet on the phone:
+     agent's tests) and on the phone (2026-11-02, unlocked, on Wi-Fi): with the speech node
+     stopped, a call placed waited instead of ringing; the phone got its notification ("ringback
+     wants to talk"), and the app showed the speech banner and the call under Waiting, "Rings
+     when the speech computer is back". The node linked again 7 min later: within the same
+     second the call asked again and rang, the node's worker loaded its models in 2.14 s on
+     the warm-up, and the voice started 0.13 s after answering. Not watched: the banner going
+     away once the node was back.
      - The status comes with the waiting calls (`status` in `/waiting`'s answer), which the
        app fetches on opening, on pull to refresh, and now also when a call fails: speech
        (ok while a node is linked, or while no Mac is linked and no call waits for one), the
