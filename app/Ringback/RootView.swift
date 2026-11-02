@@ -29,6 +29,8 @@ struct RootView: View {
                     .toolbarVisibility(.hidden, for: .tabBar)
             }
         }
+        // On hold, the whole app takes up a faint share of the pill's breathing light.
+        .overlay { BreathWash(on: state.hold?.on == true) }
         .safeAreaInset(edge: .bottom) { BottomBar(page: $page, state: state) }
         // Only checks you started, never the automatic one on opening.
         .sensoryFeedback(.success, trigger: state.confirmations)
@@ -51,8 +53,8 @@ struct RootView: View {
             Task { await push.settingsChanged() }
         }
         // Ask now: a locked phone in a call can't show the permission prompt. Notifications
-        // are for the warning when calls can't reach the phone (ConnectionCheck), and for a
-        // waiting call's question.
+        // are for the warning when calls can't reach the phone (ConnectionCheck), for a
+        // waiting call's question, and the badge counts the waiting calls.
         .task {
             #if DEBUG
             if Seed.isOn { return }  // screenshots: no system prompts over the app

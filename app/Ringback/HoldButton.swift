@@ -1,10 +1,12 @@
 import SwiftUI
 
 /// The hold switch, as a pill of Liquid Glass floating beside the tabs (BottomBar), as wide as a
-/// tab and as tall as the tabs' capsule. Its symbol is what pressing does, as in a media player: pause while taking calls,
-/// play while on hold; its word is the state, "Taking calls" or "On hold". On hold it's indigo,
-/// apart from the red of missed calls and the orange of waiting ones, with how many calls wait.
-/// Control Center has the same switch (HoldControl).
+/// tab and as tall as the tabs' capsule. Its symbol is what pressing does, as in a media player:
+/// pause while taking calls, play while on hold; its word is the state, "Taking calls" or "On
+/// hold". On hold it's indigo, apart from the red of missed calls and the orange of waiting ones,
+/// with how many calls wait, and it breathes: its glow swells and fades (Breath), and the app
+/// behind takes up a faint share of that light (BreathWash). Control Center has the same switch
+/// (HoldControl).
 struct HoldButton: View {
     let state: AppState
     @State private var isSetting = false
@@ -24,6 +26,9 @@ struct HoldButton: View {
         }
         .buttonStyle(.plain)
         .glassEffect(on ? .regular.tint(.indigo).interactive() : .regular.interactive(), in: .capsule)
+        .background {
+            if on { BreathGlow() }
+        }
         .overlay(alignment: .topTrailing) {
             if on && !state.waiting.isEmpty {
                 Text("\(state.waiting.count)")
@@ -98,10 +103,12 @@ struct BottomBar: View {
     static let pillHeight: CGFloat = 52
     /// Between the tabs and the capsule's edge.
     static let inset: CGFloat = 4
+    /// Between the capsule and the switch.
+    static let spacing: CGFloat = 10
 
     var body: some View {
-        GlassEffectContainer(spacing: 10) {
-            HStack(spacing: 10) {
+        GlassEffectContainer(spacing: Self.spacing) {
+            HStack(spacing: Self.spacing) {
                 HStack(spacing: Self.inset) {
                     tab(.recents, "Recents", "clock.fill")
                     tab(.sessions, "Sessions", "terminal.fill")
@@ -132,5 +139,77 @@ struct BottomBar: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
+    }
+}
+
+/// The hold's breathing light: one clock for the pill's glow and the app's wash, so they swell and
+/// fade together, in phase, about 13 times a minute, as the sleep light of Apple's laptops did:
+/// resting, not off. Still, at a middle level, with Reduce Motion or in Low Power Mode.
+enum Breath {
+    static let period = 4.6  // seconds
+    static let still = 0.6
+
+    /// From 0 to 1 and back, at `date`, the same for every view that asks.
+    static func level(at date: Date) -> Double {
+        0.5 - 0.5 * cos(2 * .pi * date.timeIntervalSinceReferenceDate / period)
+    }
+
+    static func moves(reduceMotion: Bool) -> Bool {
+        !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
+    }
+}
+
+/// The light the pill gives off on hold: an indigo halo behind its glass, swelling and fading.
+struct BreathGlow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let moving = Breath.moves(reduceMotion: reduceMotion)
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !moving)) { context in
+            let level = moving ? Breath.level(at: context.date) : Breath.still
+            Capsule()
+                .fill(Color.indigo)
+                .scaleEffect(1 + 0.14 * level)
+                .blur(radius: 4 + 12 * level)
+                .opacity(0.25 + 0.65 * level)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// What reaches the rest of the app of the pill's light on hold: a faint indigo wash, strongest
+/// near the pill and fading with distance, breathing with it, a small share of its intensity.
+/// Over the content, under the bar; light on dark backgrounds, a tint on light ones.
+struct BreathWash: View {
+    let on: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        GeometryReader { geometry in
+            if on {
+                let moving = Breath.moves(reduceMotion: reduceMotion)
+                let size = geometry.size
+                // The pill's centre: the bar is centred, and the pill is its last part; its
+                // middle is about 66 pt above the screen's bottom edge.
+                let bar = 2 * BottomBar.pillWidth + 3 * BottomBar.inset + BottomBar.spacing + BottomBar.pillWidth
+                let source = UnitPoint(
+                    x: ((size.width + bar) / 2 - BottomBar.pillWidth / 2) / max(size.width, 1),
+                    y: 1 - 66 / max(size.height, 1))
+                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !moving)) { context in
+                    let level = moving ? Breath.level(at: context.date) : Breath.still
+                    RadialGradient(
+                        colors: [.indigo.opacity(0.18 * level), .indigo.opacity(0.07 * level), .indigo.opacity(0.035 * level)],
+                        center: source, startRadius: 0, endRadius: size.height)
+                        .blendMode(scheme == .dark ? .plusLighter : .normal)
+                }
+                .transition(.opacity)
+            }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .animation(.easeInOut(duration: 0.6), value: on)
     }
 }

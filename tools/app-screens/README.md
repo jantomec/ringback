@@ -56,3 +56,19 @@ with its badge in `recents` and `sessions`, and taking calls in `banner`.
 Result on 2026-10-30, after Contacts became Sessions, with cards: one run, 2 min 20 s, every
 screen shown in light and dark, the cards, a card held with its Call and Details, and the
 session's details from it included (Open Settings again opened Settings' first page).
+
+## The breathing light
+
+`breath_check.py` measures the hold's breathing light, after `run.sh` has installed the
+screenshot build in a booted simulator: it launches the app on hold, in dark mode, records the
+screen, and reads the blue channel just above the pill, mid-screen and in the far corner of
+every frame. It prints each one's range and period, and how far the background lags the pill,
+their correlation and its share of the pill's swing (the wash should beat with the pill, at the
+same period and phase, faintly). Needs the voice project's Python:
+
+    uv run --project voice tools/app-screens/breath_check.py [SECONDS] [--keep VIDEO]
+
+Result on 2026-11-02 (iPhone 17 Pro simulator, 12 s, 20 s in all): above the pill, blue 0–76,
+period 4.47 s; mid-screen 2–31, 4.50 s, 0.00 s behind, correlation 0.99, 37% of the swing; the
+far corner 13–24, 4.57 s, 0.00 s behind, correlation 0.99, 14%. The set period is 4.6 s; 12 s
+holds only about 2.6 breaths.

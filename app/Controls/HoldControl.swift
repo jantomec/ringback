@@ -2,11 +2,12 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
-/// Ringback's Control Center extension: one control, the hold switch.
+/// Ringback's extension: the hold switch in Control Center, and on the Lock Screen.
 @main
 struct RingbackControls: WidgetBundle {
     var body: some Widget {
         HoldControl()
+        HoldWidget()
     }
 }
 

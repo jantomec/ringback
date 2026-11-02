@@ -16,7 +16,7 @@ enum ConnectionCheck {
     private static let warnAgainAfter: TimeInterval = 3 * 3600
 
     static func requestPermission() async {
-        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
     }
 
     /// Runs one check: tries to reach the switchboard a few times, within the half minute

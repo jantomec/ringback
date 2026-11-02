@@ -82,7 +82,9 @@ The pill beside the tabs is the **hold switch**. Press pause and every call wait
 Waiting; press play and they ring. With work hours on, it goes on hold when they end and
 takes calls when they start; in between, what you press stands. The same switch can go in
 Control Center: open Control Center, tap +, then Add a Control, and choose Ringback's Hold
-Calls. You can also put it on the Lock Screen or the Action button.
+Calls. You can also put it on the Lock Screen or the Action button. On hold, the pill breathes,
+and the app's icon shows how many calls wait. To see the hold on the Lock Screen, touch and
+hold the Lock Screen, tap Customize, then the widgets, and add Ringback's Hold.
 
 **Sessions** shows your sessions with ringback on, on every Mac, by project, a card each,
 and keeps up while it shows: tap one to call it, and the voice picks up with what's new since

@@ -825,7 +825,13 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      pressing does, as in a media player: pause while taking calls, play while on hold; its
      word is the state, "Taking calls" or "On hold". On hold it's indigo, the colour of iOS's
      Focus, apart from the red of missed calls and the orange of waiting ones, with how many
-     calls wait in an orange badge. VoiceOver reads what's next too ("On hold, 2 waiting,
+     calls wait in an orange badge, and it breathes: an indigo halo behind its glass swells and
+     fades every 4.6 s, about 13 times a minute, as the sleep light of Apple's laptops did
+     (resting, not off). The pill is the light source, and the whole app takes up a faint share
+     of its light: an indigo wash over the content, under the bar, strongest near the pill and
+     fading with distance, light on dark backgrounds and a tint on light ones. Both read one
+     clock (`Breath`), so they beat at the same period and phase. With Reduce Motion or in Low
+     Power Mode the light stands still at a middle level. VoiceOver reads what's next too ("On hold, 2 waiting,
      takes calls tomorrow at 08:15"). Pressing shows the new state at once, then sets it at
      the switchboard (`/hold`); taking calls, the app fetches the waiting calls and posts
      `/reask` to their voice servers, so they ring now. If the switchboard can't be reached,
@@ -836,9 +842,17 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        holds calls. Its action (`SetHoldIntent`) runs in the extension, without opening the
        app, and does what the pill does. It shows the switch as the switchboard has
        it, or as last heard. The app shares the switchboard's address, the push token and the
-       switch with it in a keychain group, rather than an App Group: the team's provisioning
+       switch with it in a keychain group (and how many calls wait, for the widget below),
+       rather than an App Group: the team's provisioning
        profiles already allow any of its keychain groups, while an App Group needs a
        capability added to each App ID, which Xcode can't do without an account signed in.
+     - The hold also shows outside the app: the app's icon has the number of waiting calls as
+       its badge (set whenever the app fetches them, so it can be stale while the app doesn't
+       run; the app asks for notifications with badges), and a Lock Screen widget in the same
+       extension (`HoldWidget`; rectangular, circular and inline) says "Calls on hold · 2
+       waiting · until 08:15" or "Taking calls · Holds calls at 19:00". It asks the switchboard
+       when iOS refreshes it, at least every 30 min, or when the app hears of a change, and has
+       an entry ready for when the hours change the switch.
      - Chosen (2026-11-02) from five placements, each drawn taking calls and on hold: the
        bar above the tabs, a button in the top corner with the state under the title, a
        status card at the top of Recents (as Uber Eats Orders shows "Paused"), a round
@@ -848,7 +862,13 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        left out. Seen on the phone, you chose the button beside the tabs instead, as a pill
        rather than round, with the tabs as pills (2026-11-02), and the switch as tall as their
        capsule. The state is
-       one word now, and what's next only for VoiceOver.
+       one word now, and what's next only for VoiceOver. How the app looks while on hold came
+       from two more rounds of six looks each: first recolouring or covering the screen (an
+       edge glow, frosted edges, a dusk backdrop, tinted bars, a banner, muted history), none of
+       which you liked; then other principles (the app stepping back, the glass morphing, held
+       calls piling up as cards, a breathing light, a hold screen, the icon and the Lock
+       Screen). You chose the breathing light with the icon and the Lock Screen, and added the
+       faint wash in step with it.
    - **Settings** live in the Settings app (Settings → Apps → Ringback), from the app's
      `Settings.bundle`; the app has no settings screen any more. Groups, each with a footer
      that says what the app's sections said:
@@ -1697,8 +1717,13 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         taking calls over the connection banner, in light and dark (one run, 2 min 23 s); then,
         with the pill beside the tabs instead, the pill on hold with its badge, and taking
         calls, the tabs as pills and no system tab bar, in light and dark (one run, 2 min 18 s).
-      - Left for the phone: the pill, the tabs' pills, the alert, the switch changing by
-        itself at an edge, `/reask` reaching a Mac over Nebula (the app
+      - The breathing light (`tools/app-screens/breath_check.py`, recorded in the simulator in
+        dark mode, 12 s, one run, 20 s): the halo above the pill swung 0–76 in blue with a period
+        of 4.47 s; the background mid-screen swung 37% as much, the far corner 14%, both at
+        4.50–4.57 s, 0.00 s behind the pill, correlation 0.99. The badge and the widget build;
+        they need the phone.
+      - Left for the phone: the pill, the tabs' pills, the breathing on a real screen, the
+        badge, the Lock Screen widget, the alert, the switch changing by itself at an edge, `/reask` reaching a Mac over Nebula (the app
         reaches it only as an offer does, with no first `/ping` for a stale tunnel), the
         Control Center control and its action from a locked phone, and held calls ringing
         together when you take calls.

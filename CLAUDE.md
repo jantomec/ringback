@@ -48,7 +48,8 @@ switchboard, a card each, fetched every 3 s while the tab shows; tapping one cal
 the voice opens with what's new); its settings moved to the Settings app
 (`app/Settings.bundle`). Stage 5, step 2 (2026-11-02) added a hold switch: in a pill beside the
 tabs and in Control Center (`app/Controls`), it holds every call until you let them through,
-and work hours set it at their edges; built and tried offline (the switchboard's smoke test,
+and work hours set it at their edges; on hold the pill breathes and the app with it, faintly,
+the app's icon counts the waiting calls and a Lock Screen widget says so; built and tried offline (the switchboard's smoke test,
 `tools/ask-check`) and in a simulator, not yet on the phone. Built and tried offline (`tools/phone-check --contacts`, the
 switchboard's smoke test, the mod's tests) and in a simulator (`tools/app-screens`), not yet
 on the phone. Then 7 (several sessions and retries) and 8 (later: a
@@ -90,7 +91,8 @@ voice server's calls through a restart (`restart-check`), the call's Opus with l
 packets (`opus-check`; `phone-check --signal` runs it through a call), how long a call's
 connection lasts on a slow network (`ice-check`), what `.disabled` does to a SwiftUI swipe
 action (`swipe-check`), what a mod sees of its session's environment (`env-check`), and
-the app's screens in a simulator, with sample calls (`app-screens`)).
+the app's screens in a simulator, with sample calls, and its breathing light on hold
+(`app-screens`)).
 How to set it all up and place a test call: `docs/setup.md`.
 
 ## Checks

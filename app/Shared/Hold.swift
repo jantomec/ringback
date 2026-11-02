@@ -44,6 +44,12 @@ enum Shared {
         set { write("hold", newValue.flatMap { try? JSONEncoder().encode($0) }) }
     }
 
+    /// How many calls wait, as last heard, for the Lock Screen widget.
+    static var waiting: Int? {
+        get { read("waiting").map { Int(String(decoding: $0, as: UTF8.self)) ?? 0 } }
+        set { write("waiting", newValue.map { Data(String($0).utf8) }) }
+    }
+
     private static func item(_ key: String) -> [String: Any]? {
         guard let group else { return nil }
         return [
@@ -77,6 +83,9 @@ enum Shared {
 enum HoldSwitch {
     /// The Control Center control's kind, which the app reloads when the switch changes.
     static let controlKind = "hold"
+    /// The Lock Screen widget's kind (HoldWidget), reloaded when the switch or the waiting
+    /// calls change.
+    static let widgetKind = "hold-status"
 
     /// The switch at the switchboard; throws if it can't be reached, or the phone hasn't
     /// registered there yet.
@@ -97,6 +106,26 @@ enum HoldSwitch {
     /// The switch as last heard, as it is now, without asking the switchboard.
     static var cached: HoldState? {
         Shared.hold?.at(.now)
+    }
+
+    /// The switch and how many calls wait, from the switchboard (`/waiting`), or as last heard
+    /// if it can't be reached. For the Lock Screen widget, which mustn't reload itself.
+    static func status() async -> (hold: HoldState?, waiting: Int) {
+        if let token = Shared.token, let data = try? await post("waiting", ["token": token], timeout: 5),
+            let answer = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let calls = answer["calls"] as? [[String: Any]]
+        {
+            remember(waiting: calls.count, reload: false)
+            if let hold = (answer["hold"] as? [String: Any]).flatMap(state(from:)) { remember(hold, reload: false) }
+        }
+        return (cached, Shared.waiting ?? 0)
+    }
+
+    /// How many calls wait, as the app last fetched them: kept for the Lock Screen widget.
+    static func remember(waiting: Int, reload: Bool = true) {
+        guard waiting != Shared.waiting else { return }
+        Shared.waiting = waiting
+        if reload { WidgetCenter.shared.reloadTimelines(ofKind: widgetKind) }
     }
 
     private static func reask(token: String) async {
@@ -123,20 +152,25 @@ enum HoldSwitch {
     /// The switch as the switchboard last gave it, also with the waiting calls: kept for the
     /// Control Center control, which reloads when it changes.
     @discardableResult
-    static func remember(_ state: HoldState) -> HoldState {
+    static func remember(_ state: HoldState, reload: Bool = true) -> HoldState {
         if state != Shared.hold {
             Shared.hold = state
             ControlCenter.shared.reloadControls(ofKind: controlKind)
+            if reload { WidgetCenter.shared.reloadTimelines(ofKind: widgetKind) }
         }
         return state
     }
 
     /// The switchboard's answer: `{"hold": Bool, "until": ISO 8601}`.
     private static func state(_ data: Data) throws -> HoldState {
-        guard let answer = try JSONSerialization.jsonObject(with: data) as? [String: Any], let on = answer["hold"] as? Bool
+        guard let answer = try JSONSerialization.jsonObject(with: data) as? [String: Any], let state = state(from: answer)
         else { throw URLError(.cannotParseResponse) }
-        let until = (answer["until"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) }
-        return HoldState(on: on, until: until)
+        return state
+    }
+
+    private static func state(from answer: [String: Any]) -> HoldState? {
+        guard let on = answer["hold"] as? Bool else { return nil }
+        return HoldState(on: on, until: (answer["until"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) })
     }
 
     private static func post(_ path: String, _ body: [String: Any], timeout: TimeInterval = 10) async throws -> Data {

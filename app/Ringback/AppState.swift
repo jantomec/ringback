@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UserNotifications
 
 /// One call as the phone saw it.
 struct CallRecord: Codable, Identifiable {
@@ -166,6 +167,9 @@ final class AppState {
         guard Switchboard.url != nil, let token, let found = try? await Switchboard.waiting(token: token) else { return }
         if found.calls != waiting { waiting = found.calls }
         if let switched = found.hold, switched != hold { hold = HoldSwitch.remember(switched) }
+        // The app's icon counts the waiting calls, and the Lock Screen widget says how many.
+        HoldSwitch.remember(waiting: waiting.count)
+        try? await UNUserNotificationCenter.current().setBadgeCount(waiting.count)
     }
 
     /// Fetches the sessions you can call from the switchboard. If it can't be reached, or is
