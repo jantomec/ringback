@@ -99,7 +99,7 @@ How to set it all up and place a test call: `docs/setup.md`.
 
 ## Checks
 
-Run before every commit; together they take a few seconds:
+Run before every commit; together they take about a minute and a half (90 s on 2026-11-02):
 
 ```sh
 (cd app && xcodegen generate && xcodebuild -project Ringback.xcodeproj -scheme Ringback \
@@ -108,6 +108,8 @@ Run before every commit; together they take a few seconds:
 (cd voice && uv run python -m compileall -q ringback_voice && uv run python -c 'import ringback_voice.__main__')
 claude plugin validate mod && claude plugin test mod
 (cd hub && go vet ./... && go build -o build/ringback-hub . && RINGBACK_HUB=$PWD/build/ringback-hub ../switchboard/smoke-test.sh)
+(cd agent && go vet ./... && go test ./...)
+uv run --project voice tools/hub-check/hub_check.py > /dev/null  # the hub's call with stand-ins
 ```
 
 They prove the code builds, not that calls work. Ringing, push and audio count only when

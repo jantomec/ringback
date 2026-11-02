@@ -51,7 +51,18 @@ func agentClosed(l *link) {
 			delete(placedBy, id)
 		}
 	}
+	var gone []*Call
+	for _, c := range live {
+		if c.agent == l {
+			gone = append(gone, c)
+		}
+	}
 	registryMu.Unlock()
+	// Its calls can't go on without it; it ends them on its side too.
+	for _, c := range gone {
+		c.say("its agent went away")
+		c.end("disconnected")
+	}
 	stateMu.Lock()
 	dropContacts(agentKey(l))
 	stateMu.Unlock()

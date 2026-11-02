@@ -58,6 +58,8 @@ type Call struct {
 	lastReply       int  // the highest number of a reply the agent has sent
 	cut             int  // replies up to this number were cut off: what more comes of them is dropped
 	awaiting        bool // your turn went to the agent, and nothing of its reply has come yet
+	cutThisTurn     bool // the voice was cut off since your last turn
+	finishedOnce    bool // the voice has finished speaking once (the opening)
 	text            string
 	handed          int
 	replyEnded, due bool
@@ -239,7 +241,7 @@ func (c *Call) play() {
 				// All of it has played, its last frame within the tick: you've heard it to the end.
 				if heard := c.heard(now().Add(20 * time.Millisecond)); heard != c.heardSent {
 					c.heardSent = heard
-					final = map[string]any{"type": "heard", "call_id": c.id, "text": heard}
+					final = map[string]any{"type": "heard", "call_id": c.id, "reply": c.replyNo, "text": heard}
 				}
 				if final != nil {
 					c.mu.Unlock()
@@ -270,7 +272,7 @@ func (c *Call) play() {
 		if frames%5 == 0 {
 			if heard := c.heard(t); heard != c.heardSent {
 				c.heardSent = heard
-				events = append(events, map[string]any{"type": "heard", "call_id": c.id, "text": heard})
+				events = append(events, map[string]any{"type": "heard", "call_id": c.id, "reply": c.replyNo, "text": heard})
 			}
 		}
 		c.mu.Unlock()
@@ -330,7 +332,7 @@ func (c *Call) checkIdle() {
 			return
 		}
 	}
-	c.idleSent = true
+	c.idleSent, c.finishedOnce = true, true
 	_ = c.agent.send(map[string]any{"type": "idle", "call_id": c.id})
 }
 
@@ -500,6 +502,7 @@ func (c *Call) speechStarted() {
 		return
 	}
 	c.replying, c.awaiting, c.queue, c.pieces, c.text, c.heardSent = false, false, nil, nil, "", ""
+	c.cutThisTurn = true
 	c.generation++
 	_ = c.agent.send(map[string]any{"type": "interrupted", "call_id": c.id, "reply": c.cut, "heard": heard})
 	c.say(fmt.Sprintf("interrupted reply %d; you'd heard %q", c.cut, lastRunes(heard, 60)))
@@ -523,13 +526,17 @@ func (c *Call) speechStopped() {
 func (c *Call) turn(text string, secs, took float64) {
 	c.mu.Lock()
 	c.userSpeaking, c.idleSent, c.awaiting = false, false, true
+	// As Pipecat counted it: you cut the voice off, or a reply it was thinking of, or it hadn't
+	// finished speaking once yet. The agent answers a stop with no words only then.
+	interrupted := c.cutThisTurn || !c.finishedOnce
+	c.cutThisTurn = false
 	ended := c.ended
 	c.mu.Unlock()
 	if ended {
 		return
 	}
 	c.say(fmt.Sprintf("you (%.1f s, heard in %.2f s): %q", secs, took, text))
-	_ = c.agent.send(map[string]any{"type": "turn", "call_id": c.id, "text": text})
+	_ = c.agent.send(map[string]any{"type": "turn", "call_id": c.id, "text": text, "interrupted": interrupted})
 }
 
 // end: the call is over, or replaced by a new offer for it. Unless replaced, the agent hears

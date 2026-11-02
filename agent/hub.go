@@ -322,14 +322,16 @@ func (a *agent) handle(m map[string]any) {
 		a.toVoice(id, func(*offer) any { return idleMsg{} })
 	case "heard":
 		text, _ := m["text"].(string)
-		a.toVoice(id, func(*offer) any { return heardMsg{text} })
+		reply, _ := m["reply"].(float64)
+		a.toVoice(id, func(*offer) any { return heardMsg{text, int(reply)} })
 	case "interrupted":
 		reply, _ := m["reply"].(float64)
 		heard, _ := m["heard"].(string)
 		a.toVoice(id, func(*offer) any { return interrupted{int(reply), heard} })
 	case "turn":
 		text, _ := m["text"].(string)
-		a.toVoice(id, func(*offer) any { return turnMsg{text} })
+		cut, _ := m["interrupted"].(bool)
+		a.toVoice(id, func(*offer) any { return turnMsg{text, cut} })
 	case "ended":
 		var lasted *float64
 		if l, ok := m["lasted"].(float64); ok {

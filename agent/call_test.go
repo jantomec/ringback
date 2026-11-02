@@ -214,11 +214,29 @@ func TestNotesAndAsksOnACall(t *testing.T) {
 	check(t, "the option's label is the answer, with your words", answered["status"] == "answered" &&
 		answers["Where should the fix go?"] == "A new branch" && answered["said"] == "A new branch, please.", answered)
 
-	// A turn with no words: the voice carries on.
+	// A stop with no words while the voice waited for you goes unanswered: its reply (7) is
+	// just its end, and Haiku isn't asked.
 	hub.send(map[string]any{"type": "idle", "call_id": callID})
-	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": ""})
-	check(t, "an empty turn has the voice carry on", a.waitTurn(7, 5*time.Second) == "["+noise+"]")
-	hub.reply(callID, 7, 5*time.Second)
+	saidN := func(n float64) func(map[string]any) bool {
+		return func(m map[string]any) bool { return m["type"] == "said" && m["reply"] == n }
+	}
+	sayN := func(n float64) func(map[string]any) bool {
+		return func(m map[string]any) bool { return m["type"] == "say" && m["reply"] == n }
+	}
+	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "", "interrupted": false})
+	ended, _ := hub.wait(0, 5*time.Second, saidN(7))
+	check(t, "a stop with no words while the voice waited goes unanswered", ended != nil && hub.count(sayN(7)) == 0, ended)
+
+	// One that cut the voice off has it carry on (reply 8), once in a row: the next goes
+	// unanswered (reply 9).
+	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "", "interrupted": true})
+	check(t, "an empty turn that cut the voice off has it carry on", a.waitTurn(7, 5*time.Second) == "["+noise+"]")
+	hub.reply(callID, 8, 5*time.Second)
+	hub.send(map[string]any{"type": "idle", "call_id": callID})
+	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "", "interrupted": true})
+	twice, _ := hub.wait(0, 5*time.Second, saidN(9))
+	time.Sleep(200 * time.Millisecond)
+	check(t, "a second one in a row goes unanswered", twice != nil && hub.count(sayN(9)) == 0 && len(a.turns()) == 7, twice)
 
 	// A permission still waiting when you hang up gets none.
 	_, asked = a.mod("POST", "/sessions/s2-session/permissions", map[string]any{"tool": "Write", "project": "demo", "cwd": a.project()})

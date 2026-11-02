@@ -148,6 +148,16 @@ func (h *fakeHub) send(m map[string]any) {
 	h.t.Helper()
 	h.mu.Lock()
 	conn := h.conn
+	if m["type"] == "heard" && m["reply"] == nil {
+		// As the hub does: what you've heard is of the reply the agent sent last.
+		m["reply"] = 0
+		for i := len(h.got) - 1; i >= 0; i-- {
+			if h.got[i]["type"] == "say" && h.got[i]["call_id"] == m["call_id"] {
+				m["reply"] = h.got[i]["reply"]
+				break
+			}
+		}
+	}
 	h.mu.Unlock()
 	if conn == nil {
 		h.t.Fatalf("no agent linked to send %v", m)

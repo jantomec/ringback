@@ -254,8 +254,8 @@ async def main() -> int:
         heard = agent.of("heard")
         empty = [m for m in agent.of("heard") if not m["text"]]
         check(f"the agent never hears an empty heard: {len(empty)}", not empty)
-        check(f"and heard to its end, then idle: {heard[-1]['text']!r}, {len(agent.of('idle')) - idles} idle",
-              heard[-1]["text"] == "Going on now." and len(agent.of("idle")) == idles + 1)  # fmt: skip
+        check(f"and heard to its end, as reply 4, then idle: {heard[-1]['text']!r}, {len(agent.of('idle')) - idles} idle",
+              heard[-1]["text"] == "Going on now." and heard[-1]["reply"] == 4 and len(agent.of("idle")) == idles + 1)  # fmt: skip
 
         # A reply with nothing to say (only a tool call): the voice is idle.
         await node.ws.send_json({"type": "turn", "stream": stream, "text": "Do it.", "secs": 0.5, "took": 0.05})
@@ -263,6 +263,9 @@ async def main() -> int:
         await until(lambda: len(agent.of("idle")) > idles + 1, 3)
         check(f"a reply with nothing to say leaves the voice idle: {len(agent.of('idle')) - idles - 1} idle",
               len(agent.of("idle")) == idles + 2)  # fmt: skip
+        flags = [(m["text"], m["interrupted"]) for m in agent.of("turn")]
+        check(f"a turn says whether you cut the voice off since the last: {flags}",
+              [f for _, f in flags] == [False, True, True, False])  # fmt: skip
 
         # Hanging up: the agent hears how long you talked.
         talked = time.monotonic() - t0
@@ -272,6 +275,15 @@ async def main() -> int:
         check(f"hung up, the agent hears it ended {ended_in and round(ended_in, 1)} s later, lasted {ended and ended[0]['lasted']}",
               len(ended) == 1 and ended[0]["lasted"] is not None and abs(ended[0]["lasted"] - talked) < 3)  # fmt: skip
         check(f"and the node to stop hearing: {node.of('hear_end')}", len(node.of("hear_end")) == 1)
+
+        # The agent's link drops during a call: the hub ends the call.
+        second = phone_check.Phone()
+        status = await second.offer("known-" + secrets.token_hex(12), ringing=False)
+        await until(lambda: len(agent.of("connected")) == 2, 5)
+        await agent.close()
+        gone = await until(lambda: len(node.of("hear_end")) == 2, 5)
+        check(f"the agent's link drops mid-call: the hub ends the call ({gone and round(gone, 2)} s)", status == 200 and gone is not None)
+        await second.hang_up()
     finally:
         await agent.close()
         await node.close()

@@ -1826,14 +1826,26 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
      switch and the app's lists, from the phone.
   2. **The speech node:** sherpa-onnx on CUDA, with Silero, Smart Turn v3, Parakeet v2 and
      Kokoro; speed, RAM and VRAM measured on the workstation.
-  3. **The agent:** the mods' socket and everything behind it, and the call's `claude -p`.
+  3. **The agent** (built 2026-11-02, checked with stand-ins; `agent/`, an 11 MB binary with
+     no cgo): the mods' socket with the same routes and answers, the calls' state and its
+     state file (read and written both ways with the voice server's Python), what sessions
+     ask, Haiku and Opus through `claude -p`, held-until-heard, cut-off notes, transcripts, and
+     the link to the hub. Its texts are generated from the Python modules, and its answers
+     match the Python functions' on every case `agent/testdata/golden.py` writes (outcomes,
+     durations, instructions, ask texts, sentence ends, Haiku replies cut at 90 points).
+     Scenario tests drive the socket as the mod does, against a stand-in hub and a stand-in
+     `claude`: 11 tests, 8 s; one real Haiku call (`RINGBACK_REAL_CLAUDE=1`) passed, its first
+     words 0.90 s after the turn. A stop with no words is answered only if it cut the voice off
+     or came before the voice first finished speaking, once in a row, as Pipecat's empty user
+     turns were. Not ported: calls rung by hand (`--report`), whose place is the hub now.
   4. **The call in the hub** (built 2026-11-02, checked with stand-ins): WebRTC (Pion) and
      Opus (libopus) with forward error correction, the jitter buffer and concealment
      (`opus.py`), the links (`docs/protocol.md`), the phone's endpoints, the reply cut into
      pieces, interruptions, and what you'd heard. `tools/hub-check` runs the hub with a stand-in
-     phone, agent and speech node: all 25 checks passed (five runs, 9–11 s each timed), the voice heard
+     phone, agent and speech node: all 27 checks passed (three runs, 9–10 s each), the voice heard
      0.15 s after the offer. Replies are numbered, so a reply cut off while it's still being
-     written is dropped as more of it comes.
+     written is dropped as more of it comes. `hub/build.sh` makes it one universal binary with
+     libopus linked in, which passed natively on the Intel Mac (the smoke test, 139).
   5. **Switching over:** the offline checks (`tools/phone-check`, `ask-check`,
      `call-check`, `restart-check`) against the Go parts, then the phone.
 7. **Several sessions + retries.** A second session waits for the first call to end.

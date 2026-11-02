@@ -1,3 +1,4 @@
 # Build output: go build names the binary for its folder, or ringback-agent with -o
 /agent
 /ringback-agent
+/build/

@@ -56,12 +56,18 @@ type (
 	connectedMsg struct{ at time.Time }
 	speakingMsg  struct{}
 	idleMsg      struct{}
-	heardMsg     struct{ text string }
-	interrupted  struct {
+	heardMsg     struct {
+		text  string
+		reply int
+	}
+	interrupted struct {
 		reply int
 		heard string
 	}
-	turnMsg struct{ text string }
+	turnMsg struct {
+		text        string
+		interrupted bool // you cut the voice off in this turn, or it hadn't finished its first reply
+	}
 	noteMsg struct{ text string }
 	toolMsg struct {
 		name   string
@@ -96,6 +102,7 @@ type voice struct {
 
 	replies     int    // replies started, numbered from 1
 	pending     int    // the reply your turn started, until it's sent to Haiku
+	recoveries  int    // stops with no words answered in a row
 	parts       []part // what the next reply answers
 	due         bool   // your turn came: the next reply goes as soon as it can
 	current     int    // the reply Haiku writes or wrote last
@@ -211,11 +218,13 @@ func (v *voice) handle(m any) {
 		v.idle = true
 		v.tryAnswer()
 	case heardMsg:
-		v.onHeard(m.text)
+		if m.reply == v.current {
+			v.onHeard(m.text)
+		}
 	case interrupted:
 		v.onInterrupted(m.reply, m.heard)
 	case turnMsg:
-		v.onTurn(m.text)
+		v.onTurn(m.text, m.interrupted)
 	case noteMsg:
 		v.parts = append(v.parts, part{true, m.text})
 		v.tryAnswer()
@@ -412,8 +421,24 @@ func (v *voice) onInterrupted(reply int, heard string) {
 }
 
 // onTurn: your words, which start the next reply at once. A turn with no words, a stop where
-// nothing was recognised, has the voice carry on.
-func (v *voice) onTurn(text string) {
+// nothing was recognised, has the voice carry on if it cut the voice off, once in a row, as
+// Pipecat's empty user turns did (maxRecoveries); otherwise it goes unanswered, and its reply
+// is just its end.
+func (v *voice) onTurn(text string, interrupted bool) {
+	empty := strings.TrimSpace(text) == ""
+	if empty && (!interrupted || v.recoveries >= maxRecoveries) {
+		v.log("a stop with no words, left unanswered")
+		if v.pending == 0 {
+			v.replies++
+			v.out(map[string]any{"type": "said", "call_id": v.callID, "reply": v.replies})
+		}
+		return
+	}
+	if empty {
+		v.recoveries++
+	} else {
+		v.recoveries = 0
+	}
 	v.idle = false
 	if v.pending != 0 {
 		// A reply started for an earlier turn hasn't gone yet: this one answers both.
@@ -434,6 +459,10 @@ func (v *voice) onTurn(text string) {
 // tryAnswer starts the next reply when it can: your turn as soon as Haiku has finished the
 // last one and Opus, if it's taking over, has started; notes and Opus's first reply once the
 // voice is idle.
+// maxRecoveries is how many stops with no words in a row the voice answers (Pipecat's
+// max_consecutive_recoveries).
+const maxRecoveries = 1
+
 func (v *voice) tryAnswer() {
 	if !v.opened || v.ended || v.unfinished > 0 || v.switching || v.haiku == nil {
 		return
