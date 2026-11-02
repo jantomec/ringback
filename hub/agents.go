@@ -42,6 +42,7 @@ func agentOpened(l *link) {
 	registryMu.Lock()
 	agents[l] = nil
 	registryMu.Unlock()
+	sawLink(l)
 }
 
 func agentClosed(l *link) {
@@ -67,6 +68,7 @@ func agentClosed(l *link) {
 	stateMu.Lock()
 	dropContacts(agentKey(l))
 	stateMu.Unlock()
+	sawLink(l) // after it's off the registry, not to delay that
 }
 
 // fromAgent handles what an agent sends, outside a call (sessions, place) and in one.
@@ -127,20 +129,23 @@ func nodeOpened(l *link) {
 	registryMu.Lock()
 	nodes[l] = true
 	registryMu.Unlock()
+	sawLink(l)
 	// The calls that waited for speech ask again now, and ring.
 	stateMu.Lock()
 	ids := waitingFor("no speech")
 	stateMu.Unlock()
-	if len(ids) > 0 && nodeUsable(l) {
+	if len(ids) > 0 {
 		log(fmt.Sprintf("speech %s: %d calls waited for speech, they ask again", l.name, len(ids)))
 		broadcast(map[string]any{"type": "reask", "call_ids": ids})
 	}
 }
 
-// speechLinked says whether a speech node is linked and not paused, so the calls the hub
-// carries can be talked through.
+// speechLinked says whether a speech node is linked, so the calls the hub carries can be
+// talked through.
 func speechLinked() bool {
-	return aNode() != nil
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	return len(nodes) > 0
 }
 
 // linked are the names of the speech nodes linked, and the Macs (agents) with how many of
@@ -171,20 +176,19 @@ func nodeClosed(l *link) {
 		}
 	}
 	registryMu.Unlock()
+	sawLink(l) // after it's off the registry, not to delay that
 	for _, c := range gone {
 		c.say("its speech node went away")
 		c.end("disconnected")
 	}
 }
 
-// warmNodes tells every speech node that isn't paused a call is coming, so it loads its models.
+// warmNodes tells every speech node a call is coming, so it loads its models.
 func warmNodes() {
 	registryMu.Lock()
 	list := make([]*link, 0, len(nodes))
 	for l := range nodes {
-		if nodeUsable(l) {
-			list = append(list, l)
-		}
+		list = append(list, l)
 	}
 	registryMu.Unlock()
 	for _, l := range list {
@@ -192,14 +196,12 @@ func warmNodes() {
 	}
 }
 
-// aNode is a connected speech node that isn't paused, or nil.
+// aNode is a connected speech node, or nil.
 func aNode() *link {
 	registryMu.Lock()
 	defer registryMu.Unlock()
 	for l := range nodes {
-		if nodeUsable(l) {
-			return l
-		}
+		return l
 	}
 	return nil
 }

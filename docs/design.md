@@ -113,8 +113,9 @@ Stages, by parts that each run anywhere:
      turned on), as a held call does when work hours start.
 
   A node needs no address anywhere: it links to the hub itself, with its token. Nothing
-  about nodes is set in the app. What's set about them (adding one, its token, turning one
-  off for a while) is set on the hub's portal.
+  about nodes is set in the app. What's set about them (adding one, its token, forgetting one
+  that's gone for good) is set on the hub's portal. To stop calls for a while, whatever their
+  speech, there's the hold: the app's switch, or the portal's, which sets it on every phone.
 - **Status in the app.** The hub says what's up (`/status`): speech (the nodes linked, and
   whether the phone's own is on), the Macs linked and their sessions, and the last push to
   the phone. The app checks on opening, at the connection check every 30 min, and when a
@@ -126,16 +127,23 @@ Stages, by parts that each run anywhere:
   a node with its models unloaded until a call comes.
 - **The portal.** Pages the hub serves, for setup and for the rare times something's wrong:
   - **What it shows:**
-    - the nodes linked (their models loaded or not; memory isn't shown yet) and the Macs with
-      their sessions;
+    - a map of the system: the Macs with their sessions counted, the hub with its hold, the
+      speech nodes (their models loaded or idle; memory isn't shown yet), Apple push, and the
+      phones with On-device voice; each part and each link working, a problem, gone (a Mac
+      asleep, quietly; a speech node offline, as a problem) or not set up, which isn't a
+      fault and links to Setup; the speech a call would have now, and live calls' paths lit;
     - calls: live, waiting and recent, with their events;
+    - the sessions, each with the Mac it runs on;
     - the phone's registration and the last push;
     - the log's tail;
-    - the phone's settings, read-only (work hours, hold, On-device voice, sensitivity).
+    - the phone's settings, read-only (work hours, hold, On-device voice).
   - **What it changes:** adding a node or a Mac (it shows the hub's address, the token from
-    the hub's config, and the commands to run there), and the nodes' settings (pausing one).
-  - **How it's built:** plain HTML from the hub's own binary, refreshing itself, with no
-    JavaScript framework.
+    the hub's config, and the commands to run there), the hold (every phone's hold switch at
+    once, so the app shows it too: while held, no call rings, whatever speech there is), and
+    forgetting a node or a Mac that's gone for good.
+  - **How it's built:** plain HTML and SVG from the hub's own binary, refreshing itself, with
+    no JavaScript framework; the map is laid out by the hub and drawn in two shapes, wide for a
+    desk and tall for a phone.
   - **One home for each setting:** secrets and addresses in the hub's config file; what the
     portal changes in the hub's state; what the phone owns on the phone, shown on the portal.
   - **Login:** a user name and password, then a second factor: a one-time passcode (TOTP,
@@ -1964,7 +1972,8 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
      sessions, the calls live (from the hub's registry) and waiting (with why and when they
      ring), and each phone (its last check-in, the last push, and its work hours, hold switch
      and On-device voice, read-only); Calls the last 50 calls in `events.jsonl`, with their
-     outcome, length and events; Log the last 500 lines, kept in a ring in the hub.
+     outcome, length and events; Log the last 500 lines, kept in a ring in the hub. (Status
+     was redesigned in step 5.)
      - A node now says whether its models are loaded (`models`, `docs/protocol.md`): its link
        process sends it when its worker has loaded them and when the worker exits. Checked
        only with the link process's code in a scratch test, not on the speech node.
@@ -1994,16 +2003,66 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
      race-free over 3 runs): RFC 6238's vectors, the password hashing, the whole sign-in
      through the pages (a wrong password, a wrong code, a reused and an older code, signing
      out), forged and missing CSRF tokens, the rate limit, every page refusing without a
-     session, idle expiry, and paused nodes. Each protection was broken in turn and its test
-     failed (9 of 9). Also signed in through headless Chrome on a phone-sized window, and the
-     account made in a pseudo-terminal, which showed no password. Not built: passkeys.
-  4. Setup on the portal: adding a node or a Mac, and the nodes' settings. Built 2026-11-02:
-     Setup shows each link's address and token (from `hub.toml`, hidden until shown, copied
-     with a button) and the commands from `docs/setup.md`; a node can be paused, kept in
-     `nodes.json` by its name: the hub then neither warms it nor gives it calls (`nodeUsable`,
-     in `aNode`, `warmNodes` and `speechLinked`), the app's status counts only nodes not
-     paused, and resuming one has the calls that waited for speech ask again. Paused through
-     the page's button in Chrome, and in the tests. No other nodes' settings yet.
+     session, and idle expiry (then also paused nodes, since taken out: step 5). Each
+     protection was broken in turn and its test failed (9 of 9). Also signed in through
+     headless Chrome on a phone-sized window, and the account made in a pseudo-terminal, which
+     showed no password. Not built: passkeys.
+  4. Setup on the portal: adding a node or a Mac. Built 2026-11-02: Setup shows each link's
+     address and token (from `hub.toml`, hidden until shown, copied with a button) and the
+     commands from `docs/setup.md`. A node could be paused at first (`nodes.json`); step 5 took
+     that out for the hold, which stops calls whatever their speech.
+  5. The portal redesigned (2026-11-02), after you found it hard to read: the open tab didn't
+     show, Macs and sessions were mixed, and pausing one speech node suggested calls would
+     still go through the phone's own voice.
+     - **One hold for the hub**, instead of pausing a node: the app's hold switch, set on
+       every registered phone at once (`holdEveryPhone`, `POST /portal/hold`), so the app
+       shows it the next time it asks the hub. While every phone is on hold no call rings,
+       whatever speech there is; taking calls has the calls held ask again (the agents' calls;
+       a voice server of the earlier stack asks by itself within 10 min). It shows on every
+       page, as a pill in the bar like the app's (its word the state, its symbol what pressing
+       does), and as a card on Status that says no call rings, the phone's own voice included.
+       `nodes.json`, `nodeUsable` and `pauseNode` are gone.
+     - **A map of the system** leads Status, drawn by the hub as SVG (`hub/portal_map.go`): the
+       Macs (with their sessions counted), the hub (with the hold), the speech nodes (models
+       loaded or idle), Apple push between the hub and the phones, and the phones (with
+       On-device voice); and the links between them. Each part and link is working, a
+       problem, gone or not set up. Not set up (no node ever linked, no APNs key in the
+       config, no phone registered) is drawn dashed and quiet, with a link to its section of
+       Setup, and isn't a problem. Telling it from gone needs the hub to remember what it has
+       seen: `seen.json` in the state folder, the speech nodes and Macs by name, when each
+       first and last linked. A Mac that's gone shows as asleep, quietly; a node that's gone
+       is offline, a problem. One gone for good can be forgotten on Status. Above the map, a
+       sentence says what a call would do now: ring which phone, with which speech (a node,
+       the phone's own voice, or none, so calls wait); a live call lights its path. The map
+       has two shapes, wide (1000 units) and tall (360, below 860 px), for 0 to 3 Macs, 0 to
+       2 nodes and 1 to 2 phones; more show as "and 1 more". Apple push counts as set up when
+       the config has a team, a bundle ID and a key it can read for each environment a phone
+       uses (`pushSetup`).
+     - Under the map: the calls live and waiting, the sessions (each with the Mac it runs
+       on), the phones' facts, and the speech nodes and Macs. Calls are grouped by day, as in
+       the Phone app; the log has its times in a column; Setup gained the phone and Apple
+       push; signing in has the app's icon. On a phone, the tabs and the hold move to a
+       floating bar at the bottom, as in the app.
+     - Checked with Go tests (`hub/portal_status_test.go`, 4 new, 13 in the hub, 1.3 s;
+       race-free over 3 runs): the hold on every phone, the app's `/hold` answer and a call
+       placed while held (with a phone that speaks itself), the held calls asking again, the
+       parts seen, offline, asleep and forgotten, Apple push's setup, and the map's layout. The
+       new forms need the session and its CSRF token: each check was broken in turn for each
+       form and a test failed (4 of 4). The layout test places every count of parts with long
+       names and fails if a part, a name, a line or a tag overlaps another, or a link runs
+       through one; a link moved through a node made it fail (480 points). In headless Chrome
+       (`tools/portal-screens`, 10 states, 85 screenshots, 43 checks passed, 143 s), every
+       state looked at, in light or dark and on a desk or a phone. What that found and was
+       fixed: the icons drawn black (a sprite's styles don't reach a `use`), the tall map's
+       links through a node's name with two nodes, the phone's dock pinned to the bar (its
+       backdrop filter made the bar the dock's containing block), a key that can't be read
+       said twice, Apple push's label crossed by a link with two phones, and long Mac names
+       squeezing the sessions. `tools/hub-check` failed one check in 2 of 5 runs at first: a
+       call placed just as a node went still found it, because noting the node as seen came
+       before taking it off the registry; moved after, 8 runs of 8 passed (46 checks each).
+     - Not tried on the phone or with the real hub: the app showing a hold set on the portal
+       (it reads the hold with the waiting calls, on opening and pull to refresh), and Safari
+       on the iPhone (the screenshots are Chrome's).
 - **Speech on the phone** (decided 2026-11-02; trial done, `tools/speech-trial`, and its code taken out of the app after commit `a89043e`). First a trial on an older iPhone (4 GB)
   with Apple's on-device recognition, measured: how soon your words come after you stop,
   their accuracy on `tools/stt-eval`'s recordings, the app's memory, battery over a

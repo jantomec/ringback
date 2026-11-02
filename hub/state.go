@@ -131,6 +131,25 @@ func setHold(token string, on bool) (map[string]string, error) {
 	return entry, saveDevices(devices)
 }
 
+// holdEveryPhone sets the hold switch of every registered phone at once, as the portal's
+// does, so the app shows it too: on hold, no call rings, whatever speech there is. How many
+// phones it set.
+func holdEveryPhone(on bool) (int, error) {
+	devices := loadDevices()
+	for _, entry := range devices {
+		if on {
+			entry["hold"] = "yes"
+		} else {
+			delete(entry, "hold")
+		}
+		entry["hold_set"] = isoNow()
+	}
+	if len(devices) == 0 {
+		return 0, nil
+	}
+	return len(devices), saveDevices(devices)
+}
+
 func forgetDevice(token string) error {
 	devices := loadDevices()
 	if _, ok := devices[token]; !ok {

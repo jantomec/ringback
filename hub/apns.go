@@ -80,23 +80,32 @@ func apnsClient(environment string, config map[string]string) (bundleID, bearer 
 	return bundle, bearer, nil
 }
 
-// providerToken is an ES256 JWT signed with the .p8 key.
-func providerToken(teamID, keyID, keyFile string) (string, error) {
+// readPushKey reads a .p8 key, as Apple gives it: an EC private key in PKCS #8, in PEM.
+func readPushKey(keyFile string) (*ecdsa.PrivateKey, error) {
 	data, err := os.ReadFile(keyFile)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	block, _ := pem.Decode(data)
 	if block == nil {
-		return "", errors.New("not a PEM key")
+		return nil, errors.New("not a PEM key")
 	}
 	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	key, ok := parsed.(*ecdsa.PrivateKey)
 	if !ok {
-		return "", errors.New("not an EC key")
+		return nil, errors.New("not an EC key")
+	}
+	return key, nil
+}
+
+// providerToken is an ES256 JWT signed with the .p8 key.
+func providerToken(teamID, keyID, keyFile string) (string, error) {
+	key, err := readPushKey(keyFile)
+	if err != nil {
+		return "", err
 	}
 	enc := base64.RawURLEncoding
 	header, _ := json.Marshal(map[string]string{"alg": "ES256", "kid": keyID})

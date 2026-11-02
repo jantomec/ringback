@@ -1,18 +1,21 @@
 // The portal's one script. It refreshes a page's content in place every few seconds (main's
-// data-refresh), keeping open details and the log's place, and shows or copies a token.
-// Its refreshes say so (X-Portal-Refresh), so they don't count as use: a page left open still
-// signs you out after 12 hours.
+// data-refresh), keeping open details and the log's place, and the hold in the bar on every
+// page; and it shows or copies a token. Its refreshes say so (X-Portal-Refresh), so they don't
+// count as use: a page left open still signs you out after 12 hours. Without it, the pages
+// work as they are, and show what was so when they loaded.
 (() => {
   "use strict";
 
-  const main = document.querySelector("main[data-refresh]");
+  const main = document.querySelector("main");
+  const content = main && main.dataset.refresh ? main : null; // the setup page keeps still
+  const pill = () => document.getElementById("hold-pill");
   const log = () => document.getElementById("log");
   const atBottom = () => window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 48;
   const toBottom = () => window.scrollTo(0, document.documentElement.scrollHeight);
 
-  if (main) {
+  if (content || pill()) {
     if (log()) toBottom();
-    const every = Math.max(2, Number(main.dataset.refresh) || 5) * 1000;
+    const every = Math.max(2, Number(content ? content.dataset.refresh : 5) || 5) * 1000;
     let busy = false;
     const refresh = async () => {
       if (busy || document.hidden) return;
@@ -31,12 +34,21 @@
           return;
         }
         if (!response.ok) return;
-        const fresh = new DOMParser().parseFromString(await response.text(), "text/html").querySelector("main");
+        const page = new DOMParser().parseFromString(await response.text(), "text/html");
+        const freshPill = page.getElementById("hold-pill");
+        if (pill() && freshPill && !pill().isEqualNode(freshPill)) pill().replaceWith(freshPill);
+        const fresh = content && page.querySelector("main");
         if (!fresh) return;
         const open = new Set([...main.querySelectorAll("details[open][id]")].map((d) => d.id));
         fresh.querySelectorAll("details[id]").forEach((d) => { d.open = open.has(d.id); });
         const follow = log() && atBottom();
-        main.replaceChildren(...fresh.childNodes);
+        // A part that hasn't changed stays as it is, so the map's live calls flow on.
+        const before = new Map([...main.children].filter((c) => c.id).map((c) => [c.id, c]));
+        const after = [...fresh.children].map((c) => {
+          const kept = c.id && before.get(c.id);
+          return kept && kept.isEqualNode(c) ? kept : c;
+        });
+        main.replaceChildren(...after);
         if (follow) toBottom();
       } catch {
         // The hub didn't answer this time; the next refresh tries again.

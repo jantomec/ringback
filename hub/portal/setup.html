@@ -2,15 +2,24 @@
 <div class="head">
   <h1>Setup</h1>
 </div>
-<p class="lede">What a new speech node or Mac needs to link to this hub. Addresses and tokens come from the hub's config, <code>{{.Config}}</code>, which the portal never changes: to change a token, edit it there, restart the hub, and change it on every node or Mac that uses it.</p>
+<p class="lede">What each part needs to work with this hub. Addresses and tokens come from the hub's config, <code>{{.Config}}</code>, which the portal never changes: to change a token, edit it there, restart the hub, and change it wherever it's used.</p>
+<ul class="jump" aria-label="Parts">
+  <li><a href="#node"><svg class="ic" aria-hidden="true"><use href="#m-node"/></svg>Speech node</a></li>
+  <li><a href="#mac"><svg class="ic" aria-hidden="true"><use href="#m-mac"/></svg>Mac</a></li>
+  <li><a href="#phone"><svg class="ic" aria-hidden="true"><use href="#m-phone"/></svg>Phone</a></li>
+  <li><a href="#push"><svg class="ic" aria-hidden="true"><use href="#m-push"/></svg>Apple push</a></li>
+</ul>
 
 <section id="node">
-  <h2>Add a speech node</h2>
+  <div class="section-head">
+    <span class="lead" aria-hidden="true"><svg class="ic"><use href="#m-node"/></svg></span>
+    <div><h2>Add a speech node</h2><p>The GPU computer that hears and speaks calls: Linux with an NVIDIA GPU.</p></div>
+  </div>
   <div class="group pad">
-    <p class="step"><span class="n">1</span><span>On the Linux machine with the NVIDIA GPU, with a copy of the repository, install it (2.7 GB to download) and build it:</span></p>
+    <div class="step"><span class="n">1</span><p>On that machine, with a copy of the repository, install it (2.7 GB to download) and build it:</p></div>
     <pre class="code">speech/install.sh
 speech/build.sh</pre>
-    <p class="step"><span class="n">2</span><span>Set the hub's address and the speech token in <code>~/ringback-speech/speech.toml</code>:</span></p>
+    <div class="step"><span class="n">2</span><p>Set the hub's address and the speech token in <code>~/ringback-speech/speech.toml</code>:</p></div>
     {{- if .SpeechSet}}
     <div class="snippet">
       <pre class="code">hub = "ws://{{.Listen}}/speech"
@@ -20,7 +29,7 @@ token = "<span class="secret" data-secret="{{.SpeechToken}}">••••••�
     {{- else}}
     <p class="notice">The hub's config has no speech token yet. Set <code>speech</code> under <code>[tokens]</code> to a long random string, such as <code>openssl rand -hex 32</code> prints, and restart the hub.</p>
     {{- end}}
-    <p class="step"><span class="n">3</span><span>Start it. It links to the hub and shows under Status.</span></p>
+    <div class="step"><span class="n">3</span><p>Start it. It links to the hub and shows on the status page's map.</p></div>
     <pre class="code">. ~/ringback-speech/env.sh &amp;&amp; ~/ringback-speech/bin/ringback-speech serve</pre>
     <details id="node-service">
       <summary>Run it as a service, from boot</summary>
@@ -35,13 +44,16 @@ journalctl --user -u ringback-speech -f      # its log</pre>
 </section>
 
 <section id="mac">
-  <h2>Add a Mac</h2>
+  <div class="section-head">
+    <span class="lead" aria-hidden="true"><svg class="ic"><use href="#m-mac"/></svg></span>
+    <div><h2>Add a Mac</h2><p>A Mac whose Claude Code sessions call you.</p></div>
+  </div>
   <div class="group pad">
-    <p class="step"><span class="n">1</span><span>On the Mac that runs Claude Code sessions, from the repository, build the agent and copy its config:</span></p>
+    <div class="step"><span class="n">1</span><p>On the Mac, from the repository, build the agent and copy its config:</p></div>
     <pre class="code">mkdir -p ~/.local/bin ~/.config/ringback
 (cd agent &amp;&amp; go build -o ~/.local/bin/ringback-agent .)
 cp agent/agent.example.toml ~/.config/ringback/agent.toml</pre>
-    <p class="step"><span class="n">2</span><span>Set the hub's address and the agent token in <code>~/.config/ringback/agent.toml</code>:</span></p>
+    <div class="step"><span class="n">2</span><p>Set the hub's address and the agent token in <code>~/.config/ringback/agent.toml</code>:</p></div>
     {{- if .AgentSet}}
     <div class="snippet">
       <pre class="code">hub = "{{.Listen}}"
@@ -51,7 +63,7 @@ token = "<span class="secret" data-secret="{{.AgentToken}}">••••••�
     {{- else}}
     <p class="notice">The hub's config has no agent token yet. Set <code>agent</code> under <code>[tokens]</code> to a long random string, such as <code>openssl rand -hex 32</code> prints, and restart the hub.</p>
     {{- end}}
-    <p class="step"><span class="n">3</span><span>Start it. It links to the hub and shows under Status, with its sessions.</span></p>
+    <div class="step"><span class="n">3</span><p>Start it. It links to the hub and shows on the status page's map, with its sessions.</p></div>
     <pre class="code">~/.local/bin/ringback-agent serve</pre>
     <details id="mac-launchd">
       <summary>Start it at login, with launchd</summary>
@@ -87,10 +99,45 @@ token = "<span class="secret" data-secret="{{.AgentToken}}">••••••�
 EOF
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ringback.agent.plist</pre>
     </details>
-    <p class="step"><span class="n">4</span><span>Load the ringback mod in Claude Code, for every session, in <code>~/.claude/settings.json</code>; then <code>/ringback</code> in a session turns calling on:</span></p>
+    <div class="step"><span class="n">4</span><p>Load the ringback mod in Claude Code, for every session, in <code>~/.claude/settings.json</code>; then <code>/ringback</code> in a session turns calling on:</p></div>
     <pre class="code">{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/ringback/mod" } }</pre>
   </div>
 </section>
 
-<p class="foot">The whole setup, the hub's and the phone's too, is in the repository's <code>docs/setup.md</code>.</p>
+<section id="phone">
+  <div class="section-head">
+    <span class="lead" aria-hidden="true"><svg class="ic"><use href="#m-phone"/></svg></span>
+    <div><h2>Add the phone</h2><p>{{if .Phones}}{{if eq .Phones 1}}A phone has{{else}}{{.Phones}} phones have{{end}} registered with this hub.{{else}}No phone has registered with this hub yet.{{end}}</p></div>
+  </div>
+  <div class="group pad">
+    <div class="step"><span class="n">1</span><p>Install the app on the iPhone from Xcode, as the repository's <code>docs/setup.md</code> says, with Nebula on the phone too.</p></div>
+    <div class="step"><span class="n">2</span><p>In the Settings app, under Apps, Ringback, set the hub's Address:</p></div>
+    <pre class="code">{{.Listen}}</pre>
+    <div class="step"><span class="n">3</span><p>Open the app and allow notifications. It registers with the hub and shows on the status page's map.</p></div>
+  </div>
+</section>
+
+<section id="push">
+  <div class="section-head">
+    <span class="lead" aria-hidden="true"><svg class="ic"><use href="#m-push"/></svg></span>
+    <div><h2>Apple push</h2><p>{{if and .PushSet (not .PushProblem)}}Set up in the hub's config.{{else if .PushSet}}Set up, but with a problem.{{else}}Not set up yet.{{end}} The hub rings the phone through Apple's push service, with a key from your Apple Developer account.</p></div>
+  </div>
+  <div class="group pad">
+    {{- with .PushProblem}}
+    <p class="notice">Calls can't ring: {{.}}.</p>
+    {{- end}}
+    <div class="step"><span class="n">1</span><p>At developer.apple.com, under Certificates, Identifiers &amp; Profiles, Keys, make a key with Apple Push Notifications, and download its <code>.p8</code> file to the hub's machine.</p></div>
+    <div class="step"><span class="n">2</span><p>Add it to <code>{{.Config}}</code>, with your team ID and the app's bundle ID, then restart the hub:</p></div>
+    <pre class="code">[apns]
+team_id = "ABCDE12345"
+bundle_id = "com.example.ringback"
+
+[apns.sandbox]
+key_id = "XYZ9876543"
+key_file = "~/.config/ringback/AuthKey_XYZ9876543.p8"</pre>
+    <p class="foot">Builds installed from Xcode get their pushes from Apple's sandbox, so that's the key you need. TestFlight and App Store builds need <code>[apns.production]</code>.</p>
+  </div>
+</section>
+
+<p class="foot">The whole setup, the hub's too, is in the repository's <code>docs/setup.md</code>.</p>
 {{end}}{{end}}

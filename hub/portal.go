@@ -18,10 +18,11 @@ import (
 )
 
 // The hub's portal: pages under /portal/ for setting up and for the rare times something's
-// wrong ("Status, the hub's portal and speech on the phone" in docs/design.md). It shows the
-// speech nodes and Macs linked, the calls, the phones and the log, and changes only what's
-// kept in the hub's state (pausing a node); secrets stay in hub.toml. Plain HTML from
-// templates in the binary, which refresh themselves with a small script.
+// wrong ("Status, the hub's portal and speech on the phone" in docs/design.md). It shows a
+// map of the system, the calls, the phones and the log, and changes only what's kept in the
+// hub's state: the hold, on every phone at once, and the parts it remembers having seen;
+// secrets stay in hub.toml. Plain HTML and SVG from templates in the binary, which refresh
+// themselves with a small script.
 
 //go:embed portal
 var portalFiles embed.FS
@@ -29,7 +30,11 @@ var portalFiles embed.FS
 var portalPages = parsePortalPages()
 
 func parsePortalPages() map[string]*template.Template {
-	base := template.Must(template.ParseFS(portalFiles, "portal/base.html"))
+	funcs := template.FuncMap{
+		"n":    num, // a number in an SVG attribute
+		"part": func(csrf string, p partView) map[string]any { return map[string]any{"CSRF": csrf, "Part": p} },
+	}
+	base := template.Must(template.New("base").Funcs(funcs).ParseFS(portalFiles, "portal/base.html"))
 	pages := map[string]*template.Template{}
 	for _, name := range []string{"status", "calls", "log", "setup", "login", "code", "noaccount", "message"} {
 		pages[name] = template.Must(template.Must(base.Clone()).ParseFS(portalFiles, "portal/"+name+".html"))
@@ -37,12 +42,17 @@ func parsePortalPages() map[string]*template.Template {
 	return pages
 }
 
-// page is what every page's template gets: Data is the page's own.
+// page is what every page's template gets: Data is the page's own; Hold, the hub's hold, is
+// in every signed-in page's bar.
 type page struct {
 	Title, Page, CSRF, User, Updated, Error string
 	Refresh                                 int // seconds between refreshes; 0: none
+	Hold                                    holdView
 	Data                                    any
 }
+
+// portalPaths are the pages a form can send you back to, by name.
+var portalPaths = map[string]string{"status": "/portal/", "calls": "/portal/calls", "log": "/portal/log", "setup": "/portal/setup"}
 
 const refreshEvery = 5
 
@@ -103,18 +113,24 @@ func portal(w http.ResponseWriter, r *http.Request) {
 			signOut(w, r)
 			log("portal: " + s.name + " signed out, from " + address(r))
 			http.Redirect(w, r, "/portal/login", http.StatusSeeOther)
-		case "/portal/nodes/pause", "/portal/nodes/resume":
-			name := strings.TrimSpace(r.PostFormValue("name"))
-			if name == "" || len(name) > 200 {
-				http.Error(w, "needs a node's name", http.StatusBadRequest)
+		case "/portal/hold":
+			holdForm(w, r, s)
+		case "/portal/forget":
+			kind, name := r.PostFormValue("kind"), r.PostFormValue("name")
+			if (kind != "speech" && kind != "agent") || name == "" || len(name) > 200 {
+				http.Error(w, "needs a speech node's or a Mac's name", http.StatusBadRequest)
 				return
 			}
-			if err := pauseNode(name, p == "/portal/nodes/pause"); err != nil {
-				log("portal: can't keep the nodes' settings: " + err.Error())
-				http.Error(w, "can't keep the nodes' settings", http.StatusInternalServerError)
+			forgot, err := forgetPart(kind, name)
+			if err != nil {
+				log("portal: can't keep the parts seen: " + err.Error())
+				http.Error(w, "can't keep the parts seen", http.StatusInternalServerError)
 				return
 			}
-			http.Redirect(w, r, "/portal/", http.StatusSeeOther)
+			if forgot {
+				log("portal: " + s.name + " forgot " + map[string]string{"speech": "the speech node ", "agent": "the Mac "}[kind] + name)
+			}
+			http.Redirect(w, r, "/portal/#parts", http.StatusSeeOther)
 		default:
 			base.Title, base.Data = "Not found", "There's no such page."
 			render(w, http.StatusNotFound, "message", base)
@@ -126,12 +142,18 @@ func portal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base.Updated = now().Local().Format("15:04:05")
+	stateMu.Lock()
+	waiting, _ := listWaiting()
+	base.Hold = hubHold(loadDevices(), len(waiting))
+	stateMu.Unlock()
 	switch p {
 	case "/portal/":
-		base.Title, base.Page, base.Refresh, base.Data = "Status", "status", refreshEvery, statusData()
+		base.Title, base.Page, base.Refresh = "Status", "status", refreshEvery
+		status := statusData()
+		base.Data, base.Hold = status, status.Hold
 		render(w, http.StatusOK, "status", base)
 	case "/portal/calls":
-		base.Title, base.Page, base.Refresh, base.Data = "Calls", "calls", refreshEvery, recentCalls(50)
+		base.Title, base.Page, base.Refresh, base.Data = "Calls", "calls", refreshEvery, byDay(recentCalls(50))
 		render(w, http.StatusOK, "calls", base)
 	case "/portal/log":
 		base.Title, base.Page, base.Refresh, base.Data = "Log", "log", refreshEvery, logData()
@@ -143,6 +165,45 @@ func portal(w http.ResponseWriter, r *http.Request) {
 		base.Title, base.Data = "Not found", "There's no such page."
 		render(w, http.StatusNotFound, "message", base)
 	}
+}
+
+// holdForm sets the hub's hold, which is every registered phone's hold switch: "on", and no
+// call rings, whatever speech there is, until you take calls; "off", and the calls held ask
+// again, and ring. The app shows it the next time it asks the hub, as it does on opening.
+// A call held by a voice server of the earlier stack asks again by itself within 10 min.
+func holdForm(w http.ResponseWriter, r *http.Request, s *portalSession) {
+	value := r.PostFormValue("hold")
+	if value != "on" && value != "off" {
+		http.Error(w, "needs hold: on or off", http.StatusBadRequest)
+		return
+	}
+	on := value == "on"
+	stateMu.Lock()
+	n, err := holdEveryPhone(on)
+	var held []any
+	if err == nil && !on {
+		held = waitingFor("")
+	}
+	stateMu.Unlock()
+	if err != nil {
+		log("portal: can't set the hold: " + err.Error())
+		http.Error(w, "can't set the hold", http.StatusInternalServerError)
+		return
+	}
+	state := "took calls"
+	if on {
+		state = "held calls"
+	}
+	log("portal: " + s.name + " " + state + ", on " + plural(n, "phone", "phones"))
+	if len(held) > 0 {
+		log("portal: " + plural(len(held), "call", "calls") + " held, they ask again")
+		broadcast(map[string]any{"type": "reask", "call_ids": held})
+	}
+	back := portalPaths[r.PostFormValue("back")]
+	if back == "" {
+		back = "/portal/"
+	}
+	http.Redirect(w, r, back, http.StatusSeeOther)
 }
 
 func render(w http.ResponseWriter, status int, name string, p page) {
@@ -316,231 +377,6 @@ func isoClock(text string) string {
 	return text
 }
 
-// The status page.
-
-type nodeView struct {
-	Name, Linked, Models, PausedAt string
-	Online, Loaded, Paused         bool
-}
-
-type sessionView struct{ Project, Subject, Since, Short string }
-
-type macView struct {
-	Name, Linked, Count string
-	Sessions            []sessionView
-}
-
-type liveView struct {
-	Short, Project, Subject, State, For, Mac, Node string
-	Connected                                      bool
-}
-
-type waitingView struct {
-	Short, Project, Subject, Why, Rings string
-	Question, NoSpeech                  bool
-}
-
-type phoneView struct {
-	Name, Environment, Token, Registered, CheckedIn, Hours, Hold, HoldSet, OnDevice, Push string
-	OnHold, PushOK, PushFailed                                                            bool
-}
-
-type statusView struct {
-	Problems  []string
-	Nodes     []nodeView
-	Macs      []macView
-	Live      []liveView
-	Waiting   []waitingView
-	Phones    []phoneView
-	Usable    int // speech nodes linked and not paused
-	Sessions  int
-	PushesBad int
-}
-
-func statusData() statusView {
-	var v statusView
-	registryMu.Lock()
-	nodeLinks := make([]*link, 0, len(nodes))
-	for l := range nodes {
-		nodeLinks = append(nodeLinks, l)
-	}
-	type agentSessions struct {
-		l        *link
-		sessions []map[string]string
-	}
-	var agentList []agentSessions
-	for l, sessions := range agents {
-		agentList = append(agentList, agentSessions{l, sessions})
-	}
-	calls := make([]*Call, 0, len(live))
-	for _, c := range live {
-		calls = append(calls, c)
-	}
-	registryMu.Unlock()
-
-	// Speech nodes, linked or paused.
-	paused := pausedNodes()
-	shown := map[string]bool{}
-	sort.Slice(nodeLinks, func(i, j int) bool { return nodeLinks[i].name < nodeLinks[j].name })
-	for _, l := range nodeLinks {
-		n := nodeView{Name: l.name, Linked: "Linked " + since(l.since), Online: true, Models: "Models not loaded"}
-		if loaded, at := l.models(); loaded {
-			n.Loaded, n.Models = true, "Models loaded "+since(at)
-		} else if !at.IsZero() {
-			n.Models = "Models not loaded, let go at " + clock(at)
-		}
-		if at, ok := paused[l.name]; ok {
-			n.Paused, n.PausedAt = true, "Paused at "+isoClock(at)
-		} else {
-			v.Usable++
-		}
-		shown[l.name] = true
-		v.Nodes = append(v.Nodes, n)
-	}
-	var pausedOnly []string
-	for name := range paused {
-		if !shown[name] {
-			pausedOnly = append(pausedOnly, name)
-		}
-	}
-	sort.Strings(pausedOnly)
-	for _, name := range pausedOnly {
-		v.Nodes = append(v.Nodes, nodeView{Name: name, Linked: "Not linked", Paused: true, PausedAt: "Paused at " + isoClock(paused[name])})
-	}
-
-	// Macs and their sessions.
-	sort.Slice(agentList, func(i, j int) bool { return agentList[i].l.name < agentList[j].l.name })
-	for _, a := range agentList {
-		m := macView{Name: a.l.name, Linked: "Linked " + since(a.l.since)}
-		for _, s := range a.sessions {
-			started := ""
-			if t, ok := parseISO8601(s["since"]); ok {
-				started = "since " + clock(t)
-			}
-			m.Sessions = append(m.Sessions, sessionView{Project: s["project"], Subject: s["subject"], Since: started, Short: prefix(s["session_id"], 8)})
-		}
-		m.Count = plural(len(m.Sessions), "session", "sessions") + " listening"
-		v.Sessions += len(m.Sessions)
-		v.Macs = append(v.Macs, m)
-	}
-
-	// Calls, live and waiting.
-	sort.Slice(calls, func(i, j int) bool { return calls[i].offeredAt.Before(calls[j].offeredAt) })
-	for _, c := range calls {
-		c.mu.Lock()
-		answered, connected, ended := c.answeredAt, c.connectedAt, c.ended
-		c.mu.Unlock()
-		if ended {
-			continue
-		}
-		lv := liveView{Short: c.short, Mac: c.agent.name, Node: c.node.name, Connected: !connected.IsZero()}
-		if note, ok := noteOf(c.id); ok {
-			lv.Project, lv.Subject = note.project, note.subject
-		}
-		switch {
-		case answered.IsZero() && connected.IsZero():
-			lv.State, lv.For = "Ringing", span(now().Sub(c.offeredAt))
-		case answered.IsZero():
-			lv.State, lv.For = "Ringing, its audio connected", span(now().Sub(c.offeredAt))
-		case connected.IsZero():
-			lv.State, lv.For = "Answered, connecting", span(now().Sub(answered))
-		default:
-			lv.State, lv.For = "On the call", span(now().Sub(maxTime(answered, connected)))
-		}
-		v.Live = append(v.Live, lv)
-	}
-	stateMu.Lock()
-	waitingCalls, _ := listWaiting()
-	devices := loadDevices()
-	stateMu.Unlock()
-	waitingForSpeech := 0
-	for _, call := range waitingCalls {
-		wv := waitingView{Short: prefix(fmt.Sprint(call["call_id"]), 8), Question: call["question"] == true}
-		wv.Project, _ = call["project"].(string)
-		wv.Subject, _ = call["subject"].(string)
-		switch until, _ := call["held_until"].(string); {
-		case call["reason"] == "no speech":
-			wv.NoSpeech, wv.Why, wv.Rings = true, "No speech node", "Rings when one is back"
-			waitingForSpeech++
-		case until != "":
-			wv.Why, wv.Rings = "On hold", "Rings at "+isoClock(until)
-		default:
-			wv.Why, wv.Rings = "On hold", "Rings when you take calls"
-		}
-		v.Waiting = append(v.Waiting, wv)
-	}
-
-	// Phones.
-	tokens := make([]string, 0, len(devices))
-	for token := range devices {
-		tokens = append(tokens, token)
-	}
-	sort.Slice(tokens, func(i, j int) bool { return devices[tokens[i]]["device"] < devices[tokens[j]]["device"] })
-	for _, token := range tokens {
-		d := devices[token]
-		ph := phoneView{Name: orDefault(d["device"], "A phone"), Environment: orDefault(d["environment"], "sandbox"),
-			Token: "…" + suffix(token, 8), Registered: isoClock(d["registered"]), Hours: "Off", OnDevice: "Not reported"}
-		switch at, checked := parseISO8601(d["checked_in"]); {
-		case d["notification_token"] == "":
-			ph.CheckedIn = "No connection checks: notifications aren't allowed"
-		case checked:
-			ph.CheckedIn = clock(at) + ", " + span(now().Sub(at)) + " ago"
-		default:
-			ph.CheckedIn = "Not yet"
-		}
-		if h := describe(d); h != "" {
-			ph.Hours = strings.TrimPrefix(h, "work hours ")
-		}
-		hold := newHold(d, now())
-		ph.OnHold = hold.On
-		switch {
-		case hold.On && hold.Until.IsZero():
-			ph.Hold = "On hold, until you take calls"
-		case hold.On:
-			ph.Hold = "On hold, until " + clock(hold.Until)
-		case hold.Until.IsZero():
-			ph.Hold = "Taking calls"
-		default:
-			ph.Hold = "Taking calls, until " + clock(hold.Until)
-		}
-		if set := d["hold_set"]; set != "" {
-			ph.HoldSet = "Set on the phone at " + isoClock(set)
-		}
-		switch d["on_device"] {
-		case "yes":
-			ph.OnDevice = "On"
-		case "no":
-			ph.OnDevice = "Off"
-		}
-		if last, found := lastPush(d, token); !found {
-			ph.Push = "None since the hub started"
-		} else if last.ok() {
-			ph.PushOK, ph.Push = true, "Delivered to Apple at "+clock(last.at)
-		} else {
-			ph.PushFailed = true
-			ph.Push = "Failed at " + clock(last.at) + ": " + pushProblem(last)
-			v.PushesBad++
-			v.Problems = append(v.Problems, "The last push to "+ph.Name+" failed: "+pushProblem(last)+".")
-		}
-		v.Phones = append(v.Phones, ph)
-	}
-
-	// What's wrong, most serious first: as the app's banner, without the phone's own view.
-	var speech []string
-	switch {
-	case v.Usable > 0:
-	case len(nodeLinks) > 0:
-		speech = append(speech, "Every linked speech node is paused, so calls wait instead of ringing. Resume one below.")
-	case len(agentList) > 0 || waitingForSpeech > 0:
-		speech = append(speech, "No speech node is linked, so calls wait instead of ringing. They ring once one links.")
-	}
-	if len(devices) == 0 {
-		v.Problems = append(v.Problems, "No phone has registered: open the app and enter the hub's address in Settings.")
-	}
-	v.Problems = append(speech, v.Problems...)
-	return v
-}
-
 // pushProblem is why a push failed, in words.
 func pushProblem(p pushResult) string {
 	detail := outcome(p.status, p.reason, p.err)
@@ -564,10 +400,50 @@ type eventView struct {
 
 type recentView struct {
 	ID, Short, Project, Subject, When, Outcome, Duration string
-	Bad                                                  bool
+	Bad, Answered                                        bool
 	Events                                               []eventView
 	last                                                 int
 	audioFailed                                          bool
+	at                                                   time.Time // its first event's
+}
+
+// callDay is the calls of one day, as the calls page lists them: "Today", "Yesterday", a
+// weekday within the week, or the date.
+type callDay struct {
+	Label string
+	Calls []recentView
+}
+
+// byDay groups calls, newest first, by the day they started, in the hub's time zone.
+func byDay(calls []recentView) []callDay {
+	var days []callDay
+	today := now().Local()
+	for _, c := range calls {
+		t := c.at.Local()
+		label := t.Format("2 January 2006")
+		if t.Year() == today.Year() {
+			label = t.Format("2 January")
+		}
+		y1, m1, d1 := t.Date()
+		for back := range 7 {
+			y2, m2, d2 := today.AddDate(0, 0, -back).Date()
+			if y1 == y2 && m1 == m2 && d1 == d2 {
+				label = [...]string{"Today", "Yesterday"}[min(back, 1)]
+				if back > 1 {
+					label = t.Format("Monday")
+				}
+				break
+			}
+		}
+		if c.at.IsZero() {
+			label = "Earlier"
+		}
+		if len(days) == 0 || days[len(days)-1].Label != label {
+			days = append(days, callDay{Label: label})
+		}
+		days[len(days)-1].Calls = append(days[len(days)-1].Calls, c)
+	}
+	return days
 }
 
 // finalEvents are the events that say how a call ended, as the call's outcome.
@@ -610,9 +486,9 @@ func recentCalls(n int) []recentView {
 		name := fmt.Sprint(e["event"])
 		at := eventTime(e)
 		if c.When == "" {
-			c.When = clock(at)
+			c.When, c.at = at.Local().Format("15:04"), at
 		}
-		ev := eventView{Time: clock(at), Name: name}
+		ev := eventView{Time: at.Local().Format("15:04:05"), Name: name}
 		var details []string
 		for _, d := range eventDetails {
 			if value, ok := e[d.key]; ok {
@@ -623,7 +499,7 @@ func recentCalls(n int) []recentView {
 				details = append(details, fmt.Sprintf(d.format, value))
 			}
 		}
-		ev.Detail = strings.Join(details, " · ")
+		ev.Detail = strings.Join(details, "; ")
 		_, ev.Bad = e["error"]
 		c.Events = append(c.Events, ev)
 		if label, final := finalEvents[name]; final {
@@ -648,9 +524,15 @@ func recentCalls(n int) []recentView {
 			c.Outcome = "Answered, its audio failed"
 		}
 		c.Bad = badOutcomes[c.Outcome]
+		c.Answered = strings.HasPrefix(c.Outcome, "Answered")
 		list = append(list, c)
 	}
-	sort.Slice(list, func(i, j int) bool { return list[i].last > list[j].last })
+	sort.Slice(list, func(i, j int) bool {
+		if !list[i].at.Equal(list[j].at) {
+			return list[i].at.After(list[j].at)
+		}
+		return list[i].last > list[j].last
+	})
 	if len(list) > n {
 		list = list[:n]
 	}
@@ -700,8 +582,8 @@ func tailLines(name string, limit int64) []string {
 // The log page.
 
 type logLine struct {
-	Text string
-	Bad  bool
+	Time, Text string
+	Bad        bool
 }
 
 func logData() []logLine {
@@ -712,16 +594,22 @@ func logData() []logLine {
 		for _, word := range []string{"fail", "refused", "can't", "error", "went away"} {
 			bad = bad || strings.Contains(lower, word)
 		}
-		lines = append(lines, logLine{text, bad})
+		line := logLine{Text: text, Bad: bad}
+		if at, rest, timed := strings.Cut(text, "  "); timed && len(at) == len("15:04:05") {
+			line.Time, line.Text = at, rest
+		}
+		lines = append(lines, line)
 	}
 	return lines
 }
 
-// The setup page: what to put in a new speech node's or Mac's config, and the commands.
+// The setup page: what to put in a new speech node's or Mac's config and the commands, how
+// the phone finds the hub, and Apple push in the hub's config.
 
 type setupView struct {
-	Listen, Config, SpeechToken, AgentToken string
-	SpeechSet, AgentSet                     bool
+	Listen, Config, SpeechToken, AgentToken, PushProblem string
+	SpeechSet, AgentSet, PushSet                         bool
+	Phones                                               int
 }
 
 func setupData() setupView {
@@ -731,6 +619,11 @@ func setupData() setupView {
 		shown = "~/" + rest
 	}
 	set := func(token string) bool { return token != "" && token != "…" && token != "..." }
+	stateMu.Lock()
+	devices := loadDevices()
+	stateMu.Unlock()
+	pushSet, pushProblem := pushSetup(config, devices)
 	return setupView{Listen: config["listen"], Config: shown, SpeechToken: config["tokens.speech"], AgentToken: config["tokens.agent"],
-		SpeechSet: set(config["tokens.speech"]), AgentSet: set(config["tokens.agent"])}
+		SpeechSet: set(config["tokens.speech"]), AgentSet: set(config["tokens.agent"]),
+		PushSet: pushSet, PushProblem: pushProblem, Phones: len(devices)}
 }

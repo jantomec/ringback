@@ -92,9 +92,10 @@ over (`handover-check`), what the voice speaks around its tool calls (`reply-che
 voice server's calls through a restart (`restart-check`), the call's Opus with lost
 packets (`opus-check`; `phone-check --signal` runs it through a call), how long a call's
 connection lasts on a slow network (`ice-check`), what `.disabled` does to a SwiftUI swipe
-action (`swipe-check`), what a mod sees of its session's environment (`env-check`), and
+action (`swipe-check`), what a mod sees of its session's environment (`env-check`),
 the app's screens in a simulator, with sample calls, and its breathing light on hold
-(`app-screens`)).
+(`app-screens`), and the hub's portal in headless Chrome, in every state its map shows
+(`portal-screens`)).
 How to set it all up and place a test call: `docs/setup.md`.
 
 ## Checks

@@ -3,9 +3,12 @@
   <h1>Log</h1>
   <p class="updated">Updated {{.Updated}}</p>
 </div>
-<p class="lede">The hub's last 500 lines since it started, newest last. The whole log is in its log file.</p>
-<pre class="log" id="log">
-{{- range .Data}}<span class="line{{if .Bad}} bad{{end}}">{{.Text}}</span>
-{{- else}}Nothing logged yet.{{end -}}
-</pre>
+<p class="lede">The hub's last 500 lines since it started, newest last, with what went wrong in red. The whole log is in its log file.</p>
+<div class="log" id="log">
+{{- range .Data}}
+  <div class="line{{if .Bad}} bad{{end}}"><time>{{.Time}}</time><span class="text">{{.Text}}</span></div>
+{{- else}}
+  <p class="empty">Nothing logged yet.</p>
+{{- end}}
+</div>
 {{end}}

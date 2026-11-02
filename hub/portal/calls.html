@@ -3,26 +3,33 @@
   <h1>Calls</h1>
   <p class="updated">Updated {{.Updated}}</p>
 </div>
-<p class="lede">The last 50 calls the phone reported, newest first, with what happened to each. Tap one for its events.</p>
-<div class="group">
+<p class="lede">The last 50 calls the phone reported, newest first. Open one for what happened, step by step.</p>
+<div id="calls">
 {{- range .Data}}
+<h2 class="day">{{.Label}}</h2>
+<div class="group">
+  {{- range .Calls}}
   <details class="call" id="{{.ID}}">
     <summary>
+      <span class="lead{{if .Bad}} missed{{else if .Answered}} ok{{end}}" aria-hidden="true"><svg class="ic"><use href="#t-calls"/></svg></span>
       <div class="body">
-        <div class="title{{if .Bad}} bad{{end}}">{{or .Project "Call"}}<span class="mono">{{.Short}}</span></div>
-        <div class="sub">{{.Outcome}}{{if .Duration}} · {{.Duration}}{{end}}{{if .Subject}} · {{.Subject}}{{end}}</div>
+        <div class="title{{if .Bad}} bad{{end}}">{{or .Project "A call"}}</div>
+        <div class="sub"><span class="outcome{{if .Bad}} bad{{end}}">{{.Outcome}}</span>{{if .Duration}}, {{.Duration}}{{end}}</div>
+        {{- if .Subject}}<div class="sub quiet">{{.Subject}}</div>{{end}}
       </div>
       <div class="meta">{{.When}}</div>
     </summary>
     <ol class="events">
     {{- range .Events}}
-      <li><time>{{.Time}}</time><span class="event{{if .Bad}} bad{{end}}">{{.Name}}</span>{{if .Detail}}<span class="detail">{{.Detail}}</span>{{end}}</li>
+      <li{{if .Bad}} class="bad"{{end}}><time>{{.Time}}</time><span class="event{{if .Bad}} bad{{end}}">{{.Name}}</span>{{if .Detail}}<p class="detail">{{.Detail}}</p>{{end}}</li>
     {{- end}}
     </ol>
   </details>
+  {{- end}}
+</div>
 {{- else}}
-  <div class="row empty">No calls yet.</div>
+<div class="group"><div class="row empty">No calls yet. Once the phone rings, each call shows here with what happened to it.</div></div>
 {{- end}}
 </div>
-<p class="foot">From events.jsonl in the hub's state folder. A call placed before the hub last started shows without its project.</p>
+<p class="foot">From <code>events.jsonl</code> in the hub's state folder. A call placed before the hub last started shows without its project.</p>
 {{end}}

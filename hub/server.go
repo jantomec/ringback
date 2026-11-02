@@ -159,14 +159,14 @@ func register(body map[string]any) (map[string]any, error) {
 // takes it to the phone. The push goes out after the answer, so a slow APNs doesn't hold up
 // requests.
 //
-// While every phone is on hold (Hold: outside its work hours, or you paused it) nothing
-// rings: the answer says so (held) and when the first comes off hold by its hours
-// (held_until), if one will, and the voice server asks again by then, or sooner, with the
-// same call ID. Meanwhile the call waits, and the app shows it. The voice server says whether
-// the call has a question; the first time a held call has one, the phone gets a
-// notification, once for that call. It also names the calling session (session_id), which
-// goes to the phone with the call, so the app can call that session from Sessions once the
-// voice server has forgotten the call.
+// While every phone is on hold (Hold: outside its work hours, or you held calls in the app or
+// on the portal) nothing rings: the answer says so (held) and when the first comes off hold
+// by its hours (held_until), if one will, and the voice server asks again by then, or
+// sooner, with the same call ID. Meanwhile the call waits, and the app shows it. The voice
+// server says whether the call has a question; the first time a held call has one, the phone
+// gets a notification, once for that call. It also names the calling session (session_id),
+// which goes to the phone with the call, so the app can call that session from Sessions once
+// the voice server has forgotten the call.
 func call(body map[string]any) (map[string]any, error) {
 	project, voice, callID := str(body, "project"), str(body, "voice"), str(body, "call_id")
 	n := utf8.RuneCountInString(callID)
@@ -332,7 +332,7 @@ func waiting(body map[string]any) (map[string]any, error) {
 }
 
 // status is what the app shows a banner for, with the waiting calls: whether calls can be
-// talked through (a speech node is linked and not paused, or no call the hub carries needs
+// talked through (a speech node is linked, or no call the hub carries needs
 // one: no agent is linked and none waits for one), whether the last push to this phone got
 // through, and the Macs linked, with how many of their sessions listen.
 func status(token string, device map[string]string, calls []map[string]any) map[string]any {

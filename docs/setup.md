@@ -127,21 +127,34 @@ login, nothing starts after a reboot until someone logs in, not even Nebula.
 ## 3. The hub's portal
 
 The hub serves a few pages, for setting up and for the rare times something's wrong, at
-`http://10.0.0.1:8787/portal/` (its `listen` address). They show:
-- the speech nodes linked, since when, and whether their models are loaded (a node loads them
-  while a call rings and lets them go a minute after);
-- the Macs linked, with their sessions;
-- the calls: live, waiting (and why), and the last 50 the phone reported, with their events;
+`http://10.0.0.1:8787/portal/` (its `listen` address). **Status** starts with a map of the
+system: your Macs, the hub, the speech nodes, Apple push and the phones, and the links between
+them, each working, a problem, gone or not set up. A part you haven't set up yet is drawn
+dashed, with a link to its place on Setup; a Mac that's asleep is drawn faint, which is
+normal; a speech node that's gone is a problem. Above the map, a sentence says what a call
+would do now: which phone it rings, and what hears and speaks it (a speech node, the phone's
+own voice, or nothing, so calls wait). Below it:
+- the calls, live and waiting (and why);
+- the sessions listening, each with the Mac it runs on;
 - each phone: when it registered and last checked in, the last push to it, and what's set on
   the phone (work hours, the hold switch, On-device voice), as the hub last heard them;
-- the hub's last 500 log lines.
+- the speech nodes and Macs, since when they're linked, whether a node's models are loaded (it
+  loads them while a call rings and lets them go a minute after), and those that are gone.
 
-They refresh themselves every 5 s. **Setup** shows what a new speech node or Mac needs: the
-hub's address for its link, its token from `hub.toml` (hidden until you show it, and a button
-to copy the config) and the commands of steps 4 and 5. The portal changes only what the hub
-keeps in its state: you can **pause** a speech node, which stays linked, but the hub neither
-warms it nor gives it calls, so calls wait unless another node is linked (`nodes.json` in the
-state folder). Tokens and addresses stay in `hub.toml`, which the portal never changes.
+**Calls** lists the last 50 the phone reported, by day, with their events; **Log** the hub's
+last 500 lines. The pages refresh themselves every 5 s. **Setup** shows what a new speech node
+or Mac needs: the hub's address for its link, its token from `hub.toml` (hidden until you show
+it, and a button to copy the config) and the commands of steps 4 and 5, and how the phone and
+Apple push are set up.
+
+The portal changes only what the hub keeps in its state. The **hold** is in the bar on every
+page and on Status: hold calls and none rings, not through a speech node and not with the
+phone's own voice; they wait until you take calls. It's the app's hold switch, set on every
+phone at once, so the app shows it too, and your work hours set it at their edges, as in the
+app. A speech node or Mac that's gone for good can be **forgotten** on Status: the hub
+remembers the ones it has seen in `seen.json` in the state folder, to tell one that's gone
+from one never set up. Tokens and addresses stay in `hub.toml`, which the portal never
+changes.
 
 Signing in takes a user name and password, then a passcode from an authenticator app (6 digits,
 a new one every 30 s), such as the Passwords app on the iPhone. Make the account on the

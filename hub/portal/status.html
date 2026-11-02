@@ -4,139 +4,205 @@
   <p class="updated">Updated {{$.Updated}}</p>
 </div>
 
-{{range .Problems}}<p class="notice">{{.}}</p>{{end}}
-
-<div class="tiles">
-  <a class="tile" href="#speech">
-    <span class="label"><span class="dot {{if .Usable}}on{{else}}bad{{end}}"></span>Speech</span>
-    <span class="value">{{.Usable}}</span>
-    <span class="note">{{if eq .Usable 1}}node ready{{else}}nodes ready{{end}}</span>
-  </a>
-  <a class="tile" href="#macs">
-    <span class="label"><span class="dot {{if .Macs}}on{{end}}"></span>Macs</span>
-    <span class="value">{{len .Macs}}</span>
-    <span class="note">{{.Sessions}} {{if eq .Sessions 1}}session{{else}}sessions{{end}} listening</span>
-  </a>
-  <a class="tile" href="#calls">
-    <span class="label"><span class="dot {{if .Live}}on{{else if .Waiting}}wait{{end}}"></span>Calls</span>
-    <span class="value">{{len .Live}}</span>
-    <span class="note">live, {{len .Waiting}} waiting</span>
-  </a>
-  <a class="tile" href="#phones">
-    <span class="label"><span class="dot {{if .PushesBad}}bad{{else if .Phones}}on{{end}}"></span>Phones</span>
-    <span class="value">{{len .Phones}}</span>
-    <span class="note">{{if .PushesBad}}a push failed{{else if .Phones}}pushes fine{{else}}none registered{{end}}</span>
-  </a>
-</div>
-
-<section id="speech">
-  <h2>Speech nodes</h2>
-  <div class="group">
-  {{- range .Nodes}}
-    <div class="row">
-      <span class="dot {{if .Paused}}{{else if .Loaded}}on{{else if .Online}}idle{{end}}"></span>
-      <div class="body">
-        <div class="title">{{.Name}}{{if .Paused}} <span class="badge">Paused</span>{{end}}</div>
-        <div class="sub">{{.Linked}}{{if .Online}} · {{.Models}}{{end}}{{if .Paused}} · {{.PausedAt}}{{end}}</div>
-      </div>
-      <form method="post" action="/portal/nodes/{{if .Paused}}resume{{else}}pause{{end}}">
-        <input type="hidden" name="csrf" value="{{$.CSRF}}">
-        <input type="hidden" name="name" value="{{.Name}}">
-        <button type="submit" class="btn">{{if .Paused}}Resume{{else}}Pause{{end}}</button>
-      </form>
-    </div>
+<section class="hold-card{{if .Hold.On}} on{{end}}{{if not .Hold.Phones}} none{{end}}" id="hold" aria-labelledby="hold-title">
+  <span class="hold-icon" aria-hidden="true"><svg class="ic"><use href="#{{if .Hold.On}}g-pause{{else}}t-calls{{end}}"/></svg></span>
+  <h2 id="hold-title">{{.Hold.Label}}{{with .Hold.Until}} <span class="until">{{.}}</span>{{end}}</h2>
+  {{- if not .Hold.Phones}}
+  <p>Once your iPhone registers with the hub, you can hold its calls here or in the app.</p>
+  {{- else if .Hold.On}}
+  <p>No call rings: not through a speech node, and not with the phone's own voice. Calls wait here{{if .Hold.Waiting}} ({{.Hold.Waiting}} now){{end}} and ring when you take calls.</p>
   {{- else}}
-    <div class="row empty">No speech node is linked. <a href="/portal/setup#node">Add one</a></div>
+  <p>Calls ring as they come. Hold them and none rings, not through a speech node and not with the phone's own voice: they wait here until you take calls.</p>
   {{- end}}
-  </div>
-  <p class="foot">A node loads its models when a call is coming and lets them go a minute after. A paused node stays linked, but the hub neither warms it nor gives it calls.</p>
+  {{- if .Hold.Phones}}
+  <form method="post" action="/portal/hold">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <input type="hidden" name="back" value="status">
+    <input type="hidden" name="hold" value="{{if .Hold.On}}off{{else}}on{{end}}">
+    <button type="submit" class="hold-button"><svg class="ic" aria-hidden="true"><use href="#{{if .Hold.On}}g-play{{else}}g-pause{{end}}"/></svg>{{if .Hold.On}}Take calls{{else}}Hold calls{{end}}</button>
+  </form>
+  {{- end}}
 </section>
 
-<section id="macs">
-  <h2>Macs</h2>
-  {{- range .Macs}}
-  <div class="group">
-    <div class="row">
-      <span class="dot on"></span>
-      <div class="body">
-        <div class="title">{{.Name}}</div>
-        <div class="sub">{{.Linked}} · {{.Count}}</div>
-      </div>
-    </div>
-    {{- range .Sessions}}
-    <div class="row inset">
-      <div class="body">
-        <div class="title">{{.Project}}<span class="mono">{{.Short}}</span></div>
-        <div class="sub">{{if .Subject}}{{.Subject}}{{else}}No briefing yet{{end}}</div>
-      </div>
-      <div class="meta">{{.Since}}</div>
-    </div>
+<section class="overview tone-{{.Tone}}" id="overview" aria-labelledby="headline">
+  <p class="headline" id="headline">{{.Headline}}</p>
+  <p class="detail">{{.Detail}}</p>
+  {{- if .Problems}}
+  <ul class="problems">
+    {{- range .Problems}}
+    <li class="{{.Tone}}">{{.Text}}</li>
     {{- end}}
-  </div>
-  {{- else}}
-  <div class="group"><div class="row empty">No Mac is linked. A Mac that sleeps drops off until it wakes. <a href="/portal/setup#mac">Add one</a></div></div>
+  </ul>
   {{- end}}
+  <div class="map">
+    {{template "map" .Wide}}
+    {{template "map" .Narrow}}
+  </div>
+  <ul class="key" aria-label="What the lines mean">
+    <li><svg aria-hidden="true"><path class="wire w-working" d="M2 6h24"/></svg>Working</li>
+    <li><svg aria-hidden="true"><path class="wire w-working live" d="M2 6h24"/></svg>On a call</li>
+    <li><svg aria-hidden="true"><path class="wire w-problem" d="M2 6h24"/></svg>Problem</li>
+    <li><svg aria-hidden="true"><path class="wire w-asleep" d="M2 6h24"/></svg>Asleep or offline</li>
+    <li><svg aria-hidden="true"><path class="wire w-unset" d="M2 6h24"/></svg>Not set up</li>
+  </ul>
+  <p class="legend">A speech node is the GPU computer that hears and speaks calls; without one, the phone can do it itself if its On-device voice is on. Apple push rings the phone, and the call's audio goes between the hub and the phone over Nebula.</p>
 </section>
 
+<div class="columns">
+<div class="column">
 <section id="calls">
   <h2>Calls</h2>
-  <h3>Live</h3>
   <div class="group">
   {{- range .Live}}
     <div class="row">
-      <span class="dot {{if .Connected}}on{{else}}wait{{end}}"></span>
+      <span class="lead live" aria-hidden="true"><svg class="ic"><use href="#t-calls"/></svg></span>
       <div class="body">
-        <div class="title">{{or .Project "Call"}}<span class="mono">{{.Short}}</span></div>
-        <div class="sub">{{.State}} · {{.Mac}} · speech on {{.Node}}{{if .Subject}} · {{.Subject}}{{end}}</div>
+        <div class="title">{{or .Project "A call"}}</div>
+        <div class="sub">{{.State}}, from {{.Mac}}</div>
+        <div class="sub">{{.Speech}}</div>
+        {{- if .Subject}}<div class="sub quiet">{{.Subject}}</div>{{end}}
       </div>
       <div class="meta">{{.For}}</div>
     </div>
-  {{- else}}
-    <div class="row empty">No call is live.</div>
   {{- end}}
-  </div>
-  <h3>Waiting</h3>
-  <div class="group">
   {{- range .Waiting}}
     <div class="row">
-      <span class="dot wait"></span>
+      <span class="lead waiting" aria-hidden="true"><svg class="ic"><use href="#{{if .NoSpeech}}m-node{{else}}g-pause{{end}}"/></svg></span>
       <div class="body">
-        <div class="title wait">{{.Project}}<span class="mono">{{.Short}}</span>{{if .Question}} <span class="badge wait">Question</span>{{end}}</div>
-        <div class="sub">{{.Why}} · {{.Rings}}{{if .Subject}} · {{.Subject}}{{end}}</div>
+        <div class="title wait">{{.Project}}{{if .Question}} <span class="badge wait">Question</span>{{end}}</div>
+        <div class="sub">{{.Why}}. {{.Rings}}.</div>
+        {{- if .Subject}}<div class="sub quiet">{{.Subject}}</div>{{end}}
       </div>
     </div>
-  {{- else}}
-    <div class="row empty">No call is waiting.</div>
+  {{- end}}
+  {{- if and (not .Live) (not .Waiting)}}
+    <div class="row empty">No call is live or waiting.</div>
   {{- end}}
   </div>
   <p class="foot"><a href="/portal/calls">Recent calls</a></p>
 </section>
 
+<section id="sessions">
+  <h2>Sessions</h2>
+  <div class="group">
+  {{- range .Sessions}}
+    <div class="row session">
+      <div class="body">
+        <div class="title">{{.Project}}</div>
+        <div class="sub">{{if .Subject}}{{.Subject}}{{else}}No briefing yet{{end}}</div>
+      </div>
+      <div class="meta"><span class="on-mac" title="{{.Mac}}"><svg class="ic" aria-hidden="true"><use href="#m-mac"/></svg><span class="mac-name">{{.Mac}}</span></span>{{with .Since}}<span>{{.}}</span>{{end}}</div>
+    </div>
+  {{- else}}
+    <div class="row empty">No session is listening. In a Claude Code session on a linked Mac, <code>/ringback</code> turns calling on.</div>
+  {{- end}}
+  </div>
+  <p class="foot">The Claude Code sessions with ringback on, and the Mac each runs on.</p>
+</section>
+</div>
+
+<div class="column">
 <section id="phones">
-  <h2>Phones</h2>
+  <h2>{{if gt (len .Phones) 1}}Phones{{else}}Phone{{end}}</h2>
   {{- range .Phones}}
   <div class="group">
     <div class="row">
-      <span class="dot {{if .PushFailed}}bad{{else}}on{{end}}"></span>
+      <span class="lead{{if .PushFailed}} bad{{end}}" aria-hidden="true"><svg class="ic"><use href="#m-phone"/></svg></span>
       <div class="body">
-        <div class="title">{{.Name}}<span class="mono">{{.Token}}</span></div>
-        <div class="sub">APNs {{.Environment}} · registered {{.Registered}}</div>
+        <div class="title">{{.Name}}</div>
+        <div class="sub">Registered {{.Registered}}, push token {{.Token}}, Apple's {{.Environment}} environment</div>
       </div>
     </div>
     <dl class="facts">
       <div><dt>Last check-in</dt><dd>{{.CheckedIn}}</dd></div>
       <div><dt>Last push</dt><dd{{if .PushFailed}} class="bad"{{end}}>{{.Push}}</dd></div>
-    </dl>
-    <h4>Set on the phone</h4>
-    <dl class="facts">
-      <div><dt>Work hours</dt><dd>{{.Hours}}</dd></div>
       <div><dt>Hold</dt><dd>{{.Hold}}{{if .HoldSet}}<span class="sub">{{.HoldSet}}</span>{{end}}</dd></div>
+      <div><dt>Work hours</dt><dd>{{.Hours}}</dd></div>
       <div><dt>On-device voice</dt><dd>{{.OnDevice}}</dd></div>
     </dl>
   </div>
   {{- else}}
-  <div class="group"><div class="row empty">No phone has registered. In the app's settings, enter the hub's address.</div></div>
+  <div class="group"><div class="row empty">No phone has registered. In the app's settings, enter the hub's address. <a href="/portal/setup#phone">How</a></div></div>
   {{- end}}
-  <p class="foot">The phone's settings are changed on the phone (Settings → Apps → Ringback, and the hold switch), and shown here as the hub last heard them.</p>
+  <p class="foot">Work hours and On-device voice are set in the app's settings, and shown as the hub last heard them.</p>
 </section>
+
+<section id="parts">
+  <h2>Speech nodes</h2>
+  <div class="group">
+  {{- range .Nodes}}{{template "partrow" (part $.CSRF .)}}{{- else}}
+    <div class="row empty">No speech node has linked yet. <a href="/portal/setup#node">Add one</a></div>
+  {{- end}}
+  </div>
+  <p class="foot">A node loads its models when a call is coming and lets them go a minute after.</p>
+  <h2>Macs</h2>
+  <div class="group">
+  {{- range .Macs}}{{template "partrow" (part $.CSRF .)}}{{- else}}
+    <div class="row empty">No Mac has linked yet. <a href="/portal/setup#mac">Add one</a></div>
+  {{- end}}
+  </div>
+  <p class="foot">A Mac drops off while it sleeps and links again when it wakes. Forget a node or a Mac only once it's gone for good.</p>
+</section>
+</div>
+</div>
 {{end}}{{end}}
+
+{{define "partrow"}}
+    <div class="row">
+      <span class="dot {{.Part.State}}" aria-hidden="true"></span>
+      <div class="body">
+        <div class="title">{{.Part.Name}}</div>
+        <div class="sub">{{.Part.Status}}</div>
+        <div class="sub quiet">{{.Part.Detail}}</div>
+      </div>
+      {{- if .Part.Gone}}
+      <form method="post" action="/portal/forget">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <input type="hidden" name="kind" value="{{.Part.Kind}}">
+        <input type="hidden" name="name" value="{{.Part.Name}}">
+        <button type="submit" class="btn quiet">Forget</button>
+      </form>
+      {{- end}}
+    </div>
+{{- end}}
+
+{{define "map"}}
+    <svg class="map-svg {{.Shape}}" viewBox="0 {{n .Top}} {{n .W}} {{n .H}}" role="img" aria-label="{{.Title}}">
+      <g class="wires">
+      {{- range .Wires}}
+        <path class="wire w-{{.State}}{{if .Live}} live{{end}}" d="{{.D}}"/>
+        {{- if .Live}}<path class="flow" d="{{.D}}"/>{{end}}
+      {{- end}}
+      </g>
+      {{- range .Texts}}
+      <text class="{{.Class}}" x="{{n .X}}" y="{{n .Y}}" text-anchor="{{.Anchor}}">{{.Text}}</text>
+      {{- end}}
+      {{- range .Parts}}
+      <g class="part p-{{.Kind}} s-{{.State}}{{if .Live}} live{{end}}">
+        <title>{{.Name}}{{if .Sub}}: {{.Sub}}{{end}}</title>
+        {{- if eq .Kind "hub"}}
+        <rect class="halo" x="{{n .TX}}" y="{{n .TY}}" width="{{n .S}}" height="{{n .S}}" rx="{{n .R}}"/>
+        <use href="#m-hub" x="{{n .TX}}" y="{{n .TY}}" width="{{n .S}}" height="{{n .S}}"/>
+        {{- else}}
+        <rect class="tile" x="{{n .TX}}" y="{{n .TY}}" width="{{n .S}}" height="{{n .S}}" rx="{{n .R}}"/>
+        <use class="glyph" href="#m-{{.Kind}}" x="{{n .GX}}" y="{{n .GY}}" width="{{n .GS}}" height="{{n .GS}}"/>
+        {{- if ne .State "unset"}}
+        <g class="badge"><circle cx="{{n .BX}}" cy="{{n .BY}}" r="9"/><use href="#b-{{.State}}" x="{{n .BX}}" y="{{n .BY}}" width="18" height="18" transform="translate(-9 -9)"/></g>
+        {{- end}}
+        {{- end}}
+        <text class="name" x="{{n .X}}" y="{{n .NameY}}" text-anchor="middle">{{.Short}}</text>
+        {{- if .Sub}}
+        <text class="sub" x="{{n .X}}" y="{{n .SubY}}" text-anchor="middle">{{.Sub}}</text>
+        {{- end}}
+        {{- if .Tag}}
+        {{- if .Setup}}<a href="/portal/setup#{{.Setup}}">{{end}}
+        <g class="tag t-{{.TagTone}}"><rect x="{{n .TagX}}" y="{{n .TagY}}" width="{{n .TagW}}" height="20" rx="10"/><text x="{{n .X}}" y="{{n .TagTextY}}" text-anchor="middle">{{.Tag}}</text></g>
+        {{- if .Setup}}</a>{{end}}
+        {{- end}}
+      </g>
+      {{- end}}
+      {{- with .Gate}}
+      <g class="gate"><circle cx="{{n .X}}" cy="{{n .Y}}" r="12"/><use href="#g-pause" x="{{n .X}}" y="{{n .Y}}" width="14" height="14" transform="translate(-7 -7)"/></g>
+      {{- end}}
+    </svg>
+{{- end}}

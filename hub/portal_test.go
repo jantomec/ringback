@@ -37,7 +37,7 @@ func TestMain(m *testing.M) {
 	contactsPath = filepath.Join(stateDir, "contacts.json")
 	eventsPath = filepath.Join(stateDir, "events.jsonl")
 	accountPath = filepath.Join(stateDir, "portal-user.json")
-	nodesPath = filepath.Join(stateDir, "nodes.json")
+	seenPath = filepath.Join(stateDir, "seen.json")
 	configPath = filepath.Join(dir, "hub.toml")
 	config := "listen = \"127.0.0.1:18899\"\n[tokens]\nspeech = \"speech-secret-1234\"\nagent = \"agent-secret-5678\"\n"
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
@@ -303,18 +303,28 @@ func TestCSRFRefused(t *testing.T) {
 		}
 	}
 
-	// Signed in: signing out and pausing a node need the session's token.
+	// Signed in: signing out, holding calls and forgetting a part need the session's token.
+	registerPhone(t, "phone-token-1", "iPhone", "")
+	defer os.Remove(devicesPath)
+	seePart(t, "speech", "gpu-tower")
+	defer os.Remove(seenPath)
 	csrf := b.signIn()
 	for _, token := range []string{"", "forged", csrf[:len(csrf)-1]} {
 		if status, _, _ := b.post("/portal/logout", url.Values{"csrf": {token}}); status != http.StatusForbidden {
 			t.Fatalf("signing out with token %q: %d", token, status)
 		}
-		if status, _, _ := b.post("/portal/nodes/pause", url.Values{"csrf": {token}, "name": {"gpu"}}); status != http.StatusForbidden {
-			t.Fatalf("pausing with token %q: %d", token, status)
+		if status, _, _ := b.post("/portal/hold", url.Values{"csrf": {token}, "hold": {"on"}}); status != http.StatusForbidden {
+			t.Fatalf("holding calls with token %q: %d", token, status)
+		}
+		if status, _, _ := b.post("/portal/forget", url.Values{"csrf": {token}, "kind": {"speech"}, "name": {"gpu-tower"}}); status != http.StatusForbidden {
+			t.Fatalf("forgetting a node with token %q: %d", token, status)
 		}
 	}
-	if _, paused := pausedNodes()["gpu"]; paused {
-		t.Fatal("a forged form paused a node")
+	if held, _ := heldUntil(now()); held {
+		t.Fatal("a forged form held calls")
+	}
+	if _, kept := loadSeen()["speech"]["gpu-tower"]; !kept {
+		t.Fatal("a forged form forgot a node")
 	}
 	if status, _, _ := b.get("/portal/"); status != http.StatusOK {
 		t.Fatalf("a forged sign-out signed out: %d", status)
@@ -388,10 +398,21 @@ func TestPagesNeedASession(t *testing.T) {
 			t.Errorf("GET %s, a refresh: %d", path, status)
 		}
 	}
-	for _, path := range []string{"/portal/logout", "/portal/nodes/pause", "/portal/nodes/resume"} {
-		if status, to, _ := b.post(path, url.Values{"name": {"gpu"}}); status != http.StatusSeeOther || to != "/portal/login" {
+	registerPhone(t, "phone-token-1", "iPhone", "")
+	defer os.Remove(devicesPath)
+	seePart(t, "agent", "studio")
+	defer os.Remove(seenPath)
+	for _, path := range []string{"/portal/logout", "/portal/hold", "/portal/forget"} {
+		form := url.Values{"hold": {"on"}, "kind": {"agent"}, "name": {"studio"}}
+		if status, to, _ := b.post(path, form); status != http.StatusSeeOther || to != "/portal/login" {
 			t.Errorf("POST %s: %d → %q", path, status, to)
 		}
+	}
+	if held, _ := heldUntil(now()); held {
+		t.Error("holding calls without a session held them")
+	}
+	if _, kept := loadSeen()["agent"]["studio"]; !kept {
+		t.Error("forgetting a Mac without a session forgot it")
 	}
 	// The stylesheet and script are for anyone; the setup page with its tokens only signed in.
 	if status, _, body := b.get("/portal/static/portal.css"); status != http.StatusOK || !strings.Contains(body, "prefers-color-scheme: dark") {
@@ -449,53 +470,6 @@ func TestNoAccount(t *testing.T) {
 	}
 	if status, to, _ := b.post("/portal/login", url.Values{"name": {"ana"}, "password": {testPassword}}); status != http.StatusSeeOther || to != "/portal/" {
 		t.Errorf("signing in with no account: %d → %q", status, to)
-	}
-}
-
-func TestPausedNodes(t *testing.T) {
-	makeAccount(t)
-	advance(5 * time.Minute)
-	server := httptest.NewServer(http.HandlerFunc(portal))
-	defer server.Close()
-	gpu, mac := &link{name: "gpu", since: now()}, &link{name: "mac", since: now()}
-	registryMu.Lock()
-	nodes[gpu], agents[mac] = true, nil
-	registryMu.Unlock()
-	defer func() {
-		registryMu.Lock()
-		delete(nodes, gpu)
-		delete(agents, mac)
-		registryMu.Unlock()
-	}()
-	speechOK := func() bool { return status("t", map[string]string{}, nil)["speech"].(map[string]any)["ok"].(bool) }
-	if !speechLinked() || aNode() != gpu || !speechOK() {
-		t.Fatal("a linked node isn't usable")
-	}
-	b := newBrowser(t, server)
-	csrf := b.signIn()
-	if status, to, _ := b.post("/portal/nodes/pause", url.Values{"csrf": {csrf}, "name": {"gpu"}}); status != http.StatusSeeOther || to != "/portal/" {
-		t.Fatalf("pausing: %d → %q", status, to)
-	}
-	if speechLinked() || aNode() != nil || speechOK() {
-		t.Fatal("a paused node is still used")
-	}
-	if data, err := os.ReadFile(nodesPath); err != nil || !strings.Contains(string(data), `"gpu"`) {
-		t.Fatalf("nodes.json: %s, %v", data, err)
-	}
-	_, _, page := b.get("/portal/")
-	if !strings.Contains(page, "Paused") || !strings.Contains(page, "Every linked speech node is paused") {
-		t.Fatalf("the status page with a paused node:\n%s", page)
-	}
-	// Kept across a restart: read again from nodes.json.
-	pausedMu.Lock()
-	pausedLoaded = false
-	pausedMu.Unlock()
-	if nodeUsable(gpu) {
-		t.Fatal("a paused node is usable after reading nodes.json again")
-	}
-	b.post("/portal/nodes/resume", url.Values{"csrf": {csrf}, "name": {"gpu"}})
-	if !speechLinked() || aNode() != gpu || !speechOK() {
-		t.Fatal("a resumed node isn't usable")
 	}
 }
 

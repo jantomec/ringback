@@ -1,7 +1,9 @@
 {{define "content"}}
-<div class="head">
-  <h1>{{.Title}}</h1>
+<div class="message">
+  <div class="head">
+    <h1>{{.Title}}</h1>
+  </div>
+  <p class="lede">{{.Data}}</p>
+  <p><a href="/portal/">Back to the status</a></p>
 </div>
-<p class="lede">{{.Data}}</p>
-<p><a href="/portal/">Back to the status</a></p>
 {{end}}

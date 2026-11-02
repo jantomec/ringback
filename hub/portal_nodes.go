@@ -8,93 +8,72 @@ import (
 	"time"
 )
 
-// What the portal keeps about speech nodes and calls, beside the registry in agents.go: the
-// nodes you paused, whether each node's models are loaded, and what each call is about.
+// What the portal keeps about the parts of the system, beside the registry in agents.go: the
+// speech nodes and Macs the hub has seen, whether each node's models are loaded, and what each
+// call is about.
 
-// The speech nodes' settings, set on the portal: nodes.json in the state folder, keyed by the
-// node's name (its hello), each with when it was paused ("paused"). A paused node stays
-// linked, but the hub neither warms it nor gives it calls, so calls wait for want of speech
-// unless another node is linked.
-var nodesPath = filepath.Join(stateDir, "nodes.json")
+// The speech nodes and Macs the hub has seen: seen.json in the state folder, by kind
+// ("speech" or "agent") and name, each with when it first linked ("first") and when it was
+// last linked ("last", written as it links and as it goes). The status page tells a part
+// that's gone (a Mac asleep, a speech node offline) from one never set up by it. One gone for
+// good is forgotten there.
+var seenPath = filepath.Join(stateDir, "seen.json")
 
-var (
-	pausedMu     sync.Mutex
-	pausedLoaded bool
-	nodeSettings map[string]map[string]string
-)
-
-// loadNodeSettings reads nodes.json once; the caller holds pausedMu.
-func loadNodeSettings() {
-	if pausedLoaded {
-		return
-	}
-	nodeSettings = map[string]map[string]string{}
-	readJSON(nodesPath, &nodeSettings)
-	pausedLoaded = true
+type seenPart struct {
+	First string `json:"first"`
+	Last  string `json:"last"`
 }
 
-// nodeUsable says whether the hub may warm a linked speech node and give it calls: not if
-// you paused it on the portal. It's called with registryMu held, so it takes only its own.
-func nodeUsable(l *link) bool {
-	pausedMu.Lock()
-	defer pausedMu.Unlock()
-	loadNodeSettings()
-	return nodeSettings[l.name]["paused"] == ""
+var seenMu sync.Mutex
+
+func loadSeen() map[string]map[string]seenPart {
+	seen := map[string]map[string]seenPart{}
+	readJSON(seenPath, &seen)
+	return seen
 }
 
-// pausedNodes are the names of the nodes you paused, linked or not, with when.
-func pausedNodes() map[string]string {
-	pausedMu.Lock()
-	defer pausedMu.Unlock()
-	loadNodeSettings()
-	paused := map[string]string{}
-	for name, settings := range nodeSettings {
-		if at := settings["paused"]; at != "" {
-			paused[name] = at
-		}
+// sawLink notes a speech node or a Mac as it links and as it goes.
+func sawLink(l *link) {
+	seenMu.Lock()
+	defer seenMu.Unlock()
+	seen := loadSeen()
+	if seen[l.kind] == nil {
+		seen[l.kind] = map[string]seenPart{}
 	}
-	return paused
+	part := seen[l.kind][l.name]
+	part.Last = isoNow()
+	if part.First == "" {
+		part.First = part.Last
+	}
+	seen[l.kind][l.name] = part
+	if err := writeJSON(seenPath, seen); err != nil {
+		log("can't keep the parts seen: " + err.Error())
+	}
 }
 
-// pauseNode pauses or resumes a node by name, keeping it in nodes.json. Calls on it go on;
-// resumed, and the hub's only usable node, the calls that waited for speech ask again.
-func pauseNode(name string, pause bool) error {
-	pausedMu.Lock()
-	loadNodeSettings()
-	settings := nodeSettings[name]
-	if settings == nil {
-		settings = map[string]string{}
+// forgetPart takes a speech node or a Mac off seen.json, as the status page's Forget does;
+// false if it's linked now, or wasn't there.
+func forgetPart(kind, name string) (bool, error) {
+	registryMu.Lock()
+	linkedNow := false
+	for l := range nodes {
+		linkedNow = linkedNow || (kind == "speech" && l.name == name)
 	}
-	if pause {
-		settings["paused"] = isoNow()
-	} else {
-		delete(settings, "paused")
+	for l := range agents {
+		linkedNow = linkedNow || (kind == "agent" && l.name == name)
 	}
-	if len(settings) == 0 {
-		delete(nodeSettings, name)
-	} else {
-		nodeSettings[name] = settings
+	registryMu.Unlock()
+	if linkedNow {
+		return false, nil
 	}
-	err := writeJSON(nodesPath, nodeSettings)
-	pausedMu.Unlock()
-	if err != nil {
-		return err
+	seenMu.Lock()
+	defer seenMu.Unlock()
+	seen := loadSeen()
+	if _, ok := seen[kind][name]; !ok {
+		return false, nil
 	}
-	if pause {
-		log("speech " + name + ": paused on the portal; the hub neither warms it nor gives it calls")
-		return nil
-	}
-	log("speech " + name + ": resumed on the portal")
-	if speechLinked() {
-		stateMu.Lock()
-		ids := waitingFor("no speech")
-		stateMu.Unlock()
-		if len(ids) > 0 {
-			log("speech " + name + ": " + plural(len(ids), "call", "calls") + " waited for speech, they ask again")
-			broadcast(map[string]any{"type": "reask", "call_ids": ids})
-		}
-	}
-	return nil
+	delete(seen[kind], name)
+	return true, writeJSON(seenPath, seen)
 }
 
 // nodeMessage takes what a speech node says about itself, whether its models are loaded
