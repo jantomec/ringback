@@ -38,14 +38,32 @@ func serve(listen string) {
 	log("hub listening on " + listen)
 	checkPeriodically()
 	server := &http.Server{
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			status, body := answer(endpoints, r)
-			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("Connection", "close")
-			w.WriteHeader(status)
-			_, _ = io.WriteString(w, body)
+			path := r.URL.Path
+			switch {
+			case path == "/agent":
+				acceptLink(w, r, "agent", agentOpened, fromAgent, func(*link, []byte) {}, agentClosed)
+			case path == "/speech":
+				acceptLink(w, r, "speech", nodeOpened, fromNode, nodeAudio, nodeClosed)
+			case path == "/ping":
+				// The phone checks it can reach the hub while it rings.
+				phoneJSON(w, http.StatusOK, map[string]any{"ok": true})
+			case phoneRoutes[path] != nil:
+				if r.Method != http.MethodPost {
+					phoneJSON(w, http.StatusMethodNotAllowed, map[string]any{"ok": false})
+					return
+				}
+				withDeadline(w, 15*time.Second)
+				phoneRoutes[path](w, r)
+			default:
+				withDeadline(w, 5*time.Second)
+				status, body := answer(endpoints, r)
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Connection", "close")
+				w.WriteHeader(status)
+				_, _ = io.WriteString(w, body)
+			}
 		}),
 	}
 	fail(server.Serve(listener).Error())
@@ -314,6 +332,16 @@ func sessions(body map[string]any) (map[string]any, error) {
 	if !(strings.HasPrefix(voice, "http://") || strings.HasPrefix(voice, "https://")) || !isList {
 		return nil, errBadRequest
 	}
+	_, err := keepSessions(voice, voice, given)
+	if err != nil {
+		return nil, err
+	}
+	return ok, nil
+}
+
+// keepSessions checks a list of sessions as /sessions takes it and keeps it under key, called
+// at voice, logging it when it changes.
+func keepSessions(key, voice string, given []any) ([]map[string]string, error) {
 	listed := []map[string]string{}
 	var names []string
 	for _, item := range given {
@@ -334,7 +362,7 @@ func sessions(body map[string]any) (map[string]any, error) {
 		listed = append(listed, kept)
 		names = append(names, project+" ("+prefix(id, 8)+")")
 	}
-	changed, err := updateContacts(voice, listed)
+	changed, err := updateContacts(key, voice, listed)
 	if err != nil {
 		return nil, err
 	}
@@ -343,9 +371,9 @@ func sessions(body map[string]any) (map[string]any, error) {
 		if list == "" {
 			list = "none"
 		}
-		log("sessions listening on " + voice + ": " + list)
+		log("sessions listening on " + key + ": " + list)
 	}
-	return ok, nil
+	return listed, nil
 }
 
 // contacts: the sessions that listen on every Mac, for the app's Sessions tab:

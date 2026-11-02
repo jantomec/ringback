@@ -1827,9 +1827,13 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
   2. **The speech node:** sherpa-onnx on CUDA, with Silero, Smart Turn v3, Parakeet v2 and
      Kokoro; speed, RAM and VRAM measured on the workstation.
   3. **The agent:** the mods' socket and everything behind it, and the call's `claude -p`.
-  4. **The call in the hub:** WebRTC and Opus with forward error correction, the jitter
-     buffer and concealment (`opus.py`), turns, interruptions, and what was heard before an
-     interruption.
+  4. **The call in the hub** (built 2026-11-02, checked with stand-ins): WebRTC (Pion) and
+     Opus (libopus) with forward error correction, the jitter buffer and concealment
+     (`opus.py`), the links (`docs/protocol.md`), the phone's endpoints, the reply cut into
+     pieces, interruptions, and what you'd heard. `tools/hub-check` runs the hub with a stand-in
+     phone, agent and speech node: all 25 checks passed (five runs, 9–11 s each timed), the voice heard
+     0.15 s after the offer. Replies are numbered, so a reply cut off while it's still being
+     written is dropped as more of it comes.
   5. **Switching over:** the offline checks (`tools/phone-check`, `ask-check`,
      `call-check`, `restart-check`) against the Go parts, then the phone.
 7. **Several sessions + retries.** A second session waits for the first call to end.

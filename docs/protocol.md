@@ -86,15 +86,19 @@ answers as the voice server does today, and the hub answers the phone with the r
 
 ### During a call
 
+The agent numbers its replies in a call 1, 2, 3…, taking the next number the moment it starts
+one (the opening, a reply to a turn, one to a note), so a reply cut off while it's still being
+written can be told from the next.
+
 | Direction | Message |
 |---|---|
 | hub → agent | `{"type": "answered", "call_id"}` when you answer (`/answered`, or an offer without ringing) |
 | hub → agent | `{"type": "connected", "call_id"}` when the audio connects; the voice may speak once both have come |
-| agent → hub | `{"type": "say", "call_id", "text": "…"}`: the reply's text as it's written, in any slices; the hub cuts it into spoken pieces |
-| agent → hub | `{"type": "said", "call_id"}` at the end of a reply |
+| agent → hub | `{"type": "say", "call_id", "reply": 3, "text": "…"}`: the reply's text as it's written, in any slices; the hub cuts it into spoken pieces |
+| agent → hub | `{"type": "said", "call_id", "reply": 3}` at the end of a reply; a reply with nothing to say (only a tool call) is just this, and the hub says `idle` once the voice is |
 | hub → agent | `{"type": "heard", "call_id", "text": "…"}` as the reply plays: everything of the current reply you've heard so far (for what's held until you've heard it announced) |
-| hub → agent | `{"type": "interrupted", "call_id", "heard": "…"}` when you cut the voice off: what you'd heard of its reply; the rest is never spoken |
-| hub → agent | `{"type": "turn", "call_id", "text": "…"}`: your words, for the next reply. Empty when a stop held no words the recogniser caught: the voice carries on (the `NOISE` prompt today) |
+| hub → agent | `{"type": "interrupted", "call_id", "reply": 3, "heard": "…"}` when you cut the voice off: what you'd heard of reply 3; the rest is never spoken, and the hub drops whatever more comes of it, so the agent stops writing it. You also cut off a reply to your turn that hasn't come yet: `reply` is then the next number and `heard` is empty |
+| hub → agent | `{"type": "turn", "call_id", "text": "…"}`: your words, for the next reply, which the agent starts at once. Empty when a stop held no words the recogniser caught: the voice carries on (the `NOISE` prompt today) |
 | hub → agent | `{"type": "speaking", "call_id"}` when the voice's audio starts playing; the first one is the opening, which the session's notes wait for |
 | hub → agent | `{"type": "idle", "call_id"}` when the voice has finished speaking and you aren't speaking. A note from the session (`[The session: …]`, a new ask) waits for it, then runs the next reply, as Pipecat holds a note today until the voice is done and you aren't talking |
 | agent → hub | `{"type": "hang_up", "call_id"}` when the call should end from the voice's side (none yet) |

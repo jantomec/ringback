@@ -205,10 +205,10 @@ check "one whose question went to the Claude app is logged" yes "$(yes_if grep -
 
 # Contacts: each voice server says which of its sessions listen, and the app lists them all,
 # by project, each with its voice server. A voice server's list replaces the one before, and
-# one not heard from for RINGBACK_CONTACTS_STALE s (here 3, instead of 90) is dropped. A held
+# one not heard from for RINGBACK_CONTACTS_STALE s (here 5, instead of 90) is dropped. A held
 # call keeps the session that placed it.
 serve_contacts() {
-    HOME="$home" RINGBACK_CONTACTS_STALE=3 "$bin" serve >> "$home/log" 2>&1 &
+    HOME="$home" RINGBACK_CONTACTS_STALE=5 "$bin" serve >> "$home/log" 2>&1 &
     server=$!
 }
 contact_ids() { body -d '{"token": "aaaa1111bbbb2222"}' "$url/contacts" | grep -oE 'sess[0-9]{4}' | tr '\n' ' ' | sed 's/ $//'; }
@@ -238,9 +238,9 @@ kill $server
 wait $server 2> /dev/null || true
 serve_contacts
 check "after a restart, both still listed" "sess0003 sess0002" "$(contact_ids)"
-sleep 2
+sleep 3
 check "the second voice server says again" 200 "$(status -d "$one_b" "$url/sessions")"
-sleep 2
+sleep 3
 check "the first, not heard from in time, is dropped" "sess0003" "$(contact_ids)"
 check "a held call names its session" "$(held_until 13:15)" "$(body -d "$held_with_session" "$url/call")"
 check "listed as waiting with it" yes "$(yes_if has_text "$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting")" '"session_id":"sess0004-cccc"')"

@@ -258,6 +258,9 @@ var contactsStale = envSeconds("RINGBACK_CONTACTS_STALE", 90)
 type contactsEntry struct {
 	Refreshed string              `json:"refreshed"`
 	Sessions  []map[string]string `json:"sessions"`
+	// Voice is the URL the phone calls these sessions at, when it isn't the key: an agent's
+	// sessions are kept under the agent, and called at the hub.
+	Voice string `json:"voice,omitempty"`
 }
 
 func loadContacts() map[string]contactsEntry {
@@ -281,12 +284,16 @@ func freshContacts() map[string]contactsEntry {
 	return all
 }
 
-// updateContacts keeps a voice server's sessions now, replacing those it gave before; true
-// if they changed.
-func updateContacts(voice string, sessions []map[string]string) (bool, error) {
+// updateContacts keeps a voice server's or an agent's sessions now (key), replacing those it
+// gave before, called at voice; true if they changed.
+func updateContacts(key, voice string, sessions []map[string]string) (bool, error) {
 	all := freshContacts()
-	before, had := all[voice]
-	all[voice] = contactsEntry{Refreshed: isoNow(), Sessions: sessions}
+	before, had := all[key]
+	entry := contactsEntry{Refreshed: isoNow(), Sessions: sessions}
+	if voice != key {
+		entry.Voice = voice
+	}
+	all[key] = entry
 	if err := writeJSON(contactsPath, all); err != nil {
 		return false, err
 	}
@@ -308,7 +315,8 @@ func listContacts() ([]map[string]string, error) {
 		}
 	}
 	listed := []map[string]string{}
-	for voice, entry := range all {
+	for key, entry := range all {
+		voice := orDefault(entry.Voice, key)
 		for _, session := range entry.Sessions {
 			item := map[string]string{"voice": voice}
 			for k, v := range session {
@@ -322,6 +330,18 @@ func listContacts() ([]map[string]string, error) {
 	}
 	sort.Slice(listed, func(i, j int) bool { return key(listed[i]) < key(listed[j]) })
 	return listed, nil
+}
+
+// dropContacts forgets an agent's sessions once it disconnects.
+func dropContacts(key string) {
+	all := loadContacts()
+	if _, ok := all[key]; !ok {
+		return
+	}
+	delete(all, key)
+	if writeJSON(contactsPath, all) == nil {
+		log("sessions listening on " + key + ": dropped, it disconnected")
+	}
 }
 
 // What the phone reported about each call, one JSON object per line: events.jsonl in the
