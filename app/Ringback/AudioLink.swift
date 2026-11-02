@@ -345,7 +345,7 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
 
 /// The voice server answered `answered` with 404: it wasn't offered this call.
 private struct UnknownCall: LocalizedError {
-    var errorDescription: String? { "The voice server doesn't know this call" }
+    var errorDescription: String? { "Ringback doesn't know this call" }
 }
 
 /// The hub answered an offer 503: no speech computer is linked to it, so the call can't be
@@ -361,6 +361,6 @@ struct NoSpeech: LocalizedError {
 struct RefusedCall: LocalizedError {
     var reason: String?
     var errorDescription: String? {
-        reason == "not listening" ? "The session isn't listening" : "The voice server doesn't know this call"
+        reason == "not listening" ? "The session isn't listening" : "Ringback doesn't know this call"
     }
 }

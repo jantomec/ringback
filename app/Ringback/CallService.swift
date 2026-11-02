@@ -445,7 +445,7 @@ final class CallService: NSObject, CXProviderDelegate {
             audioFailed(uuid, callID, refused.localizedDescription, note: offerNote(uuid))
             state.callBackProblem = refused.reason == "not listening"
                 ? "\(contact.project) isn't listening any more: ringback is off in that session, or it has ended."
-                : "\(contact.project)'s Mac can't take calls from Sessions yet: its voice server is from before them."
+                : "\(contact.project)'s Mac can't take calls from Sessions yet: its ringback is from before them."
             end(uuid)
             await state.refreshContacts()
         } catch {
@@ -695,5 +695,5 @@ final class CallService: NSObject, CXProviderDelegate {
 
 /// The voice server didn't answer over Nebula in time.
 private struct ReachError: LocalizedError {
-    var errorDescription: String? { "Can't reach the voice server over Nebula" }
+    var errorDescription: String? { "Can't reach the hub" }
 }

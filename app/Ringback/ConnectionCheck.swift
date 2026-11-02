@@ -11,7 +11,7 @@ enum ConnectionCheck {
     /// none. The main screen shows a banner while there is one.
     static let lastWarnedKey = "lastConnectionWarning"
     static let title = "Claude can't call you"
-    static let message = "Ringback can't reach your switchboard over Nebula. Check that Nebula is on."
+    static let message = "Ringback can't reach your hub. If you reach it over Nebula or another VPN, check that it's on."
     /// A warning you dismissed comes back after this long if the problem stays.
     private static let warnAgainAfter: TimeInterval = 3 * 3600
 

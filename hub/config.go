@@ -10,7 +10,7 @@ import (
 
 var (
 	home       = homeDir()
-	configPath = expand("~/.config/ringback/switchboard.toml")
+	configPath = findConfig()
 	stateDir   = expand("~/.local/state/ringback")
 )
 
@@ -29,13 +29,30 @@ func expand(path string) string {
 	return path
 }
 
-// loadConfig reads switchboard.toml. It uses only `[section]` headers, `key = "value"`
+// findConfig is the hub's config: hub.toml, or the switchboard's, switchboard.toml, which the
+// hub took over, while there's no hub.toml.
+func findConfig() string {
+	path := expand("~/.config/ringback/hub.toml")
+	if _, err := os.Stat(path); err != nil {
+		if old := expand("~/.config/ringback/switchboard.toml"); fileExists(old) {
+			return old
+		}
+	}
+	return path
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// loadConfig reads hub.toml. It uses only `[section]` headers, `key = "value"`
 // lines and `#` comments, so that's all this reads. Keys come back with their section, e.g.
 // "apns.sandbox.key_id".
 func loadConfig() map[string]string {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		fail("No config at " + configPath + "; copy switchboard/switchboard.example.toml there.")
+		fail("No config at " + configPath + "; copy hub/hub.example.toml there.")
 	}
 	config := map[string]string{}
 	section := ""

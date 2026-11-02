@@ -103,7 +103,7 @@ async def main() -> int:
         sys.exit("build the hub first: (cd hub && go build -o build/ringback-hub .)")
     home = Path(tempfile.mkdtemp(prefix="ringback-hub-check-"))
     (home / ".config/ringback").mkdir(parents=True)
-    (home / ".config/ringback/switchboard.toml").write_text(
+    (home / ".config/ringback/hub.toml").write_text(
         f'listen = "{HUB}"\n[tokens]\nagent = "{TOKENS["agent"]}"\nspeech = "{TOKENS["speech"]}"\n'
     )
     log = home / "hub.log"

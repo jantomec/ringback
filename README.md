@@ -19,7 +19,8 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/iPhone-iOS_26+-1f2328?style=flat-square" alt="iPhone on iOS 26 or later">
-  <img src="https://img.shields.io/badge/Mac-Apple_silicon-1f2328?style=flat-square" alt="Mac with Apple silicon">
+  <img src="https://img.shields.io/badge/sessions-macOS-1f2328?style=flat-square" alt="Claude Code sessions on a Mac">
+  <img src="https://img.shields.io/badge/speech-Linux_+_NVIDIA-1f2328?style=flat-square" alt="Speech on a Linux machine with an NVIDIA GPU">
   <img src="https://img.shields.io/badge/license-MIT-1f2328?style=flat-square" alt="MIT license">
 </p>
 
@@ -32,9 +33,10 @@ voice tells you what happened, and you answer the way you'd answer a colleague: 
 open a pull request."* Your words reach the session, it carries on, and if there's more to
 decide, it calls again.
 
-Ringback runs on your own Macs and phone, over your own [Nebula](https://github.com/slackhq/nebula)
-network. The voice is Claude Haiku through Claude Code, on your Claude subscription: no API key,
-and no server of ours in between.
+Ringback runs on your own machines and phone, over a private network of yours such as
+[Nebula](https://github.com/slackhq/nebula). The voice is Claude Haiku through Claude Code, on
+your Claude subscription, and the speech models run on your own GPU: no API key, and no server
+of ours in between.
 
 ## What a call is like
 
@@ -64,22 +66,29 @@ and no server of ours in between.
 
 Built like the Phone app, with one switch of its own: the pill beside the tabs holds every call
 until you let them through, and breathes while it does. It's in Control Center too, and the
-app's icon counts the calls that wait.
+app's icon counts the calls that wait. When something calls need is down (your hub, the speech
+computer, Apple's push), a banner at the top says what, in plain words, and goes once it's back.
 
 ## How it works
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-works-dark.png">
-    <img src="docs/images/how-it-works-light.png" width="820" alt="Claude Code sends a briefing to the voice server on the same Mac, which asks the switchboard to ring; the switchboard pushes to the iPhone; your voice goes straight between the iPhone and the voice server over Nebula, and what you said goes back to the session">
+    <img src="docs/images/how-it-works-light.png" width="820" alt="Claude Code sends a briefing to the agent on the same Mac, which asks the hub to ring; the hub pushes to the iPhone and carries your voice; the speech node beside the hub hears you and speaks; your words go between the hub and the agent, whose Haiku answers, and what you said goes back to the session">
   </picture>
 </p>
 
-A small **mod** in each Claude Code session writes a spoken briefing when a turn ends. The
-**voice server** on that Mac asks the **switchboard**, a tiny always-on service, to ring your
-**iPhone**. When you answer, the audio goes straight between your phone and the Mac over Nebula:
-Silero hears when you speak, Parakeet recognises it, Haiku answers, and Kokoro speaks. What you
-ask for goes back to the session, and its answer comes back to the call.
+A small **mod** in each Claude Code session writes a spoken briefing when a turn ends, and hands
+it to the **agent** on that Mac. The agent asks the **hub**, a small always-on service, to ring
+your **iPhone**. When you answer, your voice goes to the hub, which passes it to the **speech
+node**, a machine with a GPU: Silero hears when you speak, Smart Turn when you've finished, and
+Parakeet what you said. Your words go to the agent, where Claude Haiku answers through Claude Code,
+on the session's own Mac, and Kokoro, back on the speech node, speaks the answer. What you ask for
+goes back to the session, and its answer comes back to the call.
+
+The Macs and the speech node only ever dial out to the hub, and the phone reaches only the hub.
+Between calls the speech node lets go of the GPU and its memory; it loads its models while your
+phone rings.
 
 The reasoning behind each part, and what every test on the phone showed, are in
 [docs/design.md](docs/design.md).
@@ -88,13 +97,16 @@ The reasoning behind each part, and what every test on the phone showed, are in
 
 You need:
 
-- a Mac with Apple silicon and Xcode, for each Mac that runs sessions;
-- an always-on Mac for the switchboard (it needs nothing installed);
+- an always-on Mac for the hub, Intel or Apple silicon (it needs nothing installed);
+- a Linux machine with an NVIDIA GPU for the speech node: 3–3.5 GB of GPU memory and 3 GB of RAM
+  during calls, next to nothing between them, and about 5 GB on disk;
+- Claude Code on each Mac that runs sessions, on a Claude subscription that includes Opus;
+- a Mac with Xcode and Go, to build the app, the hub and the agent;
 - an iPhone on iOS 26 or later, and a paid Apple Developer account, for VoIP pushes;
-- Nebula on the Macs and the phone, with a lighthouse that relays;
-- Claude Code on a Claude subscription that includes Opus.
+- a private network all of them reach, the phone too on mobile data: Nebula, with a lighthouse
+  that relays, is the one it's tested on.
 
-[docs/setup.md](docs/setup.md) takes you through it in six steps. Once everything is set up, a
+[docs/setup.md](docs/setup.md) takes you through it in eight steps. Once everything is set up, a
 session calls you like this:
 
 ```sh
@@ -112,8 +124,13 @@ Ringback is a working prototype, built in stages and tested on real calls.
 - [x] Opus on the line, missed calls called back, work hours
 - [x] Weak signal: 3G, and the Network Link Conditioner's Very Bad Network
 - [x] Recents and Sessions: call any session, or a recent call back
+- [x] One hub, a speech node and an agent on each Mac, in Go, in place of a voice server on every
+      Mac: calls on the phone, the GPU freed between calls, and banners for what's down
+- [ ] The rest on the Go stack on the phone (held calls, call backs, asks, Opus, weak signal):
+      tried offline, and on the earlier stack
 - [ ] The hold switch, its breathing light, and the Lock Screen widget: built, partly tried on the phone
-- [ ] Calls that survive a restart of the voice server: built, tried offline
+- [ ] Speech on the iPhone itself, without a speech node: a trial with Apple's recognition is next
+- [ ] A small web page on the hub, to see and set up everything: planned
 - [ ] Several sessions calling in turn, with retries: planned
 
 <details>
@@ -124,13 +141,15 @@ Ringback is a working prototype, built in stages and tested on real calls.
 |---|---|
 | `app/` | The iPhone app (SwiftUI), with its Control Center and Lock Screen extension |
 | `mod/` | The Claude Code mod (TypeScript) that adds `/ringback` |
-| `voice/` | The voice server (Python): calls, speech, and the link to each session |
-| `switchboard/` | The switchboard (Swift, no dependencies) and its smoke test |
+| `hub/` | The hub (Go): push, waiting calls, and the call's audio and timing |
+| `speech/` | The speech node (Go, sherpa-onnx on CUDA): hearing and speaking |
+| `agent/` | The agent (Go): each Mac's sessions, and the call's Haiku and Opus through Claude Code |
+| `voice/`, `switchboard/` | The earlier stack (a Python voice server on each Mac, a Swift switchboard), kept until the Go stack has passed every test on the phone |
 | `tools/` | The checks and measurements behind the design, each with a README |
-| `docs/` | The design, the setup guide, and the images here |
+| `docs/` | The design, the protocol between the parts, the setup guide, and the images here |
 
 Before every commit, these show that everything builds and passes its offline checks, in about
-a minute:
+a minute and a half:
 
 ```sh
 (cd app && xcodegen generate && xcodebuild -project Ringback.xcodeproj -scheme Ringback \
@@ -138,11 +157,15 @@ a minute:
 (cd switchboard && swift build -c release --arch arm64 --arch x86_64 && ./smoke-test.sh)
 (cd voice && uv run python -m compileall -q ringback_voice && uv run python -c 'import ringback_voice.__main__')
 claude plugin validate mod && claude plugin test mod
+(cd hub && go vet ./... && go build -o build/ringback-hub . && RINGBACK_HUB=$PWD/build/ringback-hub ../switchboard/smoke-test.sh)
+(cd agent && go vet ./... && go test ./...)
+uv run --project voice tools/hub-check/hub_check.py > /dev/null
 ```
 
 They prove the code builds, not that calls work: ringing, push and audio count only on a real
-phone. To try a change to the conversation first, play a scripted call through the voice with
-`tools/call-check`.
+phone. Before calling the phone, `tools/line-check` places a whole call through the real hub,
+agent and speech node, with a stand-in phone, and the speech node checks itself with
+`speech/check.sh`.
 
 </details>
 

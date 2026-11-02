@@ -6,9 +6,9 @@
 	<array>
 		<dict>
 			<key>FooterText</key>
-			<string>Its Nebula address, such as 10.0.0.1. Port 8787 is used unless you add another, as in 10.0.0.1:9000.</string>
+			<string>Your hub's address, such as 10.0.0.1. Port 8787 is used unless you add another, as in 10.0.0.1:9000.</string>
 			<key>Title</key>
-			<string>Switchboard</string>
+			<string>Hub</string>
 			<key>Type</key>
 			<string>PSGroupSpecifier</string>
 		</dict>

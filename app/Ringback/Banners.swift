@@ -39,9 +39,23 @@ struct Banners: View {
         return found
     }
 
+    /// The hub says something's wrong, which mending elsewhere (the speech computer starting,
+    /// the push key fixed) puts right without the app hearing of it.
+    private var hubProblem: Bool {
+        guard let status = state.status else { return false }
+        return status.pushProblem != nil || !status.speechOK
+    }
+
     var body: some View {
         let found = problems
         ForEach(showsAll ? found : Array(found.prefix(1)), id: \.self, content: banner)
+            // So the banner goes once it's mended: ask again every 10 s while it shows.
+            .task(id: hubProblem) {
+                while hubProblem, !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(10))
+                    await state.refreshWaiting()
+                }
+            }
         if found.count > 1 {
             Button(showsAll ? "Show Less" : found.count == 2 ? "1 More Problem" : "\(found.count - 1) More Problems") {
                 withAnimation { showsAll.toggle() }
@@ -58,7 +72,7 @@ struct Banners: View {
         case .notSetUp:
             Banner(
                 systemImage: "gearshape.fill", title: "Set up Ringback",
-                message: "Enter your switchboard's Nebula address in Ringback's settings, such as 10.0.0.1."
+                message: "Enter your hub's address in Ringback's settings, such as 10.0.0.1."
             ) {
                 Button("Open Settings", action: openSettings)
             }

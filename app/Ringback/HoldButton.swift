@@ -63,7 +63,7 @@ struct HoldButton: View {
     /// For VoiceOver: "Taking calls, holds calls at 19:00", or "On hold, 2 waiting, takes
     /// calls tomorrow at 08:15".
     private var detail: String {
-        guard let hold = state.hold else { return "Shows once the switchboard answers" }
+        guard let hold = state.hold else { return "Shows once the hub answers" }
         guard hold.on else { return "Taking calls, " + (hold.until.map { "holds calls \($0.ringsLabel)" } ?? "until you put calls on hold") }
         let count = state.waiting.count
         let waiting = count == 0 ? "nothing waiting" : "\(count) waiting"
@@ -83,7 +83,7 @@ struct HoldButton: View {
                 state.hold = try await HoldSwitch.set(on)
             } catch {
                 state.hold = before
-                state.callBackProblem = "Can't reach the switchboard to \(on ? "hold" : "take") calls. Check that Nebula is on."
+                state.callBackProblem = "Can't reach your hub to \(on ? "hold" : "take") calls. If you reach it over Nebula or another VPN, check that it's on."
             }
             isSetting = false
             await state.refreshWaiting()

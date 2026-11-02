@@ -14,12 +14,13 @@ import (
 
 const usage = `usage: ringback-hub serve | ring [--project NAME] [--subject TEXT] [--voice URL] | check | devices
 
-  serve    listen for phone registrations and call events, and every 30 min ask each
-           phone to check that it can still reach the hub over Nebula
-  ring     ring every registered phone, at any time: work hours are for sessions' calls
+  serve    serve the phone, the speech nodes and the agents: ring calls, carry their audio,
+           and every 30 min ask each phone to check that it can still reach the hub
+  ring     ring every registered phone, at any time, to try the push: without --voice it
+           rings without audio (an agent places a session's calls)
              --project NAME  shown as the caller (default: ringback)
              --subject TEXT  a few words on what the call is about
-             --voice URL     the calling Mac's voice server, e.g. http://10.0.0.1:8788
+             --voice URL     a voice server of the earlier stack, e.g. http://10.0.0.1:8788
   check    ask every phone to check its connection now; one that can't reach the
            hub shows a warning
   devices  list registered phones, when each last checked in, their work hours and

@@ -1,36 +1,255 @@
 # Setup
 
-How to run ringback as built so far (Stage 3 in progress: a session with `/ringback` on
-calls you when it finishes, what you tell the voice reaches the session, you can answer
-its permission prompts and questions on the call, and you can call back a call you missed
-from the app; built but not yet tried on the phone: staying up through restarts, calling a
-call that waits for your work hours from the app, calling back any call, and calling your
-sessions from the app's Sessions tab). Replace the example addresses with your own.
+How to run ringback: a session with `/ringback` on calls your iPhone when it finishes, you
+talk it through, and what you say reaches the session. Four parts run on your machines, and
+the app on your phone:
+
+| Part | Runs on | Does |
+|---|---|---|
+| **hub** | one always-on Mac, Intel or Apple silicon | rings the phone (APNs), keeps the calls that wait, and carries each call's audio |
+| **speech node** | a Linux machine with an NVIDIA GPU | hears you (Silero, Smart Turn, Parakeet) and speaks (Kokoro), for the hub |
+| **agent** | each Mac that runs Claude Code sessions | the sessions' side: their briefings and questions, and the call's Haiku and Opus through Claude Code |
+| **mod** | each Claude Code session | adds `/ringback`, and hands the agent the session's briefings |
+| **app** | your iPhone | rings like a phone call, and lists your calls and sessions |
+
+The speech node and the agents dial out to the hub, and the phone reaches only the hub. The
+steps below set them up in that order. Replace the example addresses (`10.0.0.1` for the
+hub) with your own.
 
 ## You need
 
-- **Macs with Apple silicon and Xcode** that can build for your phone's iOS version
-  (Xcode 27 for iOS 27), **XcodeGen** and **uv** (`brew install xcodegen uv`), for the
-  Macs that run sessions.
-  The always-on Mac needs none of these: the switchboard is one binary, built elsewhere.
+- **A Mac with Xcode** that can build for your phone's iOS version (Xcode 27 for iOS 27),
+  with **XcodeGen**, **Go** and **CMake** (`brew install xcodegen go cmake`), to build the
+  app, the hub and the agent.
 - **A paid Apple Developer Program account.** VoIP pushes need it.
 - **An iPhone** on iOS 26 or later.
-- **Nebula** on the Macs and the iPhone (Mobile Nebula):
-  - the lighthouse is a relay (`relay.am_relay: true`);
-  - each Mac lists the lighthouse in `relay.relays`;
-  - on mobile data, the phone can only reach the Macs through that relay (see
-    `docs/design.md`, Stage 0).
-- **Optional, for `tools/nebula-check`:** Mobile Nebula drops all inbound traffic by
-  default, so pinging the phone needs an inbound ICMP rule for the Mac.
+- **An always-on Mac** for the hub, Intel or Apple silicon, on macOS 13 or later. It needs
+  nothing installed.
+- **A Linux machine with an NVIDIA GPU** for the speech node, x86-64, with a driver that
+  supports CUDA 13. A call takes 3–3.5 GB of its GPU memory and 3 GB of RAM; between calls
+  it takes 16 MB and no GPU memory. Its install takes about 5 GB of disk.
+- **Claude Code** on each Mac that runs sessions, version 2.1.287 or later, signed in to a
+  Claude subscription that includes Opus: the voice is Haiku through `claude`, and Opus when
+  you ask for a better model on the line.
+- **A private network** that the phone, the hub, the speech node and the Macs all reach, the
+  phone also on mobile data. Ringback is tested on **Nebula** (Mobile Nebula on the phone):
+  - the lighthouse is a relay (`relay.am_relay: true`), and each machine lists it in
+    `relay.relays`: on mobile data, the phone reaches the hub only through that relay (see
+    `docs/design.md`, Stage 0);
+  - the hub's Nebula firewall lets in the phone, on its port (TCP 8787 by default) and on any
+    UDP port, for the call's audio, and the speech node and the Macs on its port.
 
 ## 1. APNs key
 
 On developer.apple.com, go to Certificates, Identifiers & Profiles → Keys and create a key
 with Apple Push Notifications service. Choose the **Sandbox** environment: builds you
 install from Xcode receive their pushes from the sandbox. Download the `.p8` file (Apple
-lets you do this only once) into `~/.config/ringback/`.
+lets you do this only once). It goes to the hub, in step 2.
 
-## 2. The iPhone app
+## 2. The hub (the always-on Mac)
+
+Build it on the Mac with Xcode. `build.sh` builds libopus from its release, checked against a
+pinned SHA-256, and links it in, so the hub is one file for Intel and Apple silicon that needs
+nothing else (the first build takes about a minute):
+
+```sh
+cd hub && ./build.sh
+ssh always-on-mac mkdir -p .local/bin .config/ringback
+scp build/ringback-hub-universal always-on-mac:.local/bin/ringback-hub
+```
+
+On the always-on Mac, copy `hub/hub.example.toml` to `~/.config/ringback/hub.toml`, put the
+APNs key next to it, and fill it in:
+- `listen` is the hub's address on your private network, such as its Nebula address, and its
+  port. It listens only there. The call's audio uses the same address, on UDP ports it picks.
+- `[tokens]` are what the speech node and the agents link with: make each a long random
+  string, such as `openssl rand -hex 32` prints.
+- `[apns]` is your team ID, the app's bundle ID, and the key.
+
+Then start it:
+
+```sh
+~/.local/bin/ringback-hub serve
+```
+
+What it keeps is in `~/.local/state/ringback/`: the phones (`devices.json`), the calls that
+wait (`waiting.json`), the sessions you can call (`contacts.json`) and every call's events
+(`events.jsonl`). Every 30 min it wakes each phone with a background push, and the app checks
+in over the network; if it can't, the phone warns you. `ringback-hub check` does that now,
+`ringback-hub devices` shows when each phone last checked in, and
+`ringback-hub ring --project myproject` rings every phone without audio, to try the push.
+
+To start it at login, and again whenever it stops, run it as a launchd agent:
+
+```sh
+cat > ~/Library/LaunchAgents/ringback.hub.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ringback.hub</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$HOME/.local/bin/ringback-hub</string>
+    <string>serve</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>StandardOutPath</key>
+  <string>$HOME/Library/Logs/ringback-hub.log</string>
+  <key>StandardErrorPath</key>
+  <string>$HOME/Library/Logs/ringback-hub.log</string>
+</dict>
+</plist>
+EOF
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ringback.hub.plist
+```
+
+`KeepAlive` starts it again whenever it stops, at most every 30 s (`ThrottleInterval`): while
+the network is down, it can't listen on its address, and launchd tries again. Its log is
+`~/Library/Logs/ringback-hub.log`. To restart it, as after an update:
+`launchctl kickstart -k gui/$(id -u)/ringback.hub`. To stop it until you load it again:
+`launchctl bootout gui/$(id -u)/ringback.hub`. On a Mac with FileVault and no automatic
+login, nothing starts after a reboot until someone logs in, not even Nebula.
+
+## 3. The speech node (the Linux machine with the GPU)
+
+With a copy of this repository on that machine:
+
+```sh
+speech/install.sh   # ~/ringback-speech: sherpa-onnx, the CUDA libraries, the models
+speech/build.sh     # builds ~/ringback-speech/bin/ringback-speech
+```
+
+`install.sh` downloads everything the node needs into one folder, `~/ringback-speech`, each
+file checked against a pinned SHA-256, and nothing outside it (`speech/README.md` lists what's
+where). Running it again skips what's there. Then, in `~/ringback-speech/speech.toml`, set the
+hub's address and its speech token:
+
+```toml
+hub = "ws://10.0.0.1:8787/speech"
+token = "…"   # [tokens] speech in the hub's hub.toml
+```
+
+and start it:
+
+```sh
+. ~/ringback-speech/env.sh && ~/ringback-speech/bin/ringback-speech serve
+```
+
+It links to the hub ("linked to the hub" in its log, and "speech … connected" in the hub's),
+and holds no models until a call comes: the hub tells it when a call rings, and it loads them
+while the phone rings, in about 2 s. A minute after the call, it lets go of the GPU and its
+memory again. To run it as a service, `speech/README.md` has a systemd user unit.
+
+`speech/check.sh` checks the node against a stand-in hub (about 2.5 min): its hearing, its
+speaking, and its memory before, during and after a call.
+
+## 4. The agent (every Mac that runs sessions)
+
+```sh
+mkdir -p ~/.local/bin ~/.config/ringback
+cd agent && go build -o ~/.local/bin/ringback-agent .
+cp agent.example.toml ~/.config/ringback/agent.toml   # the hub's address and its agent token
+~/.local/bin/ringback-agent serve
+```
+
+Sessions on this Mac reach it through a socket only you can open,
+`~/.local/state/ringback/voice.sock`. It needs `claude` on its `PATH`: on a call, it runs Haiku
+as `claude -p`, on this Mac, and Opus when you ask for a better model. It links to the hub
+("linked to the hub" in its log, and "agent … connected" in the hub's) and tells it which
+sessions listen, for the app's Sessions tab.
+
+It remembers the calls it placed for a day after they end, so you can call them back from the
+app, and what it keeps for sessions survives a restart: it's written to `voice-state.json`
+beside its socket on every change, and read at start. That's the calls held outside your
+work hours, the calls to call back, what sessions asked you and what waits for their mods. A
+call you're on when it restarts ends, and its session is told so.
+
+To start it at login, and again whenever it stops, run it as a launchd agent. Write the
+agent's file with `claude` on your `PATH`, as it finds it there:
+
+```sh
+cat > ~/Library/LaunchAgents/ringback.agent.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ringback.agent</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$HOME/.local/bin/ringback-agent</string>
+    <string>serve</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>$(dirname "$(which claude)"):/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>StandardOutPath</key>
+  <string>$HOME/Library/Logs/ringback-agent.log</string>
+  <key>StandardErrorPath</key>
+  <string>$HOME/Library/Logs/ringback-agent.log</string>
+</dict>
+</plist>
+EOF
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ringback.agent.plist
+```
+
+Stop any agent you started by hand first: both would use the same socket. Its log is
+`~/Library/Logs/ringback-agent.log`; `launchctl kickstart -k gui/$(id -u)/ringback.agent`
+restarts it, and `launchctl bootout gui/$(id -u)/ringback.agent` stops it.
+
+## 5. The ringback mod (every Mac that runs sessions)
+
+The mod is how a session calls you. To load it in every session, add it to
+`~/.claude/settings.json`:
+
+```json
+{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/ringback/mod" } }
+```
+
+or load it in one session with `claude --plugin-dir /path/to/ringback/mod`.
+
+It does nothing until you run `/ringback` in a session. The dim line under the prompt
+then ends with "☎ ringback on". Each time the session finishes, it writes a short
+briefing, and the agent rings your phone with it. What you ask the voice to pass on
+reaches the session, and its answer comes back to the call, or a new call if you've hung
+up. Each call's transcript is kept in the project's `.ringback/calls/`, which git ignores.
+Run `/ringback` again when you're back. Until then it stays on, also when the mod reloads
+and when you resume the session after Claude Code restarts (`claude --resume`), within 30
+days of the session's last start.
+
+While the agent is down, as while it restarts, the session doesn't give up: it offers its
+briefing again every 30 s for up to 30 min, and the dim line under the prompt ends with
+"☎ waiting for the voice server…". A permission or question it's asking you is asked again
+every 5 s, within its 15 min.
+
+When the session needs your permission, the prompt shows in the terminal and the voice
+asks you on a call; whichever you answer first decides. Questions the session asks you
+with options go to the call instead of the terminal, and show there only if the call
+brings no answer. In auto mode, what auto mode approves by itself never rings. If you don't
+answer the call, both wait for you to call it back from the app, or for the session's next
+call, for up to 15 min: a question then shows in the terminal only after those 15 min, or
+once you run `/ringback` to switch calling off. Outside your work hours they wait for the
+call, which rings when your hours start, and the 15 min count from then; a question can go
+to the Claude app from the phone instead. `/ringback` turns on Remote Control for that
+(`/remote-control`); if it's on already, Claude Code shows its Remote Control menu, and Enter
+or Esc leaves it on. Remote Control needs a claude.ai subscription.
+
+## 6. The iPhone app
 
 ```sh
 cp app/Config/Local.xcconfig.example app/Config/Local.xcconfig   # your team ID and bundle ID
@@ -49,17 +268,14 @@ xcrun devicectl device install app --device <UDID> build/Build/Products/Debug-ip
 
 Open the app and allow the microphone and notifications. Its settings are in the Settings
 app, under **Settings → Apps → Ringback** (the app's banner, "Set up Ringback", has a button
-that opens it): enter the switchboard's Nebula address under **Switchboard**, e.g.
-`10.0.0.1` (port 8787 is the default), then go back to the app. The banner goes once the
-switchboard has the phone. Notifications are for a warning when the phone can't reach the
-switchboard over Nebula, so calls can't connect, which also shows as a banner at the top of
-**Recents**, with **Try Again**, and for a waiting call's question.
+that opens it): enter the hub's address under **Hub**, e.g. `10.0.0.1` (port 8787 is the
+default), then go back to the app. The banner goes once the hub has the phone.
 
 The same page has the rest:
 - **Work Hours**, off by default, with **From** and **To** in 15-minute steps: Claude calls
-  only between them. They reach the switchboard when the app next runs, or at the latest
-  with its next connection check, within half an hour; open the app after changing them, so
-  they apply from the next call.
+  only between them. They reach the hub when the app next runs, or at the latest with its
+  next connection check, within half an hour; open the app after changing them, so they
+  apply from the next call.
 - **Interruption Sensitivity** sets how easily your speech stops Claude: less to the left,
   more to the right.
 - **Ignore Background Noise** (on by default) keeps quieter voices and sounds than yours,
@@ -70,13 +286,18 @@ During your first call, turn on Voice Isolation in Control Center (Mic Mode), so
 noise doesn't stop it.
 
 The app has two tabs, as the Phone app has. **Recents** lists every call: tap one to call
-its session at once, answered or not, and its ⓘ for its details. A call from an app older
-than calling back calls its session from Sessions, if it's there. Calls that wait for your
+its session at once, answered or not, and its ⓘ for its details. Calls that wait for your
 work hours show at the top in orange, under Waiting, with when they ring; tap one to call
 it now, without waiting. One whose session asks you a question says so, and the phone gets
 one notification for it. Swipe it left for **Claude App** to send the question to the
 session's own dialog instead, which Remote Control shows in the Claude app (ringback turns
 Remote Control on in the session); the call then never rings.
+
+When something calls need is down, a banner at the top of Recents says what, most serious
+first, with the others a tap away: the hub can't be reached, Apple refused the hub's push,
+the speech node isn't linked (calls then wait instead of ringing, and ring once it's back), or
+the microphone is off. Notifications are for a warning when the phone can't reach the hub,
+for a waiting call's question, and for a call waiting for the speech node.
 
 The pill beside the tabs is the **hold switch**. Press pause and every call waits, listed under
 Waiting; press play and they ring. With work hours on, it goes on hold when they end and
@@ -90,193 +311,37 @@ hold the Lock Screen, tap Customize, then the widgets, and add Ringback's Hold.
 and keeps up while it shows: tap one to call it, and the voice picks up with what's new since
 the session last reported. Hold one for its details.
 
-## 3. The switchboard (one always-on Mac)
+## 7. A test call
 
-Build it on a Mac with Xcode. The binary runs on Intel and Apple silicon Macs with macOS
-13 or later and needs nothing else installed:
-
-```sh
-cd switchboard && swift build -c release --arch arm64 --arch x86_64
-./smoke-test.sh   # optional; --apns also checks your APNs key, without ringing anything
-scp "$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/ringback-switchboard" always-on-mac:.local/bin/
-```
-
-On the always-on Mac, copy `switchboard/switchboard.example.toml` to
-`~/.config/ringback/switchboard.toml`, fill it in, put the APNs key next to it, and start
-it:
+From a session: run `/ringback`, then give the session something to do. Or place one by hand
+through the agent, as a session's mod does, with a few sentences for the voice to talk about:
 
 ```sh
-~/.local/bin/ringback-switchboard serve
+curl --unix-socket ~/.local/state/ringback/voice.sock http://voice/calls \
+  -d '{"session_id": "test-call", "project": "myproject", "subject": "Test call",
+       "briefing": "This is a test call through ringback. Nothing needs you."}'
 ```
 
-It listens only on its Nebula address. Phones register at `/register` and report call
-events at `/events`, and voice servers ask it to ring at `/call`. Those are kept in
-`~/.local/state/ringback/` (`devices.json` and `events.jsonl`), with the calls that wait for
-your work hours (`waiting.json`), which the app fetches at `/waiting`. The first time a call
-that waits has a question, it sends the phone an ordinary notification, with the same APNs
-key.
+The phone rings as "myproject". The hub's log shows the call ringing, answered, the time
+until its audio connected, what you said and what the voice said, and how it ended; the
+agent's log shows Haiku's side.
 
-Every 30 min it wakes each phone with a background push, and the app checks in at
-`/check` over Nebula; if it can't, the phone warns you. `ringback-switchboard check` does
-that now, and `ringback-switchboard devices` shows when each phone last checked in.
+## 8. Checking without the phone
 
-To update it, copy the new binary over the old one, stop `serve` and start it again.
-Work hours (a setting in the app) need the voice servers updated too: one from before them
-takes a call the switchboard holds for one that rang, so the call is lost and its session
-hears it wasn't answered. Calling a waiting call from the app needs all three updated: a
-voice server from before it refuses the call, and the app says it isn't waiting any more.
-Questions outside your work hours (their notification and **Claude App**) need all four
-updated, the mod with the voice server: a mod from before gives the question to the
-terminal at once, a switchboard from before sends no notification and lists no question,
-and an app from before shows no swipe action. Sessions, and calling back answered calls,
-need all four updated too: a mod from before doesn't say its session's project, so a session
-shows in Sessions only once it has placed a call; a voice server from before tells the
-switchboard nothing, refuses a call from Sessions (the app says that Mac's voice server is
-from before it) and takes the call back of an answered call as one you missed; a
-switchboard from before lists no sessions; and an app from before has no Sessions, and keeps
-its settings on its own screen (the values carry over).
+- `tools/line-check` places a whole call through a hub and an agent it starts on this Mac and
+  your speech node, with a stand-in phone, and checks that you're heard and answered (about
+  45 s, one Haiku session).
+- `tools/hub-check` checks the hub's side of calls with stand-ins for everything around it.
+- `speech/check.sh` checks the speech node (step 3).
 
-## 4. The voice server (every Mac that runs sessions)
+## Coming from the earlier stack
 
-```sh
-cd voice && uv run ringback-voice serve --listen 10.0.0.2:8788 --switchboard 10.0.0.1:8787
-```
-
-`--listen` is this Mac's Nebula address, where the phone sends a call's audio, and
-`--switchboard` the switchboard's. Sessions on this Mac reach the voice server through
-a socket only you can open, `~/.local/state/ringback/voice.sock`.
-
-It needs a Mac with Apple silicon, and Claude Code signed in to your Claude subscription:
-the voice runs Haiku through `claude`, and Opus when you ask for a better model on the
-line, so the plan must include Opus. The first start downloads the speech models
-(Parakeet v2 and Kokoro) from Hugging Face. After that, loading them takes a few seconds.
-
-The voice server answers only calls it placed itself, for a session. To try the voice on
-a call rung by hand (step 6), add `--report report.txt`: a few plain sentences on what a
-session did and what needs you, which the voice talks about instead. It's read again for
-every call, so you can change it between calls.
-
-It remembers the calls it placed for a day after they end, so you can call them back from
-the app. What it keeps for sessions survives a restart: it's written to
-`voice-state.json` beside its socket on every change, and read at start. That's the calls
-held outside your work hours, the calls to call back, what sessions asked you and what
-waits for their mods. A call you're on when it restarts ends, and its session is told so.
-
-To start it at login, and again whenever it stops, run it as a launchd agent. Write the
-agent's file from the `voice` folder, with your own addresses; it finds `uv` and `claude`
-on your `PATH` as you write it:
-
-```sh
-cd /path/to/ringback/voice
-cat > ~/Library/LaunchAgents/ringback.voice.plist <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>ringback.voice</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$(which uv)</string>
-    <string>run</string>
-    <string>--project</string>
-    <string>$PWD</string>
-    <string>ringback-voice</string>
-    <string>serve</string>
-    <string>--listen</string>
-    <string>10.0.0.2:8788</string>
-    <string>--switchboard</string>
-    <string>10.0.0.1:8787</string>
-  </array>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>PATH</key>
-    <string>$(dirname "$(which claude)"):/usr/bin:/bin:/usr/sbin:/sbin</string>
-  </dict>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-  <key>ThrottleInterval</key>
-  <integer>30</integer>
-  <key>StandardOutPath</key>
-  <string>$HOME/Library/Logs/ringback-voice.log</string>
-  <key>StandardErrorPath</key>
-  <string>$HOME/Library/Logs/ringback-voice.log</string>
-</dict>
-</plist>
-EOF
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ringback.voice.plist
-```
-
-Stop any voice server you started by hand first: both would use the same socket. It runs at
-once and at each login. `RunAtLoad` starts it, `KeepAlive` starts it again whenever it stops,
-and `ThrottleInterval` waits at least 30 s between starts: while Nebula is down, starting
-fails, as it can't listen on its Nebula address, and launchd tries again every 30 s. Its log
-is `~/Library/Logs/ringback-voice.log`. To restart it, as after an update:
-`launchctl kickstart -k gui/$(id -u)/ringback.voice`. To stop it until you load it again:
-`launchctl bootout gui/$(id -u)/ringback.voice`. To stop it for good, also delete the file.
-`launchctl print gui/$(id -u)/ringback.voice` shows whether it runs.
-
-To try a change without the phone, `tools/call-check` plays a scripted call through the
-same pipeline, and `tools/phone-check` plays the phone's side of whole calls and times the
-silence after you answer (with `--back`, calls back calls you didn't answer), and
-`tools/restart-check` kills and restarts one with calls waiting. `--socket PATH` moves the
-session socket and the state file, for running a second voice server beside your own.
-
-The app and the voice server change together: since the app connects while the phone
-rings, a voice server without `/answered` stays silent on its calls, and one from before
-calling back refuses a call back, or with `--report` talks about the report. Update both.
-
-## 5. The ringback mod (every Mac that runs sessions)
-
-The mod is how a session calls you. It needs Claude Code 2.1.287 or later. To load it in
-every session, add it to `~/.claude/settings.json`:
-
-```json
-{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/ringback/mod" } }
-```
-
-or load it in one session with `claude --plugin-dir /path/to/ringback/mod`.
-
-It does nothing until you run `/ringback` in a session. The dim line under the prompt
-then ends with "☎ ringback on". Each time the session finishes, it writes a short
-briefing, and the voice server rings your phone with it. What you ask the voice to pass on
-reaches the session, and its answer comes back to the call, or a new call if you've hung
-up. Each call's transcript is kept in the project's `.ringback/calls/`, which git ignores.
-Run `/ringback` again when you're back. Until then it stays on, also when the mod reloads
-and when you resume the session after Claude Code restarts (`claude --resume`), within 30
-days of the session's last start.
-
-While the voice server is down, as while it restarts, the session doesn't give up: it
-offers its briefing again every 30 s for up to 30 min, and the dim line under the prompt
-ends with "☎ waiting for the voice server…". A permission or question it's asking you is
-asked again every 5 s, within its 15 min.
-
-When the session needs your permission, the prompt shows in the terminal and the voice
-asks you on a call; whichever you answer first decides. Questions the session asks you
-with options go to the call instead of the terminal, and show there only if the call
-brings no answer. In auto mode, what auto mode approves by itself never rings. If you don't
-answer the call, both wait for you to call it back from the app, or for the session's next
-call, for up to 15 min: a question then shows in the terminal only after those 15 min, or
-once you run `/ringback` to switch calling off. Outside your work hours they wait for the
-call, which rings when your hours start, and the 15 min count from then; a question can go
-to the Claude app from the phone instead. `/ringback` turns on Remote Control for that
-(`/remote-control`); if it's on already, Claude Code shows its Remote Control menu, and Enter
-or Esc leaves it on. Remote Control needs a claude.ai subscription.
-
-`tools/session-check` tries a session's call without the phone.
-
-## 6. A test call
-
-From a session: run `/ringback`, then give the session something to do. Or ring by hand,
-with the voice server started with `--report`:
-
-```sh
-~/.local/bin/ringback-switchboard ring --project myproject --subject "Test call" \
-  --voice http://10.0.0.2:8788   # on the always-on Mac
-```
-
-The phone rings as "myproject". The switchboard logs ringing, answered, the
-time to connected audio, and how the call ended. `ring` without `--voice` rings without
-audio.
+Before the hub, a Python voice server on each Mac did the speech and the sessions' side, and a
+Swift switchboard rang the phone. To move:
+- **The hub replaces the switchboard,** with its state as it is. It reads
+  `~/.config/ringback/switchboard.toml` while there's no `hub.toml`; add `[tokens]` to it.
+- **The agent replaces each Mac's voice server,** on the same socket, and reads the voice
+  server's `voice-state.json`. Stop the voice server first (`launchctl bootout
+  gui/$(id -u)/ringback.voice` if it runs as a launchd agent).
+- **The mod and the app stay as they are.** An app from before calls the hub's address
+  "Switchboard" in its settings, and shows no banner for the speech node.

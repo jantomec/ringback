@@ -62,7 +62,7 @@ async def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="ringback-line-check-"))
     tokens = {"agent": secrets.token_hex(16), "speech": secrets.token_hex(16)}
     (tmp / "hub/.config/ringback").mkdir(parents=True)
-    (tmp / "hub/.config/ringback/switchboard.toml").write_text(
+    (tmp / "hub/.config/ringback/hub.toml").write_text(
         f'listen = "{args.listen}"\n[tokens]\nagent = "{tokens["agent"]}"\nspeech = "{tokens["speech"]}"\n'
     )
     (tmp / "agent.toml").write_text(f'hub = "{args.listen}"\ntoken = "{tokens["agent"]}"\nname = "line-check"\n')

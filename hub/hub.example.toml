@@ -1,0 +1,33 @@
+# Copy to ~/.config/ringback/hub.toml and fill in your own values.
+
+# Where the hub listens, for the phone, the speech nodes and the agents: an address on a
+# private network they all reach, such as its Nebula address. The call's audio uses the same
+# address, on UDP ports it picks.
+listen = "10.0.0.1:8787"
+
+# How the phone reaches the hub, if not at http://<listen> (optional).
+# url = "http://10.0.0.1:8787"
+
+# The tokens the speech nodes and the agents link with: long random strings, such as
+# `openssl rand -hex 32` gives. Each speech node's speech.toml and each Mac's agent.toml
+# carry the matching one.
+[tokens]
+speech = "…"
+agent = "…"
+
+[apns]
+team_id = "ABCDE12345"
+# The app's bundle ID (RINGBACK_BUNDLE_ID in app/Config/Local.xcconfig).
+bundle_id = "com.example.ringback"
+
+# One APNs key per environment (developer.apple.com → Certificates, Identifiers & Profiles
+# → Keys). Builds installed from Xcode get their pushes from the sandbox, so that key is
+# the one you need.
+[apns.sandbox]
+key_id = "XYZ9876543"
+key_file = "~/.config/ringback/AuthKey_XYZ9876543.p8"
+
+# Only for TestFlight or App Store builds:
+# [apns.production]
+# key_id = "..."
+# key_file = "~/.config/ringback/AuthKey_....p8"
