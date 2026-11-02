@@ -869,6 +869,12 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        calls piling up as cards, a breathing light, a hold screen, the icon and the Lock
        Screen). You chose the breathing light with the icon and the Lock Screen, and added the
        faint wash in step with it.
+   - **Icon** (2026-11-02): a terminal prompt with the arcs of a ringing phone, a session that
+     speaks, on near-black, the prompt in iOS's green. Chosen from ten directions, none using
+     Anthropic's Claude mark, so the app can't be taken for an official one. Its SVGs are in
+     `app/Icon`, one each for the default, dark and tinted (grayscale, which iOS colours)
+     appearances, and `app/Icon/make.sh` renders them to the 1024-point PNGs in the app's
+     asset catalog.
    - **Settings** live in the Settings app (Settings → Apps → Ringback), from the app's
      `Settings.bundle`; the app has no settings screen any more. Groups, each with a footer
      that says what the app's sections said:
