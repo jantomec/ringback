@@ -81,6 +81,9 @@ func offer(w http.ResponseWriter, r *http.Request) {
 		phoneJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "no speech node"})
 		return
 	}
+	// The first a node hears of a call from the Sessions tab or a call back: it starts loading
+	// its models while the agent is asked.
+	_ = node.send(map[string]any{"type": "warm"})
 	request := map[string]any{"type": "offer", "call_id": callID, "kind": kind, "ringing": ringing}
 	if contact != "" {
 		request["session_id"] = contact

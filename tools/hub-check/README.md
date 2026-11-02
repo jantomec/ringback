@@ -14,7 +14,8 @@ state in a throwaway HOME, and checks:
   welcomed;
 - an offer for a call no agent owns is refused (403), as the voice server refused it;
 - an offer the agent accepts is answered; the agent hears `answered` and `connected`, and the
-  node is asked to hear the call with the offer's sensitivity and background filter;
+  node is told to warm up (`warm`, as for every offer and every call placed that rings), then
+  asked to hear the call with the offer's sensitivity and background filter;
 - the phone hears the voice, within 3 s of the offer; your audio reaches the node in 20 ms
   frames at 16 kHz;
 - the agent hears `speaking`, then what you've heard growing to the whole reply, then
@@ -41,8 +42,8 @@ It prints the hub's log and one line per check. `--keep` keeps the throwaway HOM
 state, log). `RINGBACK_HUB` runs another binary, such as the universal one `hub/build.sh`
 makes, and `RINGBACK_HUB_ARCH="arch -x86_64"` runs its Intel half under Rosetta.
 
-Result on 2026-11-02, the last version (three runs, 9–10 s each): all 27 checks passed each
-time. The version before, with 25 checks, passed five runs.
+Result on 2026-11-02, the last version (28 checks, with the warm-up): all passed. The version
+before (27 checks) passed three runs, 9–10 s each. The version before, with 25 checks, passed five runs.
 Without the hub clearing what you'd heard when cut off, the check of an empty `heard` fails
 (tried once, to see that it measures it). The first version's run (19 checks, 8 s): The audio connected 0.03 s after
 the offer and the voice was heard 0.15 s after it; your audio reached the node in 644-byte

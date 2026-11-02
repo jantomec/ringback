@@ -180,6 +180,9 @@ async def main() -> int:
               bool(agent.of("answered")) and connected is not None)  # fmt: skip
         hear = node.of("hear")
         check(f"the node is asked to hear the call: {hear}", len(hear) == 1 and hear[0].get("sensitivity") == 0.5)
+        warms = [i for i, (_, m) in enumerate(node.got) if m["type"] == "warm"]
+        first_hear = next(i for i, (_, m) in enumerate(node.got) if m["type"] == "hear")
+        check(f"and warmed up before it: {len(warms)} warm", bool(warms) and warms[0] < first_hear)
         heard_in = await phone.heard_after(t0)
         check(f"the phone hears the voice {heard_in and round(heard_in, 2)} s after the offer", heard_in is not None and heard_in < 3)
         await until(lambda: len(node.audio) >= 25, 3)

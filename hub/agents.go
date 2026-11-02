@@ -95,6 +95,10 @@ func fromAgent(l *link, message map[string]any) {
 		registryMu.Lock()
 		placedBy[str(message, "call_id")] = l
 		registryMu.Unlock()
+		if answer["held"] != true {
+			// The phone rings: the speech nodes load their models now, while it rings.
+			warmNodes()
+		}
 		delete(answer, "type")
 		reply(l, message, answer)
 	case "say", "said", "hang_up":
@@ -137,6 +141,19 @@ func nodeClosed(l *link) {
 	for _, c := range gone {
 		c.say("its speech node went away")
 		c.end("disconnected")
+	}
+}
+
+// warmNodes tells every speech node a call is coming, so it loads its models.
+func warmNodes() {
+	registryMu.Lock()
+	list := make([]*link, 0, len(nodes))
+	for l := range nodes {
+		list = append(list, l)
+	}
+	registryMu.Unlock()
+	for _, l := range list {
+		_ = l.send(map[string]any{"type": "warm"})
 	}
 }
 
