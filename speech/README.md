@@ -1,0 +1,97 @@
+# ringback-speech
+
+The speech node of the Go port ("Moving to one hub, in Go" in `docs/design.md`): it dials
+out to the hub over a WebSocket (`docs/protocol.md`, "The speech node") and does all the
+hearing and speaking for calls, natively on a machine with a GPU (or a CPU):
+
+- **Hearing**, per stream: Silero VAD v5 and Smart Turn v3.2 through ONNX Runtime's C API,
+  Parakeet TDT 0.6B v2 through sherpa-onnx. It decides "speech started", "speech stopped"
+  and "turn" as the Python voice does with Pipecat: the same thresholds from the app's
+  sensitivity and background filter (`voice/ringback_voice/hearing.py`), the same volume gate
+  (BS.1770 loudness of the last 400 ms), the same state machine and model resets, Smart Turn
+  on the same Whisper features, and the turn wait (1.5 s). One transcription per stretch of
+  speech, with 1 s before it and 0.5 s of silence after, as Pipecat's segmented STT.
+- **Speaking**: Kokoro v1.0 `af_heart` through sherpa-onnx, a chunk (about a sentence) at a
+  time, each sent as soon as it's made.
+- One GPU worker: your words go before speech, and speech goes a chunk at a time, so your
+  words wait at most for one chunk.
+
+## Words sherpa-onnx would drop
+
+sherpa-onnx 2.x reads text only through Kokoro's lexicon and silently drops every word that
+isn't in it ("42", "voice_server.py", "onnx"); 1.x fell back to espeak-ng for those (checked
+in its source, v1.13.8, `kokoro-multi-lang-lexicon.cc`), 2.x no longer does. So the node
+turns text into phonemes itself (`internal/speaking`) and gives sherpa-onnx the phonemes:
+the same lexicon, numbers read out ("142" one hundred forty two, "2026" twenty twenty six,
+"3.14", "1st", "42%", "$5", "12:30", "2.0.1", "500ms" five hundred milliseconds),
+identifiers split ("voice_server.py" voice server dot pie, "camelCase", "macOS"), short
+acronyms spelled ("GPU"), word forms by misaki's rules ("milliseconds"), "the", "a" and "to"
+by context, and any other word through espeak-ng, mapped to Kokoro's phonemes as the Python
+voice's misaki does. Without espeak-ng such words are split into known words or spelled.
+
+## Install directory
+
+Everything lives in one folder (by default `~/ringback-speech`), nothing outside it:
+
+| Path | What |
+|---|---|
+| `sherpa-onnx/` | sherpa-onnx v2.0.1 prebuilt, the CUDA 13 / cuDNN 9 build (`lib/`, `include/`); its ONNX Runtime is 1.28.2 |
+| `lib/` | the NVIDIA runtime libraries it needs (cudart, cuBLAS, cuRAND, NVRTC, cuDNN 9), unpacked from their PyPI wheels |
+| `onnxruntime/include/` | the headers of ONNX Runtime 1.28.2, from its release `onnxruntime-linux-x64-1.28.2.tgz` |
+| `models/silero-vad-v5.onnx` | Silero VAD, the file Pipecat ships (snakers4/silero-vad, `src/silero_vad/data/silero_vad.onnx`) |
+| `models/smart-turn-v3.2-cpu.onnx` | Smart Turn v3.2, the file Pipecat ships (Hugging Face `pipecat-ai/smart-turn-v3`) |
+| `models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-fp16/` | Parakeet, from sherpa-onnx's asr-models release (fp16 on a GPU; the int8 one on a CPU) |
+| `models/kokoro-multi-lang-v1_0/` | Kokoro, from sherpa-onnx's tts-models release |
+| `espeak-ng/` | `lib/libespeak-ng.so.1` and `espeak-ng-data/` (only `en_dict`, `phon*`, `intonations`, `lang/`, `voices/`), from the `espeakng-loader` 0.2.4 wheel, as the Python voice uses; optional |
+| `go/` | a Go toolchain, if the machine has none; Go's caches go to `gopath/` and `gocache/` |
+| `env.sh` | sets `LD_LIBRARY_PATH` to `sherpa-onnx/lib` and `lib`: source it before running |
+| `speech.toml` | the settings, from `speech.example.toml` |
+| `bin/` | `ringback-speech` and `fakehub` |
+
+## Build, run, check
+
+```sh
+speech/build.sh                     # on the speech node, into bin/
+. ~/ringback-speech/env.sh
+~/ringback-speech/bin/ringback-speech serve
+~/ringback-speech/bin/ringback-speech phonemes "All 142 tests pass."   # what the voice would say
+~/ringback-speech/bin/ringback-speech say "All 142 tests pass." out.wav
+speech/check.sh                     # the node against fakehub, about 2 min
+```
+
+`check.sh` starts the node and `fakehub`, a stand-in hub that asks for speech (checking the
+audio's length against `spoken` and how soon the first audio comes), cancels speech, and
+sends speech in 20 ms frames in real time (the voice's own pieces, so its numbers and file
+names must come back as words; a recording; the recording 20 dB quieter with the background
+filter off and at its strongest; a turn Smart Turn finds unfinished; one with a pause; two
+streams at once), checking the events and words and timing the turns, then prints the
+node's memory.
+
+The pure Go parts have tests that run anywhere (`go test ./internal/hearing
+./internal/speaking`); with `RINGBACK_KOKORO_DIR` set to Kokoro's folder they check that
+every word of sentences sherpa-onnx dropped words from gets sounds.
+`internal/hearing/parity_test.go` (build tag `parity`, on the speech node) compares the
+voice-activity states, frame by frame, and Smart Turn's verdict with Pipecat's own, from
+reference values made with the Python voice's environment (`RINGBACK_HEARING_REF`; the
+script that makes them isn't in the repo).
+
+## Measured (2026-11-02, the speech node: one NVIDIA GPU, CUDA)
+
+From `check.sh` (all 22 checks passed, 2.5 min) and the parity test:
+
+- **Same decisions as Pipecat:** the voice-activity state of every 20 ms frame matched
+  Pipecat's on 924 frames of a recording at two levels, with three settings (default,
+  background filter strongest, most sensitive); Smart Turn 0.92559 against Pipecat's
+  0.92559; the Whisper features are identical; the volume is within 0.0005 (0.05 dB).
+- **Words outside the lexicon are spoken:** Parakeet, hearing the voice's own audio back,
+  got "voice server.py at line 42", "one hundred forty two tests", "38 seconds", "2.1GB of
+  VRAM", "500 milliseconds is 0.5 seconds"; through sherpa-onnx's own front end the first of
+  those sentences came out as "I fixed the bug in. At line, it was an off-by-one error."
+- **Speak → first audio:** median 118 ms, at most 164 ms, for pieces of one sentence
+  (1.3–7.1 s of audio, made 35–45 times faster than real time).
+- **End of speech → `turn`:** median 318 ms (258–341) when Smart Turn ends the turn:
+  `speech_stopped` comes 180–260 ms after (it needs 0.2 s of pause), then Smart Turn (about
+  50 ms on one CPU thread) runs alongside Parakeet (75–90 ms, its queue included). When
+  Smart Turn finds the turn unfinished, the turn wait ends it 1.70 s after the speech.
+- **Memory**, all models loaded: 2.84 GB resident (2.42 GB of it allocated outside Go, by
+  CUDA, cuDNN and ONNX Runtime; Go's own is 34 MB), 2.95 GB of GPU memory.
