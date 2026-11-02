@@ -25,9 +25,10 @@ hub) with your own.
 - **An iPhone** on iOS 26 or later.
 - **An always-on Mac** for the hub, Intel or Apple silicon, on macOS 13 or later. It needs
   nothing installed.
-- **A Linux machine with an NVIDIA GPU** for the speech node, x86-64, with a driver that
-  supports CUDA 13. A call takes 3–3.5 GB of its GPU memory and 3 GB of RAM; between calls
-  it takes 16 MB and no GPU memory. Its install takes about 5 GB of disk.
+- **A Linux machine with an NVIDIA GPU** for the speech node: x86-64, a GPU from the Turing
+  generation (2018) or later, and a driver of the 580 series or later, for CUDA 13 (it's
+  tried on 610). A call takes 3–3.5 GB of its GPU memory and 3 GB of RAM; between calls it
+  takes 16 MB and no GPU memory. Its install takes 4 GB of disk.
 - **Claude Code** on each Mac that runs sessions, version 2.1.287 or later, signed in to a
   Claude subscription that includes Opus: the voice is Haiku through `claude`, and Opus when
   you ask for a better model on the line.
@@ -126,10 +127,13 @@ speech/install.sh   # ~/ringback-speech: sherpa-onnx, the CUDA libraries, the mo
 speech/build.sh     # builds ~/ringback-speech/bin/ringback-speech
 ```
 
-`install.sh` downloads everything the node needs into one folder, `~/ringback-speech`, each
-file checked against a pinned SHA-256, and nothing outside it (`speech/README.md` lists what's
-where). Running it again skips what's there. Then, in `~/ringback-speech/speech.toml`, set the
-hub's address and its speech token:
+`install.sh` first checks the machine (x86-64 Linux, the GPU and its driver), then downloads
+everything the node needs into one folder, `~/ringback-speech`, and nothing outside it: 2.7 GB,
+each archive checked against a pinned SHA-256, which took 69 s on a fast connection
+(`speech/README.md` lists what's where). Running it again keeps what's right and fetches only
+what's missing; a run you stop keeps what it fetched. It needs curl or wget, tar, bzip2, gzip,
+unzip and sha256sum, and installs Go into the folder too if the machine has none. Then, in
+`~/ringback-speech/speech.toml`, set the hub's address and its speech token:
 
 ```toml
 hub = "ws://10.0.0.1:8787/speech"
@@ -145,7 +149,19 @@ and start it:
 It links to the hub ("linked to the hub" in its log, and "speech … connected" in the hub's),
 and holds no models until a call comes: the hub tells it when a call rings, and it loads them
 while the phone rings, in about 2 s. A minute after the call, it lets go of the GPU and its
-memory again. To run it as a service, `speech/README.md` has a systemd user unit.
+memory again.
+
+To run it as a service, from boot and again if it fails, use the systemd user unit in
+`speech/`:
+
+```sh
+mkdir -p ~/.config/systemd/user
+cp speech/ringback-speech.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now ringback-speech
+loginctl enable-linger                       # so it runs from boot, not only while you're logged in
+journalctl --user -u ringback-speech -f      # its log
+```
 
 `speech/check.sh` checks the node against a stand-in hub (about 2.5 min): its hearing, its
 speaking, and its memory before, during and after a call.

@@ -99,7 +99,7 @@ You need:
 
 - an always-on Mac for the hub, Intel or Apple silicon (it needs nothing installed);
 - a Linux machine with an NVIDIA GPU for the speech node: 3–3.5 GB of GPU memory and 3 GB of RAM
-  during calls, next to nothing between them, and about 5 GB on disk;
+  during calls, next to nothing between them, and 4 GB on disk;
 - Claude Code on each Mac that runs sessions, on a Claude subscription that includes Opus;
 - a Mac with Xcode and Go, to build the app, the hub and the agent;
 - an iPhone on iOS 26 or later, and a paid Apple Developer account, for VoIP pushes;
