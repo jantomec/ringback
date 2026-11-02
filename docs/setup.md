@@ -29,7 +29,9 @@ say where else. Replace the example addresses (`10.0.0.1` for the hub) with your
 - **A Linux machine with an NVIDIA GPU** for the speech node: x86-64, a GPU from the Turing
   generation (2018) or later, and a driver of the 580 series or later, for CUDA 13 (it's
   tried on 610). A call takes 3–3.5 GB of its GPU memory and 3 GB of RAM; between calls it
-  takes 16 MB and no GPU memory. Its install takes 4 GB of disk.
+  takes 16 MB and no GPU memory. Its install takes 4 GB of disk. While it runs, it also holds
+  its downloads (2.7 GB) and their unpacked files until each part is in place, so keep about
+  10 GB free (the peak isn't measured).
 - **Claude Code** on each Mac that runs sessions, version 2.1.287 or later, signed in to a
   Claude subscription that includes Opus: the voice is Haiku through `claude`, and Opus when
   you ask for a better model on the line.
