@@ -107,6 +107,7 @@ Run before every commit; together they take a few seconds:
 (cd switchboard && swift build -c release --arch arm64 --arch x86_64 && ./smoke-test.sh)  # 1 expected warning: x86_64 deprecated
 (cd voice && uv run python -m compileall -q ringback_voice && uv run python -c 'import ringback_voice.__main__')
 claude plugin validate mod && claude plugin test mod
+(cd hub && go vet ./... && go build -o build/ringback-hub . && RINGBACK_HUB=$PWD/build/ringback-hub ../switchboard/smoke-test.sh)
 ```
 
 They prove the code builds, not that calls work. Ringing, push and audio count only when

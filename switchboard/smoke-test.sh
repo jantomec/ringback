@@ -7,7 +7,8 @@
 #   switchboard/smoke-test.sh [--apns]     after: swift build -c release --arch arm64 --arch x86_64
 set -eu
 cd "$(dirname "$0")"
-bin="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/ringback-switchboard"
+# RINGBACK_HUB runs the same checks against another build, such as the Go hub (hub/).
+bin="${RINGBACK_HUB:-$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/ringback-switchboard}"
 home=$(mktemp -d)
 server=
 trap 'kill $server 2> /dev/null || true; rm -rf "$home"' EXIT
@@ -181,7 +182,7 @@ check "a phone without a notification token isn't" yes "$(yes_if grep -qF 'call 
 check "listed with its question" '"question":true' "$(fields wait0004)"
 check "asked about again" "$(held_until 13:15)" "$(ask_held wait0004-000000000000 "Which branch?" true)"
 check "it isn't told again" 1 "$(told wait0004)"
-check "waiting.json keeps when it was told" yes "$(yes_if grep -qE '"notified" : "20' "$state/waiting.json")"
+check "waiting.json keeps when it was told" yes "$(yes_if grep -qE '"notified" ?: "20' "$state/waiting.json")"
 ask_held wait0004-000000000000 "Which branch?" true > /dev/null  # fresh before the restart
 kill $server
 wait $server 2> /dev/null || true

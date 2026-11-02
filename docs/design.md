@@ -46,6 +46,39 @@ queue, and each call's audio goes to the Mac whose session is calling.
 Parts marked with a stage that isn't done, such as (Stage 7), are planned and not built
 yet, unless they say they're built; the rest is built. The plan for them is under Stages.
 
+### Moving to one hub, in Go (decided 2026-11-02)
+
+The design above puts the voice on every Mac that runs sessions, on Apple silicon (MLX),
+and the phone must reach each of those Macs. It's being replaced, in "The Go port" under
+Stages, by parts that each run anywhere:
+
+| Part | Runs on | Does |
+|---|---|---|
+| **hub** (Go) | one always-on machine, macOS or Linux, any CPU | the switchboard, merged in (push, the hold switch, waiting calls, sessions); the call's audio (WebRTC, Opus); the conversation (turns, interruptions, the reply cut into spoken pieces) |
+| **speech node** (Go, sherpa-onnx) | a machine with the horsepower, natively | hearing (Silero, Smart Turn v3, Parakeet v2) and speaking (Kokoro, `af_heart`), on CUDA or a CPU; it dials out to the hub |
+| **agent** (Go) | each Mac that runs sessions | what the voice server does for sessions today (the mods' socket, briefings, asks, messages, outcomes, transcripts), and the call's Haiku and Opus (`claude -p`), on the session's own Mac; it dials out to the hub |
+| **mod** | each session | unchanged: it talks to its Mac's agent over the same socket |
+| **app** | the iPhone | the switchboard's address becomes the hub's, a local or static IP; it reaches only the hub |
+
+- **Why.** Run on any platform with the least RAM, disk and CPU: a compiled hub instead of
+  Python (whose environment takes 1.7 GB), no AI models on the hub, and models only where
+  there's a GPU. The phone reaches one machine, never the Macs, which only dial out.
+- **Links.** The phone and the hub keep today's endpoints (the switchboard's and the voice
+  server's), so the offline checks can run against the hub. The agent and the speech node
+  each hold one WebSocket to the hub, opened from their side, with a token from their
+  config: the agent carries sessions, calls and the call's text both ways; the speech node
+  carries your audio in (16 kHz) and events and words out, and text in and speech out
+  (24 kHz). Nebula carries all of it, as today.
+- **The first setup:** the hub on an always-on Intel Mac, the speech node on a Linux
+  workstation with an NVIDIA GPU, natively (no Docker: it runs other work), and an agent on
+  each Mac with sessions.
+- **Rejected:** a Python hub (its RAM and disk), Docker on the speech node (its footprint),
+  Claude Code on the hub (it stays with the session, on its own Mac, and needs no server
+  login), a Coral Edge TPU for speech (it can't run Kokoro or Parakeet).
+- **Later:** speech on the phone (Parakeet and Kokoro through Core ML on the Neural Engine;
+  whether they run on a locked phone during a call is unknown), and a public hub with
+  pairing and TLS instead of Nebula.
+
 1. **Ringback mod** (in each session, in `mod/`). A Claude Code mod is code that runs
    inside Claude Code: it's installed once, as a plugin, and loads in every session
    (Claude Code 2.1.287 or later). Docs:
@@ -1754,6 +1787,26 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
    3G worked, and Very Bad Network worked after two fixes for slow networks (the Mac's
    consent checks, the app's tries to reach the Mac); about 10% lost each way, two of 111
    words heard from you look wrong. Left: Edge.
+- **The Go port** (decided 2026-11-02; in progress). One hub, a speech node and an agent on
+  each Mac, as in "Moving to one hub, in Go" under Architecture, replacing the Python voice
+  server and the Swift switchboard, which keep running until it matches them. In order:
+  1. **The hub as the switchboard** (done 2026-11-02; `hub/`): today's endpoints, state
+     files and log lines in Go, push over HTTP/2 with one token cached for 50 min (the
+     Swift one signs a new token for every push, which APNs refuses more than once per 20
+     min on one connection). `switchboard/smoke-test.sh` passed all 139 checks against it
+     (`RINGBACK_HUB`, 17 s), as against the Swift build. It runs on the always-on Intel Mac
+     in the Swift switchboard's place, with the same config and state: an 8 MB
+     binary using about 5 MB of RAM. APNs took its pushes (200), and the phone's
+     connection check reached it. Not yet tried through it: a ring, a held call, the hold
+     switch and the app's lists, from the phone.
+  2. **The speech node:** sherpa-onnx on CUDA, with Silero, Smart Turn v3, Parakeet v2 and
+     Kokoro; speed, RAM and VRAM measured on the workstation.
+  3. **The agent:** the mods' socket and everything behind it, and the call's `claude -p`.
+  4. **The call in the hub:** WebRTC and Opus with forward error correction, the jitter
+     buffer and concealment (`opus.py`), turns, interruptions, and what was heard before an
+     interruption.
+  5. **Switching over:** the offline checks (`tools/phone-check`, `ask-check`,
+     `call-check`, `restart-check`) against the Go parts, then the phone.
 7. **Several sessions + retries.** A second session waits for the first call to end.
    "Not now" retries on schedule while the queue waits. A final decline holds all calls
    until a call back releases them.

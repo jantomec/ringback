@@ -11,6 +11,7 @@ app/Controls/RingbackControls.entitlements
 # Build output
 app/build/
 switchboard/.build/
+hub/build/
 
 # Python
 __pycache__/
