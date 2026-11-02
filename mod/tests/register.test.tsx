@@ -336,12 +336,17 @@ test('outside your work hours, a dim line says when the call rings', async ($, o
   expect(asked.logs).toEqual([])
   voice.placed = { ok: true, held_until: written(at(30, 8)) }
   await briefed()
-  expect(asked.logs).toEqual(['Outside your work hours: the call rings at 08:00.'])
+  expect(asked.logs).toEqual(['Your phone holds calls: the call rings at 08:00.'])
   // Not today: with the date.
   voice.placed = { ok: true, held_until: written(at(31, 8)) }
   await briefed()
-  expect(asked.logs.at(-1)).toBe('Outside your work hours: the call rings at 08:00 on Sat 31 Oct.')
-  expect(asked.fetches.filter(f => f.url === 'http://voice/calls').length).toBe(3)
+  expect(asked.logs.at(-1)).toBe('Your phone holds calls: the call rings at 08:00 on Sat 31 Oct.')
+  // Paused in the app, with no time: it rings when you take calls.
+  voice.placed = { ok: true, held: true }
+  await briefed()
+  expect(asked.logs.at(-1)).toBe('Your phone holds calls: the call rings when you take calls.')
+  expect(asked.logs.length).toBe(3)
+  expect(asked.fetches.filter(f => f.url === 'http://voice/calls').length).toBe(4)
 })
 
 test('an interrupted briefing places no call', async ($, on) => {
@@ -819,7 +824,7 @@ test('while its call is held, a permission waits, and 15 min count from when it 
   await clock.settle()
   expect(asked.logs).toEqual([
     'Asking you on the phone: Permission to run a shell command',
-    'Outside your work hours: the call rings at 07:30.',
+    'Your phone holds calls: the call rings at 07:30.',
   ])
   // Held for 20 min: still waiting, past the 15.
   await clock.advance(20 * 60_000)
@@ -1085,7 +1090,7 @@ test('outside your work hours, a question waits for the call, and is answered wh
   await start($)
   const ran = $.tool.call(asking)
   await clock.settle()
-  expect(asked.logs).toEqual(['Asking you on the phone: Question: Rhyme', 'Outside your work hours: the call rings at 08:00.'])
+  expect(asked.logs).toEqual(['Asking you on the phone: Question: Rhyme', 'Your phone holds calls: the call rings at 08:00.'])
   // Held for 20 min, past the 15: it still waits, and the dialog hasn't shown.
   await clock.advance(20 * 60_000)
   expect(core.asked).toEqual([])

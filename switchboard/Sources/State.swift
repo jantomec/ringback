@@ -3,7 +3,8 @@ import Foundation
 /// Phones that registered for calls, keyed by VoIP push token: `devices.json` in the state
 /// folder. A phone that also gave a notification token gets connection checks, and
 /// "checked_in" is when it last reached the switchboard on one. A phone with work hours has
-/// them here too (WorkHours.keys).
+/// them here too (WorkHours.keys), and one whose hold switch you set has it ("hold", "yes" if on
+/// hold) and when ("hold_set").
 enum Devices {
     static let path = stateDir + "/devices.json"
 
@@ -40,6 +41,18 @@ enum Devices {
         try save(devices)
     }
 
+    /// You set the phone's hold switch in the app: on hold or taking calls, as of now, until its
+    /// work hours next set it (Hold). Nil if the phone isn't registered.
+    static func setHold(token: String, on: Bool) throws -> [String: String]? {
+        var devices = load()
+        guard var entry = devices[token] else { return nil }
+        entry["hold"] = on ? "yes" : nil
+        entry["hold_set"] = Date().ISO8601Format()
+        devices[token] = entry
+        try save(devices)
+        return entry
+    }
+
     static func forget(_ token: String) throws {
         var devices = load()
         if devices.removeValue(forKey: token) != nil { try save(devices) }
@@ -71,17 +84,19 @@ enum Waiting {
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: [String: String]] ?? [:]
     }
 
-    /// A call held until `heldUntil`, new or asked about again: whether it has a question, as its
-    /// voice server last said. True the first time it has a question, when the phone is to be
-    /// told: "notified" keeps when, so a restart or asking again doesn't tell it twice.
+    /// A call held until `heldUntil` (nil: until you take calls), new or asked about again:
+    /// whether it has a question, as its voice server last said. True the first time it has a
+    /// question, when the phone is to be told: "notified" keeps when, so a restart or asking
+    /// again doesn't tell it twice.
     @discardableResult
     static func hold(
-        callID: String, project: String, subject: String?, voice: String, heldUntil: String, question: Bool = false,
+        callID: String, project: String, subject: String?, voice: String, heldUntil: String?, question: Bool = false,
         session: String? = nil
     ) throws -> Bool {
         var calls = fresh()
         let notified = calls[callID]?["notified"]
-        var call = ["project": project, "voice": voice, "held_until": heldUntil]
+        var call = ["project": project, "voice": voice]
+        call["held_until"] = heldUntil
         call["subject"] = subject
         call["refreshed"] = Date().ISO8601Format()
         call["question"] = question ? "yes" : nil
@@ -103,8 +118,8 @@ enum Waiting {
         return true
     }
 
-    /// The calls that wait, soonest first, each with its call ID, and whether it has a question;
-    /// stale ones are dropped.
+    /// The calls that wait, soonest first, those held until you take calls last, each with its
+    /// call ID, and whether it has a question; stale ones are dropped.
     static func list() throws -> [[String: Any]] {
         let calls = fresh()
         if calls.count != load().count { try save(calls) }

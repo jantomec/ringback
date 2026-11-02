@@ -135,7 +135,7 @@ func notifyQuestion(callID: String, project: String, subject: String?, until: Da
     let config = loadConfig()
     var lines: [String] = []
     var clients: [String: APNs] = [:]
-    let alert = ["title": "\(project) has a question", "body": subject ?? "It waits for your work hours."]
+    let alert = ["title": "\(project) has a question", "body": subject ?? "It waits until you take calls."]
     let payload: [String: Any] = ["aps": ["alert": alert, "sound": "default", "interruption-level": "active"]]
     for device in Devices.load().values.sorted(by: { ($0["device"] ?? "") < ($1["device"] ?? "") }) {
         let line = "call \(callID.prefix(8)): question → \(device["device"] ?? "a phone")"

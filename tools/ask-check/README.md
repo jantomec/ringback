@@ -80,7 +80,17 @@ Then sending a held call's question to the Claude app, as the app's swipe action
 - the mod's withdrawal afterwards is taken (200, then 404), and with no call left, the Mac
   can sleep again.
 
-Run from the repo root. It uses your Claude subscription, six Haiku sessions:
+Then a call held with no time, as the switchboard holds one while your phone is paused
+without work hours to take calls again (`"held": true` alone):
+- the mod hears `{"ok": true, "held": true}`, and the voice server logs it held until you
+  take calls;
+- it asks the switchboard again after `--reask` seconds;
+- `/reask` on the voice server's Nebula side, as the app posts it when you take calls, with
+  its call ID and an unknown one, answers `reasked: 1`, and a body without `call_ids` gets
+  400; the call asks the switchboard again at once, with the same ID, then rings and Haiku
+  starts.
+
+Run from the repo root. It uses your Claude subscription, seven Haiku sessions:
 
     uv run --project voice tools/ask-check/ask_check.py [--unanswered S] [--reask S] [--keep DIR]
 
@@ -157,3 +167,7 @@ tells the voice server whether it's on any more: all 60 checks passed (the check
 Control reaching the switchboard removed), in 3 min 31 s. A first run failed 4 checks of
 calling a waiting call now: removing the voice server's Remote Control code had taken out
 the method that picks such a call up, which the voice server's import check doesn't catch.
+
+Result on 2026-11-02, with the hold switch (Stage 5 step 2), one run: all 66 checks passed,
+in 227 s. Held with no time, the call asked again after 4.01 s; after `/reask` it asked again
+at once, rang, and Haiku started 0.05 s later.

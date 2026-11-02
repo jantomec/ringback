@@ -187,6 +187,14 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        answer its question in the Claude app instead, with Remote Control." A call that
        doesn't wait here gets 403; one whose session isn't listening, or that has no
        question, 409;
+     - **the hold switch** (Stage 5 step 2; built, tried offline, not yet on the phone): a
+       call the switchboard holds with no time (`"held": true` without `held_until`: your
+       phone is paused, without work hours to take calls again) asks again every 10 min, and
+       the mod hears `"held": true` with no time and says the call rings when you take calls.
+       When you take calls on the phone, the app posts `/reask` with the waiting calls' IDs
+       to each of their voice servers (over Nebula, as an offer), and those held there ask
+       the switchboard again at once, so they ring now rather than within 10 min. They ring
+       together, as they do when work hours start, until Stage 7's queue;
      - an offer for it is refused, as for an unknown call: the phone knows its ID only
        from the switchboard's waiting calls (Stage 5; built, not yet tried on the phone).
        An offer for it with `"now": true` calls it at once, without ringing, as a call back
@@ -332,13 +340,28 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
      session from the Sessions tab once the voice server has forgotten the call;
    - takes calls from the voice servers at `/call` over Nebula, with their project,
      subject, call ID and session;
-   - **work hours:** outside the work hours of every phone (set in the Settings app), `/call` pushes
+   - **work hours:** they set each phone's hold switch at their edges (below), so outside the
+     work hours of every phone (set in the Settings app), unless you took calls since, `/call` pushes
      nothing. It answers when the first phone's hours start (`held_until`, ISO 8601 with
      that phone's offset from UTC) and logs it, and the voice server asks again by then. A
      phone without hours is always inside them. The app sends its hours and time zone with
      `/register`, and with each connection check, so a new time zone arrives within half an
      hour when you travel. `ringback-switchboard ring` ignores them, and `devices` shows
      them;
+   - **the hold switch** (Stage 5 step 2; built, tried offline, not yet on the phone): each
+     phone has one, on hold or taking calls, in `devices.json` (`hold`, and when you set it,
+     `hold_set`). Its work hours set it at their edges: on hold when they end, taking calls
+     when they start. An edge sets it rather than flipping it, so one that finds it already
+     so changes nothing, and between edges your setting stands: taking calls at 21:00 lasts
+     until the hours end the next day, as a scheduled Sleep Focus you turn off by hand stays
+     off until its next scheduled time. A phone without hours keeps what you set, taking
+     calls until you first set it. A call is held while every phone is on hold, until the
+     first comes off hold by its hours (`held_until`), or with no time when none will
+     (`"held": true` alone); a held call's answer always has `"held": true`. The switch is
+     worked out when asked, from the latest edge after `hold_set`, so nothing runs at the
+     edges. `POST /hold` with the phone's token reads it, and sets it with `"hold": true` or
+     `false`, answering `{"hold": Bool, "until": ISO 8601}`, `until` being when the hours
+     next change it; `/waiting` gives it too, and `devices` shows it. Setting it is logged.
    - on "not now" (declined or unanswered), retries on the schedule in requirement 3,
      with the whole queue paused in between. After a final decline it holds all calls
      until the app calls that session back (Stage 7);
@@ -793,6 +816,33 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        action, opens the session's details: its project, a "call" button, its latest
        briefing's subject and when, since when ringback has been on, its Mac and the start of
        its ID. (Until 2026-10-30, ⓘ on the row opened them.)
+   - **The hold switch** (Stage 5 step 2; built, tried in a simulator, not yet on the
+     phone). One switch holds every call until you let them through (the switchboard's hold
+     switch, with your work hours setting it at their edges). It's in the bar above the tabs
+     (the tab bar's bottom accessory, where Music shows what's playing), on both tabs: "Taking
+     calls" with a green dot and "Holds calls at 19:00", or "Calls on hold" with an indigo mark
+     and "2 waiting · takes calls tomorrow at 08:15", and a button that's what pressing does,
+     as in a media player: pause while taking calls, play while on hold. Indigo, the colour of
+     iOS's Focus, keeps it apart from the red of missed calls and the orange of waiting ones.
+     The bar folds to one line beside the tab bar as you scroll. Pressing shows the new state
+     at once, then sets it at the switchboard (`/hold`); taking calls, the app fetches the
+     waiting calls and posts `/reask` to their voice servers, so they ring now. If the
+     switchboard can't be reached, it goes back and an alert says so. The app gets the switch
+     with the waiting calls, and asks again when the hours would change it.
+     - The same switch is a control (`app/Controls`, a WidgetKit extension) for Control
+       Center, which you can also put on the Lock Screen or the Action button: on, in indigo,
+       holds calls. Its action (`SetHoldIntent`) runs in the extension, without opening the
+       app, and does what the bar's button does. It shows the switch as the switchboard has
+       it, or as last heard. The app shares the switchboard's address, the push token and the
+       switch with it in a keychain group, rather than an App Group: the team's provisioning
+       profiles already allow any of its keychain groups, while an App Group needs a
+       capability added to each App ID, which Xcode can't do without an account signed in.
+     - Chosen (2026-11-02) from five placements, each drawn taking calls and on hold: the
+       bar above the tabs, a button in the top corner with the state under the title, a
+       status card at the top of Recents (as Uber Eats Orders shows "Paused"), a round
+       button beside the tab bar, and Control Center with a Lock Screen Live Activity. The
+       bar was the only one on both tabs, under your thumb, with room to say the state in
+       words; Control Center joined it. The Live Activity is left out.
    - **Settings** live in the Settings app (Settings → Apps → Ringback), from the app's
      `Settings.bundle`; the app has no settings screen any more. Groups, each with a footer
      that says what the app's sections said:
@@ -802,7 +852,7 @@ yet, unless they say they're built; the rest is built. The plan for them is unde
        to start), each a list of times in 15-minute steps: the Settings app has no time
        picker, and you chose lists (2026-10-30). The Settings app can't hide them while the
        switch is off. Claude calls only between them; a call outside them waits until they
-       start, so a session that finishes at 2 am calls at 8 am. From later than To wraps past
+       start (they set the hold switch at their edges), so a session that finishes at 2 am calls at 8 am. From later than To wraps past
        midnight (22:00–06:00), and equal times mean any time. They're kept as times of day,
        read in the phone's time zone. They go to the switchboard with `/register` and
        `/check`, when the app becomes active, and when they change while it runs
@@ -1612,6 +1662,38 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         with no Swift warnings; `tools/app-screens` showed every screen in light and dark,
         the cards and their menu included (one run, 2 min 20 s). The fetching every 3 s and
         the cards on the phone are untried.
+   2. **A hold switch** (2026-11-02; built, tried offline and in a simulator, not yet on the
+      phone). One switch holds every call until you let them through, in the bar above the
+      tabs and in Control Center; work hours set it at their edges (the switchboard's and the
+      iPhone app's "hold switch", the voice server's held calls). Checks:
+      - The switchboard (`switchboard/smoke-test.sh`, 29 new checks, 139 in all, 16 s): `/hold`
+        without a token or for one that isn't registered gets 403; outside its hours a phone
+        is on hold until they start, and with both phones on hold a call is held until the
+        earlier start; taken off hold on the phone, it takes calls until its hours end, and a
+        call rings outside them; on hold again, calls are held again; paused inside new
+        hours, it stays on hold until they next start, tomorrow; paused before they started
+        today, they let calls through; taking calls since before they last ended, it's on
+        hold; without hours a phone takes calls, and on hold has no time to come off it; one
+        phone taking calls lets a call ring; both on hold without hours, a call is held with
+        no time, listed without one, and `/waiting` has the switch; taking calls again, it
+        rings; `devices` shows the switch and when it was set, and setting it and a call held
+        until you take calls are logged. The answers to held calls now have `"held": true`.
+      - The voice server (`tools/ask-check`, 6 new checks, 66 in all, 227 s): held with no
+        time, the mod hears `{"ok": true, "held": true}` and the log says "held until you
+        take calls"; it asks again after `--reask` s (4.01 s); `/reask` with its ID and an
+        unknown one answers `reasked: 1`, a body without `call_ids` 400; it asks the
+        switchboard again at once, with the same ID; then it rings and Haiku starts.
+      - The mod (`claude plugin test mod`, 55): the dim line is "Your phone holds calls: the
+        call rings at 08:00." (it said "Outside your work hours", wrong for a pause), and "…
+        rings when you take calls." with no time.
+      - The app and its extension build with no Swift warnings, both signed with the shared
+        keychain group. `tools/app-screens` showed the bar on hold over the waiting calls and
+        taking calls over the connection banner, in light and dark (one run, 2 min 23 s).
+      - Left for the phone: the bar's button, its folding as you scroll, the alert, the
+        switch changing by itself at an edge, `/reask` reaching a Mac over Nebula (the app
+        reaches it only as an offer does, with no first `/ping` for a stale tunnel), the
+        Control Center control and its action from a locked phone, and held calls ringing
+        together when you take calls.
 6. **Weak signal.** Measure, then send less and recover more (see "Data and weak signal"
    in the iPhone app). Built and tried offline (`tools/phone-check --signal`,
    `tools/opus-check`): each call's "ended" report carries the phone's WebRTC stats, and

@@ -12,12 +12,14 @@ then it doesn't reach a switchboard and asks for no permissions. The test saves,
 appearance:
 - `recents`: waiting calls (one with a question, one without) under Waiting, and under
   Calls, calls answered, missed, declined, called back, called from Sessions, one that
-  didn't connect, one on another call, from today, yesterday, this week and earlier;
+  didn't connect, one on another call, from today, yesterday, this week and earlier; and the
+  hold switch above the tabs, on hold until tomorrow's work hours;
 - `recents-swipe`: the waiting call with a question swiped open to its "Claude App" action;
 - `call-details`, `call-details-outgoing`, `waiting-details`: a call's details from its ⓘ;
 - `sessions`, cards with two sessions in one project and both kinds of waiting call,
   `session-menu`, a card held, and `session-details`, from its Details;
-- `banner`: Recents while the switchboard can't be reached, with Try Again;
+- `banner`: Recents while the switchboard can't be reached, with Try Again, and the hold
+  switch taking calls until 19:00;
 - `setup`: a phone that isn't set up, then `settings` and `settings-more`, Ringback's page in
   the Settings app, from the banner's Open Settings.
 
@@ -43,6 +45,10 @@ before the first screenshot.
 
 2026-10-31, with Recents' Waiting and Calls headers (one run, 2 min 26 s): every screen was
 shown, the headers in both appearances, and the Claude App swipe under Waiting.
+
+2026-11-02, with the hold switch (one run, 2 min 23 s): every screen was shown; the bar was on
+hold in `recents` and taking calls in `banner`, in both appearances. The Control Center
+control can't be shown here: it's for the phone.
 
 Result on 2026-10-30, after Contacts became Sessions, with cards: one run, 2 min 20 s, every
 screen shown in light and dark, the cards, a card held with its Call and Details, and the

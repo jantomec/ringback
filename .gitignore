@@ -5,6 +5,8 @@ app/Config/Local.xcconfig
 app/Ringback.xcodeproj/
 app/Ringback/Info.plist
 app/Ringback/Ringback.entitlements
+app/Controls/Info.plist
+app/Controls/RingbackControls.entitlements
 
 # Build output
 app/build/

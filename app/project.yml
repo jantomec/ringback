@@ -17,11 +17,13 @@ targets:
     platform: iOS
     sources:
       - Ringback
+      - Shared
       # The app's settings, in the Settings app (Settings → Apps → Ringback).
       - path: Settings.bundle
         buildPhase: resources
     dependencies:
       - package: WebRTC
+      - target: RingbackControls
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(RINGBACK_BUNDLE_ID)
@@ -35,12 +37,45 @@ targets:
       path: Ringback/Ringback.entitlements
       properties:
         aps-environment: development
+        # Shared with the Control Center extension: the switchboard, the token, the hold switch.
+        keychain-access-groups: [$(AppIdentifierPrefix)$(RINGBACK_BUNDLE_ID).shared]
     info:
       path: Ringback/Info.plist
       properties:
         CFBundleDisplayName: Ringback
+        RingbackKeychainGroup: $(AppIdentifierPrefix)$(RINGBACK_BUNDLE_ID).shared
         UILaunchScreen: {}
         UIBackgroundModes: [voip, audio, remote-notification]
         NSMicrophoneUsageDescription: Ringback uses the microphone so you can talk to your Claude Code sessions.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+  # The hold switch in Control Center (Controls/HoldControl.swift), which can also go on the
+  # Lock Screen or the Action button.
+  RingbackControls:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Controls
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(RINGBACK_BUNDLE_ID).controls
+        DEVELOPMENT_TEAM: $(RINGBACK_TEAM_ID)
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+    entitlements:
+      path: Controls/RingbackControls.entitlements
+      properties:
+        keychain-access-groups: [$(AppIdentifierPrefix)$(RINGBACK_BUNDLE_ID).shared]
+    info:
+      path: Controls/Info.plist
+      properties:
+        CFBundleDisplayName: Ringback
+        RingbackKeychainGroup: $(AppIdentifierPrefix)$(RINGBACK_BUNDLE_ID).shared
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

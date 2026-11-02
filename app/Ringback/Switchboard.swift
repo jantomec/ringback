@@ -55,23 +55,29 @@ enum Switchboard {
         try await post("check", body, timeout: 5)
     }
 
-    /// The calls that wait to ring, held outside your work hours, soonest first, with whether
-    /// each has a question (a switchboard from before doesn't say). The switchboard gives them only to a phone that registered, by its VoIP
-    /// token: a call's ID lets whoever has it take the call.
-    static func waiting(token: String) async throws -> [WaitingCall] {
+    /// The calls that wait to ring, held while your phone holds calls, soonest first, with
+    /// whether each has a question (a switchboard from before doesn't say); and the hold switch
+    /// (nil from a switchboard before it). The switchboard gives them only to a phone that
+    /// registered, by its VoIP token: a call's ID lets whoever has it take the call.
+    static func waiting(token: String) async throws -> (calls: [WaitingCall], hold: HoldState?) {
         let data = try await post("waiting", ["token": token], timeout: 5)
-        guard let calls = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["calls"] as? [[String: Any]]
+        guard let answer = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let calls = answer["calls"] as? [[String: Any]]
         else { throw URLError(.cannotParseResponse) }
         let iso = ISO8601DateFormatter()
-        return calls.compactMap { call in
+        let waiting = calls.compactMap { call -> WaitingCall? in
             guard let id = call["call_id"] as? String, let project = call["project"] as? String,
-                let voice = (call["voice"] as? String).flatMap(URL.init(string:)),
-                let heldUntil = (call["held_until"] as? String).flatMap(iso.date(from:))
+                let voice = (call["voice"] as? String).flatMap(URL.init(string:))
             else { return nil }
             return WaitingCall(
-                id: id, project: project, subject: call["subject"] as? String, voice: voice, heldUntil: heldUntil,
+                id: id, project: project, subject: call["subject"] as? String, voice: voice,
+                heldUntil: (call["held_until"] as? String).flatMap(iso.date(from:)),
                 question: call["question"] as? Bool ?? false, session: call["session_id"] as? String)
         }
+        let hold = (answer["hold"] as? [String: Any]).flatMap { hold in
+            (hold["hold"] as? Bool).map { HoldState(on: $0, until: (hold["until"] as? String).flatMap(iso.date(from:))) }
+        }
+        return (waiting, hold)
     }
 
     /// The sessions you can call, with ringback on, on every Mac, by project, each with its

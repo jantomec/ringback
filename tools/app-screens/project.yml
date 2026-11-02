@@ -15,6 +15,7 @@ targets:
     sources:
       - path: ../../app/Ringback
         excludes: [Info.plist, Ringback.entitlements]  # generated there by the app's own project
+      - path: ../../app/Shared
       - path: ../../app/Settings.bundle
         buildPhase: resources
     dependencies:

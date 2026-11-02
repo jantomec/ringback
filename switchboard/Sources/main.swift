@@ -21,7 +21,9 @@ case "devices":
     for (token, d) in Devices.load().sorted(by: { $0.key < $1.key }) {
         let checks = d["notification_token"] == nil ? "" : d["checked_in"].map { "  checked in \($0)" } ?? "  never checked in"
         let hours = describe(d).map { "  \($0)" } ?? ""
-        print("…\(token.suffix(8))  \(d["device"] ?? "")  \(d["environment"] ?? "")  registered \(d["registered"] ?? "")\(checks)\(hours)")
+        let hold = Hold(d, at: Date())
+        let state = "  \(hold.on ? "on hold" : "taking calls")\(d["hold_set"].map { ", set \($0)" } ?? "")"
+        print("…\(token.suffix(8))  \(d["device"] ?? "")  \(d["environment"] ?? "")  registered \(d["registered"] ?? "")\(checks)\(hours)\(state)")
     }
 case "-h", "--help":
     print(usage)

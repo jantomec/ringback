@@ -52,6 +52,9 @@ final class PushService: NSObject, PKPushRegistryDelegate {
             sentURL = url
             state.lastConnected = .now
             state.connection = .connected(at: .now)
+            // For the Control Center control, which can't read the app's settings.
+            Shared.switchboard = url
+            Shared.token = token
             ConnectionCheck.clear()
             if force { state.confirmations += 1 }
         } catch {

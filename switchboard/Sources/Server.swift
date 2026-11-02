@@ -1,7 +1,7 @@
 import Foundation
 
 /// The HTTP endpoints the phone talks to over Nebula: `/register`, `/events`, `/check`,
-/// `/waiting` and `/contacts`; and `/call`, which the voice servers ask to ring the phone, and
+/// `/waiting`, `/contacts` and `/hold`; and `/call`, which the voice servers ask to ring the phone, and
 /// `/sessions`, where they say which of their sessions listen. Requests are small
 /// and rare, so they're handled one at a time. Each gets at most 5 s, so a
 /// stalled connection can't hold the next request past the app's 10 s timeout. Meanwhile it
@@ -58,7 +58,7 @@ private struct Forbidden: Error {}
 private func answer(_ request: Request?) -> (String, String) {
     let endpoints: [Substring: ([String: Any]) throws -> [String: Any]] = [
         "/register": register, "/events": event, "/check": checkIn, "/call": call, "/waiting": waiting,
-        "/sessions": sessions, "/contacts": contacts,
+        "/sessions": sessions, "/contacts": contacts, "/hold": holdSwitch,
     ]
     guard let request else { return ("400 Bad Request", #"{"ok": false}"#) }
     guard let endpoint = endpoints[request.path] else { return ("404 Not Found", #"{"ok": false}"#) }
@@ -101,8 +101,9 @@ private func register(_ body: [String: Any]) throws -> [String: Any] {
 /// secret: the voice server accepts only an offer that carries it, and only the push takes it
 /// to the phone. The push goes out after the answer, so a slow APNs doesn't hold up requests.
 ///
-/// Outside the work hours of every phone nothing rings: the answer says when the first of
-/// them start (`held_until`), and the voice server asks again by then, with the same call ID.
+/// While every phone is on hold (Hold: outside its work hours, or you paused it) nothing rings:
+/// the answer says so (`held`) and when the first comes off hold by its hours (`held_until`),
+/// if one will, and the voice server asks again by then, or sooner, with the same call ID.
 /// Meanwhile the call waits, and the app shows it (Waiting). The voice server says whether the
 /// call has a question (`question`). The first time a held call has a question, the phone gets
 /// a notification, once for that call. The voice server also names the calling session
@@ -116,20 +117,24 @@ private func call(_ body: [String: Any]) throws -> [String: Any] {
     let subject = (body["subject"] as? String).flatMap { $0.isEmpty ? nil : $0 }
     let session = (body["session_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
     log("call \(callID.prefix(8)): asked by \(voice) for \(project)\(subject.map { ": \($0)" } ?? "")")
-    if let held = heldUntil(Date()) {
+    if let held = held(Date()) {
         let question = body["question"] as? Bool ?? false
-        log("call \(callID.prefix(8)): held until \(held), outside the work hours of every phone\(question ? ", with a question" : "")")
+        let until = held.until.map { "until \($0)" } ?? "until you take calls"
+        log("call \(callID.prefix(8)): held \(until), every phone on hold\(question ? ", with a question" : "")")
         let notify = try Waiting.hold(
-            callID: callID, project: project, subject: subject, voice: voice, heldUntil: held, question: question,
-            session: session)
+            callID: callID, project: project, subject: subject, voice: voice, heldUntil: held.until,
+            question: question, session: session)
         if notify {
             Task.detached {
-                for line in await notifyQuestion(callID: callID, project: project, subject: subject, until: parseISO8601(held)) {
+                let at = held.until.flatMap(parseISO8601)
+                for line in await notifyQuestion(callID: callID, project: project, subject: subject, until: at) {
                     log(line)
                 }
             }
         }
-        return ["ok": true, "held_until": held]
+        var answer: [String: Any] = ["ok": true, "held": true]
+        answer["held_until"] = held.until
+        return answer
     }
     if try Waiting.remove(callID) { log("call \(callID.prefix(8)): no longer waiting, it rings") }
     Task.detached {
@@ -172,13 +177,27 @@ private func event(_ body: [String: Any]) throws -> [String: Any] {
 }
 
 /// The calls that wait, for the app to show, soonest first: `{"calls": [...]}`, each with its
-/// call ID, project, subject, voice server, when it rings (`held_until`), whether it has a
-/// question (`question`).
+/// call ID, project, subject, voice server, when it rings (`held_until`, missing if it waits
+/// until you take calls), whether it has a question (`question`); and the phone's hold switch
+/// (`hold`, as `/hold` answers).
 /// Only a phone that registered gets them, by its push token: a call's ID lets whoever has it
 /// take the call.
 private func waiting(_ body: [String: Any]) throws -> [String: Any] {
-    guard let token = body["token"] as? String, Devices.load()[token] != nil else { throw Forbidden() }
-    return ["calls": try Waiting.list()]
+    guard let token = body["token"] as? String, let device = Devices.load()[token] else { throw Forbidden() }
+    return ["calls": try Waiting.list(), "hold": Hold(device, at: Date()).answer(device)]
+}
+
+/// The phone's hold switch: `{"token", "hold": Bool}` sets it, without "hold" it's only read.
+/// Answers `{"hold": Bool, "until": ISO 8601}`, `until` being when its work hours next change
+/// it, missing if they won't. Only a phone that registered has one. On taking calls, the app
+/// tells the voice servers of the waiting calls to ask again now (their `/reask`).
+private func holdSwitch(_ body: [String: Any]) throws -> [String: Any] {
+    guard let token = body["token"] as? String, var device = Devices.load()[token] else { throw Forbidden() }
+    if let on = body["hold"] as? Bool, let set = try Devices.setHold(token: token, on: on) {
+        device = set
+        log("…\(token.suffix(8)) \(device["device"] ?? "a phone"): \(on ? "on hold" : "taking calls"), set on the phone")
+    }
+    return Hold(device, at: Date()).answer(device)
 }
 
 /// A voice server says which of its sessions listen (ringback on), for the phone's Contacts:

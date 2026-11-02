@@ -104,6 +104,7 @@ YES = "Yes, go ahead."
 CHOICE = "A new branch, please."
 # Held calls, each for a session of its own.
 HELD, HELD_LATER = "ask-check-held", "ask-check-held-later"
+PAUSED = "ask-check-paused"
 HELD_SUBJECT = "Parser fix, and the docs"
 HELD_BRIEFING = """\
 Since I asked about the force-push, I also updated the parser's docs to say that empty lines
@@ -131,8 +132,8 @@ async def main() -> int:
     held_project.mkdir()
     rung: list[dict] = []  # calls the stand-in switchboard took
     taken: list[float] = []  # when it took each (time.time())
-    # How it answers the next ones: hold for so many seconds, "down" for a 503, or ring (None
-    # or none left). What it said each held call can ring at, by when it took that request.
+    # How it answers the next ones: hold for so many seconds, "paused" to hold with no time
+    # (your phone paused, without work hours), "down" for a 503, or ring (None or none left). What it said each held call can ring at, by when it took that request.
     holds: list[float | str | None] = []
     held_until: dict[float, str] = {}
 
@@ -142,6 +143,8 @@ async def main() -> int:
         hold = holds.pop(0) if holds else None
         if hold == "down":
             return web.json_response({"ok": False}, status=503)
+        if hold == "paused":
+            return web.json_response({"ok": True, "held": True})
         if hold is not None:
             # As the switchboard writes it: whole seconds, with the offset.
             held_until[now] = (datetime.now().astimezone() + timedelta(seconds=hold)).isoformat(timespec="seconds")
@@ -388,7 +391,8 @@ async def main() -> int:
                      "briefing": HELD_BRIEFING}  # fmt: skip
         status, body = await api("POST", "/calls", rebriefed)
         check(f"a new briefing goes to the held call, without placing another: {status} {body}",
-              status == 200 and body == {"ok": True, "held_until": held_until.get(first)} and len(rung) == n + 1)  # fmt: skip
+              status == 200 and body == {"ok": True, "held": True, "held_until": held_until.get(first)}
+              and len(rung) == n + 1)  # fmt: skip
         # A question waits for the held call, and the switchboard is asked again at once, so
         # it can tell the phone.
         asked_at = time.time()
@@ -613,6 +617,38 @@ async def main() -> int:
               f"{status_after}", status == 200 and status_after == 404)  # fmt: skip
         gone = await until(lambda: children("caffeinate") == 0, 5)
         check(f"with no call left, the Mac can sleep again ({gone} s)", gone is not None and children(haiku) == 0)
+
+        # Your phone holds calls with no time (paused, without work hours to take calls again):
+        # a held call asks again every --reask s, and at once when the app says you take calls
+        # (/reask, with the waiting calls' IDs).
+        n = len(rung)
+        holds[:] = ["paused", "paused", None]
+        paused = {"session_id": PAUSED, "project": "demo", "cwd": str(held_project), "subject": "Paused",
+                  "briefing": BRIEFING}  # fmt: skip
+        status, body = await api("POST", "/calls", paused)
+        check(f"held with no time, the mod hears it's held, with no time: {status} {body}",
+              status == 200 and body == {"ok": True, "held": True})  # fmt: skip
+        logged = await wait_for(voice_log, r"held until you take calls for demo", 2)
+        check("the voice server logs it held until you take calls", logged is not None)
+        await until(lambda: len(rung) >= n + 2, args.reask + 3)
+        t1, t2 = taken[n], taken[n + 1] if len(rung) >= n + 2 else time.time()
+        check(f"asked again after --reask s ({t2 - t1:.2f} s)", args.reask - 0.5 <= t2 - t1 <= args.reask + 1.5)
+        paused_id = rung[n]["call_id"]
+        await asyncio.sleep(0.5)
+        t3 = time.time()
+        async with aiohttp.ClientSession() as http:
+            async with http.post(f"http://{VOICE}/reask", json={"call_ids": ["not-a-call", paused_id]}) as r:
+                status, body = r.status, await r.json()
+            async with http.post(f"http://{VOICE}/reask", json={"call_id": paused_id}) as r:
+                bad = r.status
+        await until(lambda: len(rung) >= n + 3, 2)
+        t4 = taken[n + 2] if len(rung) >= n + 3 else time.time()
+        check(f"you take calls: /reask {status} {body}, a body without call_ids {bad}",
+              status == 200 and body == {"ok": True, "reasked": 1} and bad == 400)  # fmt: skip
+        check(f"it asks the switchboard again {t4 - t3:.2f} s later, with the same ID, not after --reask s",
+              t4 - t3 <= 0.5 and len(rung) >= n + 3 and rung[n + 2]["call_id"] == paused_id)  # fmt: skip
+        started = await until(lambda: children(haiku) >= 1, 5)
+        check(f"it rings, and Haiku starts ({started} s)", started is not None)
     finally:
         await socket_side.close()
         voice.terminate()

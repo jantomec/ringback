@@ -68,14 +68,19 @@ enum Seed {
                 session: Self.ids["ringback-2"]!, project: "ringback", voice: mac, subject: nil, briefedAt: nil,
                 since: earlier(1)),
         ]
+        // On hold until tomorrow's work hours, with the two calls waiting; taking calls for the
+        // connection banner's screenshot, until 19:00.
+        state.hold = HoldState(on: true, until: tomorrow)
         switch mode {
         case "problem":
+            state.hold = HoldState(on: false, until: Calendar.current.date(byAdding: .hour, value: 19, to: today))
             state.connection = .failed(reason: "The request timed out.")
             state.lastConnected = at(0, max(0, hour - 2), 10)
         case "setup":
             state.connection = .notSetUp
             state.seed([])
             state.waiting = []
+            state.hold = nil
         default:
             state.connection = .connected(at: now)
         }

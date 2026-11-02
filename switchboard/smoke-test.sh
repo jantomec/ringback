@@ -68,7 +68,7 @@ with_zone="{$phone, \"hours_from\": \"08:00\", \"hours_to\": \"20:00\", \"time_z
 no_zone="{$phone, \"hours_from\": \"14:00\", \"hours_to\": \"16:00\"}"
 only_from="{$phone, \"hours_from\": \"14:00\", \"time_zone\": \"$zone\"}"
 call_as() { body -d "{\"project\": \"demo\", \"voice\": \"http://127.0.0.1:1\", \"call_id\": \"$1\"}" "$url/call"; }
-held_until() { echo "{\"held_until\":\"${today}T$1:00$offset\",\"ok\":true}"; }
+held_until() { echo "{\"held\":true,\"held_until\":\"${today}T$1:00$offset\",\"ok\":true}"; }
 rings='{"ok":true}'
 echo "      work hours in $zone, where it's $(TZ=$zone date +%H:%M)"
 check "register with work hours 14:00–16:00" 200 "$(hours "$phone" 14:00 16:00)"
@@ -111,13 +111,13 @@ check "event logged" yes "$(yes_if grep -qE 'call 12345678: ended, duration_s 21
 check "call logged" yes "$(yes_if grep -qF 'call 01234567: asked by http://127.0.0.1:1 for demo: Tests pass' "$home/log")"
 check "call rings with its ID" yes "$(yes_if grep -qF 'call 01234567 → Test phone: no [apns.sandbox] key in the config' "$home/log")"
 check "registration logged with work hours" yes "$(yes_if grep -qF "registered Test phone (sandbox), token …bbbb2222, work hours 14:00–16:00 $zone" "$home/log")"
-check "a held call logged" yes "$(yes_if grep -qF "call held0001: held until ${today}T14:00:00$offset, outside the work hours of every phone" "$home/log")"
+check "a held call logged" yes "$(yes_if grep -qF "call held0001: held until ${today}T14:00:00$offset, every phone on hold" "$home/log")"
 check "held calls ring nobody" no "$(yes_if grep -qE 'call held000[0-9] →' "$home/log")"
 check "calls inside the hours ring" 5 "$(grep -cE 'call ring000[1-5] → Test phone: no \[apns.sandbox\] key' "$home/log")"
 check "unreadable hours from a check are logged and left out" yes "$(yes_if grep -qF 'check from …bbbb2222: work hours that can'"'"'t be read, left out' "$home/log")"
 devices=$(HOME="$home" "$bin" devices)
-check "devices shows the hours, in the time zone the check brought" yes "$(yes_if has "$devices" "…bbbb2222  Test phone .*  work hours 14:00–16:00 $zone2_re\$")"
-check "devices shows the second phone's hours" yes "$(yes_if has "$devices" "…eeee5555  Second phone .*  work hours 13:30–13:45 $zone_re\$")"
+check "devices shows the hours, in the time zone the check brought, and the switch" yes "$(yes_if has "$devices" "…bbbb2222  Test phone .*  work hours 14:00–16:00 $zone2_re  on hold\$")"
+check "devices shows the second phone's hours" yes "$(yes_if has "$devices" "…eeee5555  Second phone .*  work hours 13:30–13:45 $zone_re  on hold\$")"
 out=$(HOME="$home" "$bin" ring --project smoke-test)
 check "ring ignores work hours: it pushes to both phones" 2 "$(printf '%s\n' "$out" | grep -c 'no \[apns.sandbox\] key')"
 
@@ -137,7 +137,7 @@ called_now='{"call_id": "wait0002-000000000000", "event": "called now", "at": "2
 serve_waiting
 check "waiting calls for a token that isn't registered: 403" 403 "$(status -d '{"token": "ffff9999"}' "$url/waiting")"
 check "waiting calls without a token: 403" 403 "$(status -d '{}' "$url/waiting")"
-check "no calls wait yet" '{"calls":[]}' "$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting")"
+check "no calls wait yet" yes "$(yes_if has_text "$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting")" '"calls":[]')"
 check "a held call waits" "$(held_until 13:30)" "$(call_about wait0001-000000000000 "Docs updated")"
 check "the second phone with 13:15–13:20" 200 "$(hours "$second" 13:15 13:20)"
 check "another, held until sooner" "$(held_until 13:15)" "$(call_about wait0002-000000000000 "Parser fixed")"
@@ -199,7 +199,7 @@ wait $server 2> /dev/null || true
 check "a waiting call that rings is logged" yes "$(yes_if grep -qF 'call wait0001: no longer waiting, it rings' "$home/log")"
 check "one called from the app is logged" yes "$(yes_if grep -qF 'call wait0002: no longer waiting, called from the app' "$home/log")"
 check "a dropped one is logged" yes "$(yes_if grep -qE 'call wait0003: no longer waiting, its voice server hasn.t asked about it since [0-9:]{8}' "$home/log")"
-check "a held call's question is logged" yes "$(yes_if grep -qF "call wait0004: held until ${today}T13:15:00$offset, outside the work hours of every phone, with a question" "$home/log")"
+check "a held call's question is logged" yes "$(yes_if grep -qF "call wait0004: held until ${today}T13:15:00$offset, every phone on hold, with a question" "$home/log")"
 check "one whose question went to the Claude app is logged" yes "$(yes_if grep -qF 'call wait0004: no longer waiting, its question went to the Claude app' "$home/log")"
 
 # Contacts: each voice server says which of its sessions listen, and the app lists them all,
@@ -248,6 +248,58 @@ wait $server 2> /dev/null || true
 check "a voice server's sessions are logged" yes "$(yes_if grep -qF 'sessions listening on http://127.0.0.1:2: zeta (sess0001), Alpha (sess0002)' "$home/log")"
 check "said again unchanged, they aren't logged again" 1 "$(grep -cF 'sessions listening on http://127.0.0.1:3: alpha (sess0003)' "$home/log")"
 check "a dropped voice server is logged" yes "$(yes_if grep -qE 'sessions listening on http://127.0.0.1:2: dropped, not heard from since [0-9:]{8}' "$home/log")"
+
+# The hold switch: work hours set it at their edges, on hold when they end and taking calls
+# when they start, and the phone sets it in between (/hold). A call is held while every phone
+# is on hold, until the first comes off hold by its hours, or with no time when none will.
+# It's between 12:00 and 13:00 in $zone. set_at moves when a switch was set back in time, to
+# before an edge.
+first=aaaa1111bbbb2222 other=dddd4444eeee5555
+hold_of() { body -d "{\"token\": \"$1\"}" "$url/hold"; }
+set_hold() { body -d "{\"token\": \"$1\", \"hold\": $2}" "$url/hold"; }
+set_at() {  # token, ISO 8601
+    python3 -c 'import json, sys; p, t, at = sys.argv[1:]; d = json.load(open(p)); d[t]["hold_set"] = at; json.dump(d, open(p, "w"))' \
+        "$state/devices.json" "$1" "$2"
+}
+hold_json() { echo "{\"hold\":$1,\"until\":\"$2:00$offset\"}"; }  # true|false, date and time
+tomorrow=$(TZ=$zone date -v+1d +%Y-%m-%d)
+HOME="$home" "$bin" serve >> "$home/log" 2>&1 &
+server=$!
+check "the switch without a token: 403" 403 "$(status -d '{}' "$url/hold")"
+check "for a token that isn't registered: 403" 403 "$(status -d '{"token": "ffff9999"}' "$url/hold")"
+check "the first phone with 14:00–16:00" 200 "$(hours "$phone" 14:00 16:00)"
+check "the second with 13:15–13:20" 200 "$(hours "$second" 13:15 13:20)"
+check "outside its hours, a phone is on hold until they start" "$(hold_json true "${today}T14:00")" "$(hold_of $first)"
+check "both on hold: a call is held until the earlier start" "$(held_until 13:15)" "$(call_as hold0001-000000000000)"
+check "the first takes calls, set on the phone: until its hours end" "$(hold_json false "${today}T16:00")" "$(set_hold $first false)"
+check "outside its hours, a call rings" "$rings" "$(call_as hold0002-000000000000)"
+check "on hold again" "$(hold_json true "${today}T14:00")" "$(set_hold $first true)"
+check "and calls are held again" "$(held_until 13:15)" "$(call_as hold0003-000000000000)"
+check "with 08:00–20:00, inside them, it stays on hold" 200 "$(hours "$phone" 08:00 20:00)"
+check "until they next start, tomorrow" "$(hold_json true "${tomorrow}T08:00")" "$(hold_of $first)"
+check "paused before they started today, they let calls through" "$(hold_json false "${today}T20:00")" \
+    "$(set_at $first "$(date -u -v-1d +%Y-%m-%dT%H:%M:%SZ)"; hold_of $first)"
+check "so a call rings" "$rings" "$(call_as hold0004-000000000000)"
+check "with 14:00–16:00 again" 200 "$(hours "$phone" 14:00 16:00)"
+check "taking calls since before they last ended: on hold" "$(hold_json true "${today}T14:00")" \
+    "$(set_hold $first false > /dev/null; set_at $first "$(date -u -v-2d +%Y-%m-%dT%H:%M:%SZ)"; hold_of $first)"
+check "both phones without hours" 200 "$(status -d "{$phone}" "$url/register"; status -d "{$second}" "$url/register" > /dev/null)"
+check "without hours, a phone takes calls" '{"hold":false}' "$(hold_of $first)"
+check "on hold, it has no time to come off it" '{"hold":true}' "$(set_hold $first true)"
+check "the other takes calls: a call rings" "$rings" "$(call_as hold0005-000000000000)"
+check "both on hold: held until you take calls" '{"held":true,"ok":true}' "$(set_hold $other true > /dev/null; call_as hold0006-000000000000)"
+waiting=$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting")
+check "listed without a time" yes "$(yes_if has_text "$waiting" '"call_id":"hold0006-000000000000","project":"demo","question":false')"
+check "with the phone's switch" yes "$(yes_if has_text "$waiting" '"hold":{"hold":true}')"
+check "taking calls again: it rings" "$rings" "$(set_hold $first false > /dev/null; call_as hold0006-000000000000)"
+sleep 1
+kill $server
+wait $server 2> /dev/null || true
+check "devices shows the switch and when it was set" yes "$(yes_if has "$(HOME="$home" "$bin" devices)" '…bbbb2222  Test phone .*  taking calls, set 20[^ ]+$')"
+check "setting it is logged" yes "$(yes_if grep -qF '…bbbb2222 Test phone: on hold, set on the phone' "$home/log")"
+check "a call held until you take calls is logged" yes "$(yes_if grep -qF 'call hold0006: held until you take calls, every phone on hold' "$home/log")"
+check "held calls ring nobody" no "$(yes_if grep -qE 'call hold000[13] →' "$home/log")"
+check "the others ring, the last once you take calls" 4 "$(grep -cE 'call hold000[2456] → Test phone' "$home/log")"
 
 if [ "${1:-}" = --apns ]; then
     cp ~/.config/ringback/switchboard.toml ~/.config/ringback/AuthKey_*.p8 "$home/.config/ringback/"

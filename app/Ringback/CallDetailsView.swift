@@ -105,8 +105,8 @@ struct WaitingDetailsView: View {
                 }
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-                Section(call.heldUntil.dayLabel) {
-                    LabeledContent("Rings", value: call.heldUntil.formatted(date: .omitted, time: .shortened))
+                Section(call.heldUntil?.dayLabel ?? "On hold") {
+                    LabeledContent("Rings", value: call.heldUntil?.formatted(date: .omitted, time: .shortened) ?? "When you take calls")
                         .foregroundStyle(.orange)
                     if call.question {
                         Text("The session asks you a question, and waits for your answer.")

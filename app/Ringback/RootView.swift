@@ -20,6 +20,9 @@ struct RootView: View {
                 SessionsView(state: state, calls: calls)
             }
         }
+        // The hold switch, on both tabs.
+        .tabViewBottomAccessory { HoldBar(state: state) }
+        .tabBarMinimizeBehavior(.onScrollDown)
         // Only checks you started, never the automatic one on opening.
         .sensoryFeedback(.success, trigger: state.confirmations)
         .fullScreenCover(isPresented: .constant(state.activeCall != nil), onDismiss: showCallBackProblem) {

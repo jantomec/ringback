@@ -345,7 +345,8 @@ async function place($: EngineInterface, body: object, tries: number): Promise<v
     const response = await voice($, '/calls', body)
     if (response.ok) {
       retry = undefined
-      await showHeld($, fieldOf(response.text, 'held_until'))
+      const heldUntil = fieldOf(response.text, 'held_until')
+      if (heldUntil !== undefined || fieldOf(response.text, 'held') === true) await showHeld($, heldUntil)
       return
     }
     failed = errorOf(response.text) ?? `the voice server answered ${response.status}`
@@ -375,17 +376,21 @@ async function place($: EngineInterface, body: object, tries: number): Promise<v
 
 const projectOf = (cwd: string) => cwd.split('/').filter(Boolean).pop() ?? 'Claude'
 
-// Outside your work hours (set in the app) the switchboard holds the call: a dim line says
-// when it rings, in this Mac's time, with the date unless it's today.
+// While your phone holds calls (outside your work hours, or paused in the app) the
+// switchboard holds the call: a dim line says when it rings, in this Mac's time, with the
+// date unless it's today, or that it rings when you take calls, if there's no time.
 async function showHeld($: EngineInterface, heldUntil: unknown): Promise<void> {
   const at = typeof heldUntil === 'string' ? new Date(heldUntil) : undefined
-  if (!at || Number.isNaN(at.getTime())) return
+  if (!at || Number.isNaN(at.getTime())) {
+    $.ui.log('Your phone holds calls: the call rings when you take calls.')
+    return
+  }
   const now = new Date(await $.clock.now())
   const two = (n: number) => String(n).padStart(2, '0')
   const time = `${two(at.getHours())}:${two(at.getMinutes())}`
   const isToday = at.toDateString() === now.toDateString()
   const day = `${DAYS[at.getDay()]} ${at.getDate()} ${MONTHS[at.getMonth()]}`
-  $.ui.log(`Outside your work hours: the call rings at ${time}${isToday ? '' : ` on ${day}`}.`)
+  $.ui.log(`Your phone holds calls: the call rings at ${time}${isToday ? '' : ` on ${day}`}.`)
 }
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']

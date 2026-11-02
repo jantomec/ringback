@@ -442,9 +442,9 @@ def main() -> None:
             call = await calls.back(call_id) if back else await calls.now(call_id) if now else calls.offer(call_id)
         link = haiku = None
         if call and call.held_until:
-            # Held outside your work hours, it hasn't rung, so the phone knows its ID only from
-            # the switchboard's waiting calls, and calls it now.
-            log(f"call {call_id[:8]}: refused, held until {call.held_until}")
+            # Held while your phone holds calls, it hasn't rung, so the phone knows its ID only
+            # from the switchboard's waiting calls, and calls it now.
+            log(f"call {call_id[:8]}: refused, held {sessions.until(call.held_until)}")
             return web.json_response({"error": "unknown call"}, status=403)
         if call:
             text, link = call.briefing, call.link
@@ -536,6 +536,18 @@ def main() -> None:
             return web.json_response({"error": why}, status=403 if why == "not waiting" else 409)
         return web.json_response({"ok": True})
 
+    async def reask(request: web.Request) -> web.Response:
+        """You took calls on the phone (its hold switch): the app names the waiting calls whose
+        voice server is this one, which ask the switchboard again now, so they ring at once.
+        Calls that aren't held here are left alone."""
+        try:
+            ids = (await request.json()).get("call_ids")
+        except (ValueError, AttributeError):
+            ids = None
+        if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+            return web.json_response({"error": "needs call_ids"}, status=400)
+        return web.json_response({"ok": True, "reasked": calls.reask(ids)})
+
     async def serve_forever():
         async def ping(request: web.Request) -> web.Response:
             # The phone checks it can reach this Mac while it rings (AudioLink.reach).
@@ -548,7 +560,7 @@ def main() -> None:
         app = web.Application()
         app.add_routes([
             web.post("/offer", offer), web.post("/answered", answer), web.post("/claude-app", claude_app),
-            web.get("/ping", ping),
+            web.post("/reask", reask), web.get("/ping", ping),
         ])  # fmt: skip
         runner = web.AppRunner(app)
         await runner.setup()

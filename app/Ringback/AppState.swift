@@ -50,17 +50,17 @@ struct CallRecord: Codable, Identifiable {
     }
 }
 
-/// A call that waits to ring: held outside your work hours. The switchboard keeps them, and
-/// the app fetches them; tapping one calls it now. One with a question can send it to the
-/// Claude app instead.
+/// A call that waits to ring: held while your phone holds calls (outside your work hours, or
+/// paused). The switchboard keeps them, and the app fetches them; tapping one calls it now. One
+/// with a question can send it to the Claude app instead.
 struct WaitingCall: Identifiable, Equatable {
     let id: String  // the call's ID, which its offer carries
     let project: String
     let subject: String?
     /// The voice server of the Mac whose session placed it.
     let voice: URL
-    /// When it rings, once your work hours start.
-    let heldUntil: Date
+    /// When it rings, once your work hours start; nil if it waits until you take calls.
+    let heldUntil: Date?
     /// The session asks you a question on it, and waits for the answer.
     var question = false
     /// The session that placed it, if the switchboard says.
@@ -129,10 +129,12 @@ final class AppState {
     var activeCall: ActiveCall?
     /// Why a call you made ended by itself, a call back or a waiting call you called, shown
     /// once the in-call screen is gone; or why a waiting call's question didn't go to the
-    /// Claude app.
+    /// Claude app, or the hold switch couldn't be set.
     var callBackProblem: String?
     /// The calls that wait to ring, soonest first, as the switchboard last gave them.
     var waiting: [WaitingCall] = []
+    /// The hold switch, as the switchboard last gave it with the waiting calls; nil until then.
+    var hold: HoldState?
     /// The sessions you can call, by project, as the switchboard last gave them.
     var contacts: [Contact] = []
     /// Microphone access is off, so Claude can't hear you on calls.
@@ -157,12 +159,13 @@ final class AppState {
         save()
     }
 
-    /// Fetches the calls that wait from the switchboard. If it can't be reached, the list stays
-    /// as it was.
+    /// Fetches the calls that wait from the switchboard, and the hold switch. If it can't be
+    /// reached, both stay as they were.
     @MainActor
     func refreshWaiting() async {
-        guard Switchboard.url != nil, let token else { return }
-        if let calls = try? await Switchboard.waiting(token: token), calls != waiting { waiting = calls }
+        guard Switchboard.url != nil, let token, let found = try? await Switchboard.waiting(token: token) else { return }
+        if found.calls != waiting { waiting = found.calls }
+        if let switched = found.hold, switched != hold { hold = HoldSwitch.remember(switched) }
     }
 
     /// Fetches the sessions you can call from the switchboard. If it can't be reached, or is

@@ -79,11 +79,15 @@ STATE = "voice-state.json"
 # call is forgotten. The phone rings for 30 s, and its push can take about 16 s to arrive
 # after it leaves Wi-Fi. RINGBACK_UNANSWERED overrides it, for checks.
 UNANSWERED = float(os.environ.get("RINGBACK_UNANSWERED", "90"))
-# Seconds a call held outside your work hours waits at most before the switchboard is asked
-# again, so hours you widen apply within this long. If it can't be reached, it's asked again
+# Seconds a held call waits at most before the switchboard is asked again, so hours you widen
+# apply within this long, and taking calls on the phone reaches a Mac its app couldn't tell
+# (`/reask`). If it can't be reached, it's asked again
 # after RETRY s. RINGBACK_REASK overrides it, for checks.
 REASK = float(os.environ.get("RINGBACK_REASK", "600"))
 RETRY = min(60.0, REASK)
+# A held call's held_until while your phone holds calls with no time to stop by itself (paused
+# in the app, without work hours to take calls again): it rings when you take calls.
+ON_HOLD = "on hold"
 # Seconds a held call sleeps at most before it looks at the clock again. asyncio's clock
 # stops while the Mac sleeps, so the wait is on the wall clock, looked at this often.
 TICK = 30.0
@@ -416,7 +420,7 @@ class Calls:
             held.project, held.cwd, held.subject, held.briefing = project, cwd, subject, briefing
             held.at = time.time()
             held.link.rebriefed()
-            self._log(f"call {held.id[:8]}: still held until {held.held_until}, with a new briefing: {subject}")
+            self._log(f"call {held.id[:8]}: still held {until(held.held_until)}, with a new briefing: {subject}")
             self._save()
             return held
         call = Call(secrets.token_urlsafe(24), session, project, cwd, subject, briefing, time.monotonic())
@@ -427,7 +431,7 @@ class Calls:
         self._calls[call.id] = call
         if held_until:
             call.held_until = held_until
-            self._log(f"call {call.id[:8]}: held until {held_until} for {project} ({session[:8]}): {subject}")
+            self._log(f"call {call.id[:8]}: held {until(held_until)} for {project} ({session[:8]}): {subject}")
             call.holding = asyncio.create_task(self._hold(call))
             self._save()
         else:
@@ -443,7 +447,8 @@ class Calls:
 
     async def _ask_switchboard(self, call: Call) -> str | None:
         """Asks the switchboard to ring the phone for a call: None if it rings, or when it
-        can ring if it holds the call outside your work hours. Raises RuntimeError if it can't
+        can ring if it holds the call while your phone holds calls (outside your work hours,
+        or paused in the app); ON_HOLD if it holds it with no time. Raises RuntimeError if it can't
         be reached or refuses. It hears whether the call has a question, so it can tell the
         phone of a held one; a switchboard from before ignores that. It hears the session's ID
         too, which the push takes to the phone, so the app can call the session from Contacts once
@@ -463,8 +468,12 @@ class Calls:
                         answer = None  # a switchboard from before work hours answers only 200
         except (ClientError, TimeoutError) as e:
             raise RuntimeError(f"can't reach the switchboard at {self._switchboard}: {str(e) or type(e).__name__}") from e
-        held_until = answer.get("held_until") if isinstance(answer, dict) else None
-        return held_until if isinstance(held_until, str) and held_until else None
+        if not isinstance(answer, dict):
+            return None
+        held_until = answer.get("held_until")
+        if isinstance(held_until, str) and held_until:
+            return held_until
+        return ON_HOLD if answer.get("held") is True else None
 
     async def _ring(self, call: Call) -> None:
         """The phone rings: Haiku thinks of what to say meanwhile, so the voice can start as
@@ -484,7 +493,7 @@ class Calls:
     async def _hold(self, call: Call) -> None:
         """Asks the switchboard again about a held call when it said the call can ring, or
         after REASK s if that's sooner, until it rings; RETRY s after a try that fails; and at
-        once when it has news for the switchboard (`reask`). The wait is on the wall clock,
+        once when it has news for the switchboard, or you take calls on the phone (`reask`). The wait is on the wall clock,
         which goes on while the Mac sleeps."""
         due = wake(call.held_until)
         while True:
@@ -503,13 +512,22 @@ class Calls:
             if not held_until:
                 break
             if held_until != call.held_until:
-                self._log(f"call {call.id[:8]}: now held until {held_until}")
+                self._log(f"call {call.id[:8]}: now held {until(held_until)}")
             call.held_until = held_until
             self._save()
             due = wake(held_until)
         call.held_until = None
         self._log(f"call {call.id[:8]}: placed for {call.project} ({call.session[:8]}), held until now: {call.subject}")
         await self._ring(call)
+
+    def reask(self, call_ids: list[str]) -> int:
+        """You took calls on the phone: the held calls among call_ids ask the switchboard again
+        now, rather than when it said or within REASK s. How many did."""
+        held = [c for i in call_ids if (c := self._calls.get(i)) and c.held_until and c.holding]
+        for call in held:
+            self._log(f"call {call.id[:8]}: you take calls, asking the switchboard again")
+            call.reask.set()
+        return len(held)
 
     def offer(self, call_id: str) -> Call | None:
         """The call an offer is for, if it's one this server placed. The offer can come while
@@ -584,7 +602,7 @@ class Calls:
             back=remembered(held), now=True,
         )  # fmt: skip
         self._calls[call.id] = call
-        self._log(f"call {call.id[:8]}: called now from the app, held until {held.held_until}: {call.subject!r}")
+        self._log(f"call {call.id[:8]}: called now from the app, held {until(held.held_until)}: {call.subject!r}")
         await self._pick_up(call)
         return call
 
@@ -996,7 +1014,7 @@ class Calls:
         for call in calls:
             if call.held_until:
                 self._calls[call.id] = call
-                self._log(f"call {call.id[:8]}: still held until {call.held_until} after a restart: {call.subject}")
+                self._log(f"call {call.id[:8]}: still held {until(call.held_until)} after a restart: {call.subject}")
                 call.holding = asyncio.create_task(self._hold(call))
                 continue
             # It was ringing or on: it ended when the voice server stopped.
@@ -1114,9 +1132,23 @@ def outcome(call: Call, transcript: str | None) -> str:
     return f"{text} Its transcript: {transcript}" if transcript else text
 
 
+def until(held_until: str) -> str:
+    """A held call's held_until for the log: "until 2026-11-03T08:15:00+01:00", or "until you
+    take calls"."""
+    return "until you take calls" if held_until == ON_HOLD else f"until {held_until}"
+
+
+def held_fields(held_until: str | None) -> dict:
+    """What a session's mod hears of a held call: `held`, and when it rings (`held_until`) if
+    there's a time; nothing for a call that isn't held."""
+    if not held_until:
+        return {}
+    return {"held": True} | ({} if held_until == ON_HOLD else {"held_until": held_until})
+
+
 def wake(held_until: str) -> float:
     """When a held call asks the switchboard again (time.time()): when it said the call can
-    ring, or in REASK s if that's sooner. Never within a second, so a Mac whose clock is a
+    ring, or in REASK s if that's sooner, as for a call held with no time (ON_HOLD). Never within a second, so a Mac whose clock is a
     little ahead of the switchboard's doesn't ask again and again."""
     try:
         at = datetime.fromisoformat(held_until).timestamp()
@@ -1190,7 +1222,7 @@ def session_side(calls: Calls) -> web.Application:
             )
         except RuntimeError as e:
             return web.json_response({"error": str(e)}, status=502)
-        return web.json_response({"ok": True} | ({"held_until": call.held_until} if call.held_until else {}))
+        return web.json_response({"ok": True} | held_fields(call.held_until))
 
     async def collect(request: web.Request) -> web.Response:
         q = request.query
@@ -1225,7 +1257,7 @@ def session_side(calls: Calls) -> web.Application:
                 asked, how, held_until = await calls.ask(request.match_info["id"], kind, checked)
             except RuntimeError as e:
                 return web.json_response({"error": str(e)}, status=502)
-            return web.json_response({kind: asked.id, "call": how} | ({"held_until": held_until} if held_until else {}))
+            return web.json_response({kind: asked.id, "call": how} | held_fields(held_until))
 
         def asked(request: web.Request) -> Ask:
             if found := calls.asked(request.match_info["id"], kind, request.match_info["ask"]):
