@@ -503,13 +503,30 @@ func TestRecentCalls(t *testing.T) {
 		t.Fatalf("%d calls", len(calls))
 	}
 	missed, answered := calls[0], calls[1]
-	if missed.Short != "bbbbbbbb" || missed.Outcome != "Missed" || !missed.Bad || missed.Project != "" {
+	if missed.Short != "bbbbbbbb" || missed.Outcome != "Missed" || !missed.Bad || missed.Title != "Project unknown" || !missed.Untitled {
 		t.Errorf("the missed call: %+v", missed)
 	}
-	if answered.Project != "parser" || answered.Outcome != "Answered" || answered.Duration != "1 min 5 s" || len(answered.Events) != 3 {
+	if answered.Title != "parser" || answered.Outcome != "Answered" || answered.Duration != "1 min 5 s" || len(answered.Events) != 3 ||
+		answered.Events[2].Detail != "lasted 1 min 5 s" {
 		t.Errorf("the answered call: %+v", answered)
 	}
 	if one := recentCalls(1); len(one) != 1 || one[0].Short != "bbbbbbbb" {
 		t.Errorf("the last call: %+v", one)
+	}
+
+	// A call without its project is titled by its Mac; one still live says so.
+	noteMac("cccccccc-3", "studio")
+	appendEvent(map[string]any{"call_id": "cccccccc-3", "event": "audio connected", "at": "2026-11-02T11:02:00Z"})
+	c := &Call{id: "cccccccc-3", answeredAt: now()}
+	registryMu.Lock()
+	live[c.id] = c
+	registryMu.Unlock()
+	defer func() {
+		registryMu.Lock()
+		delete(live, c.id)
+		registryMu.Unlock()
+	}()
+	if latest := recentCalls(1)[0]; latest.Title != "From studio" || latest.Untitled || latest.Outcome != "Live now" || !latest.Live {
+		t.Errorf("a live call from a Mac: %+v", latest)
 	}
 }

@@ -13,15 +13,16 @@ import (
 // call is about.
 
 // The speech nodes and Macs the hub has seen: seen.json in the state folder, by kind
-// ("speech" or "agent") and name, each with when it first linked ("first") and when it was
-// last linked ("last", written as it links and as it goes). The status page tells a part
-// that's gone (a Mac asleep, a speech node offline) from one never set up by it. One gone for
-// good is forgotten there.
+// ("speech" or "agent") and name, each with when it first linked ("first"), when it was last
+// linked ("last", written as it links and as it goes), and whether it's linked now
+// ("linked"). The status page tells a part that's gone (a Mac asleep, a speech node offline)
+// from one never set up by it. One gone for good is forgotten there.
 var seenPath = filepath.Join(stateDir, "seen.json")
 
 type seenPart struct {
-	First string `json:"first"`
-	Last  string `json:"last"`
+	First  string `json:"first"`
+	Last   string `json:"last"`
+	Linked bool   `json:"linked,omitempty"`
 }
 
 var seenMu sync.Mutex
@@ -32,8 +33,8 @@ func loadSeen() map[string]map[string]seenPart {
 	return seen
 }
 
-// sawLink notes a speech node or a Mac as it links and as it goes.
-func sawLink(l *link) {
+// sawLink notes a speech node or a Mac as it links (linked) and as it goes.
+func sawLink(l *link, linked bool) {
 	seenMu.Lock()
 	defer seenMu.Unlock()
 	seen := loadSeen()
@@ -41,13 +42,34 @@ func sawLink(l *link) {
 		seen[l.kind] = map[string]seenPart{}
 	}
 	part := seen[l.kind][l.name]
-	part.Last = isoNow()
+	part.Last, part.Linked = isoNow(), linked
 	if part.First == "" {
 		part.First = part.Last
 	}
 	seen[l.kind][l.name] = part
 	if err := writeJSON(seenPath, seen); err != nil {
 		log("can't keep the parts seen: " + err.Error())
+	}
+}
+
+// partsGoneAtStart: as the hub starts, the parts that were linked when it last stopped are
+// gone as of now. Otherwise one would show as gone since it last linked, which could be days.
+func partsGoneAtStart() {
+	seenMu.Lock()
+	defer seenMu.Unlock()
+	seen, changed := loadSeen(), false
+	for _, parts := range seen {
+		for name, part := range parts {
+			if part.Linked {
+				part.Last, part.Linked, changed = isoNow(), false, true
+				parts[name] = part
+			}
+		}
+	}
+	if changed {
+		if err := writeJSON(seenPath, seen); err != nil {
+			log("can't keep the parts seen: " + err.Error())
+		}
 	}
 }
 
@@ -102,14 +124,14 @@ func (l *link) models() (bool, time.Time) {
 	return l.loaded, l.loadedAt
 }
 
-// What each call is about, as it was placed (its project and subject), for the portal's
-// lists of calls: the Call itself doesn't keep them. In memory, the last callNotesKept, so
-// calls from before the hub started show without their project.
+// What each call is about, as it was placed (its project and subject), and the Mac it's from,
+// for the portal's lists of calls: the Call itself doesn't keep them. In memory, the last
+// callNotesKept, so calls from before the hub started show without them.
 const callNotesKept = 500
 
 type callNote struct {
-	project, subject string
-	at               time.Time
+	project, subject, mac string
+	at                    time.Time
 }
 
 var (
@@ -120,12 +142,28 @@ var (
 // noteCall keeps what a call is about, as an agent or a voice server places it, or the phone
 // calls a session.
 func noteCall(callID, project, subject string) {
-	if callID == "" || project == "" {
+	if project != "" {
+		keepNote(callID, func(n *callNote) { n.project, n.subject = project, subject })
+	}
+}
+
+// noteMac keeps which Mac a call is from, as its agent places it or takes its offer.
+func noteMac(callID, mac string) {
+	keepNote(callID, func(n *callNote) { n.mac = mac })
+}
+
+func keepNote(callID string, set func(*callNote)) {
+	if callID == "" {
 		return
 	}
 	callNotesMu.Lock()
 	defer callNotesMu.Unlock()
-	callNotes[callID] = callNote{project, subject, now()}
+	note := callNotes[callID]
+	set(&note)
+	if note.at.IsZero() {
+		note.at = now()
+	}
+	callNotes[callID] = note
 	if len(callNotes) <= callNotesKept {
 		return
 	}

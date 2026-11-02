@@ -36,6 +36,7 @@ func serve(listen string) {
 		fail(fmt.Sprintf("can't listen on %s: %v", listen, err))
 	}
 	log("hub listening on " + listen)
+	partsGoneAtStart()
 	checkPeriodically()
 	server := &http.Server{
 		ReadHeaderTimeout: 5 * time.Second,
@@ -94,9 +95,11 @@ func answer(endpoints map[string]endpoint, r *http.Request) (int, string) {
 	if json.Unmarshal(data, &body) != nil || body == nil {
 		return http.StatusBadRequest, notOK
 	}
-	stateMu.Lock()
-	result, err := run(body)
-	stateMu.Unlock()
+	result, err := func() (map[string]any, error) {
+		stateMu.Lock()
+		defer stateMu.Unlock() // a panic in an endpoint mustn't leave every later request waiting
+		return run(body)
+	}()
 	switch {
 	case errors.Is(err, errBadRequest):
 		return http.StatusBadRequest, notOK

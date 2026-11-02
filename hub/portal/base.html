@@ -26,6 +26,8 @@
   <symbol id="m-hub" viewBox="0 0 64 64"><rect width="64" height="64" rx="15" fill="#1d2129" stroke="none"/><g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="5"><path d="M13 23l8.5 8L13 39" stroke="#30d158"/><path d="M25 42h8" stroke="#30d158"/><path d="M40 22a13 13 0 0 1 0 20" stroke="#ffffff" stroke-width="4.5"/><path d="M46.5 16.5a20.5 20.5 0 0 1 0 31" stroke="#8e8e93" stroke-width="4.5"/></g></symbol>
   <symbol id="b-working" viewBox="-9 -9 18 18"><path d="M-4 .3l2.6 2.6L4 -2.8"/></symbol>
   <symbol id="b-problem" viewBox="-9 -9 18 18"><path d="M0 -4.4v4.6M0 3.5v.1"/></symbol>
+  <symbol id="b-untried" viewBox="-9 -9 18 18"><path d="M-3.6 0h7.2"/></symbol>
+  <symbol id="b-done" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M7.5 12.3l3 3 6-6.4" stroke="#ffffff" stroke-width="2.2"/></symbol>
   <symbol id="b-asleep" viewBox="-9 -9 18 18"><path d="M1.6 -4.6a4.8 4.8 0 1 0 3.2 7.4 4 4 0 0 1-3.2-7.4z" fill="currentColor" stroke="none"/></symbol>
 </svg>
 <header class="bar">
@@ -38,7 +40,7 @@
         <a href="/portal/log"{{if eq .Page "log"}} aria-current="page"{{end}}><svg class="ic" aria-hidden="true"><use href="#t-log"/></svg><span>Log</span></a>
         <a href="/portal/setup"{{if eq .Page "setup"}} aria-current="page"{{end}}><svg class="ic" aria-hidden="true"><use href="#t-setup"/></svg><span>Setup</span></a>
       </nav>
-      {{- template "holdpill" .}}
+      {{- template "holdchip" .}}
     </div>
     <form class="out" method="post" action="/portal/logout">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
@@ -54,16 +56,21 @@
 </html>
 {{end}}
 
-{{define "holdpill"}}{{if .Hold.Label}}
-      <form class="pill{{if .Hold.On}} on{{end}}" id="hold-pill" method="post" action="/portal/hold">
-        <input type="hidden" name="csrf" value="{{.CSRF}}">
-        <input type="hidden" name="back" value="{{.Page}}">
-        <input type="hidden" name="hold" value="{{if .Hold.On}}off{{else}}on{{end}}">
-        <button type="submit"{{if not .Hold.Phones}} disabled{{end}} title="{{if not .Hold.Phones}}No phone has registered yet{{else if .Hold.On}}Take calls: they ring again{{else}}Hold calls: none rings until you take calls{{end}}">
-          <svg class="ic" aria-hidden="true"><use href="#{{if .Hold.On}}g-play{{else}}g-pause{{end}}"/></svg>
-          <span class="pill-label">{{.Hold.Label}}</span>
-          {{- if and .Hold.On .Hold.Waiting}}<span class="pill-count" aria-label="{{.Hold.Waiting}} waiting">{{.Hold.Waiting}}</span>{{end}}
-          <span class="visually-hidden">{{if .Hold.On}}: take calls{{else if .Hold.Phones}}: hold calls{{end}}</span>
-        </button>
-      </form>
+{{define "holdchip"}}{{if .Hold.Phones}}
+      <a class="chip{{if .Hold.On}} on{{end}}" id="hold-chip" href="/portal/#hold" title="The hold: set it on Status">
+        <span class="chip-dot" aria-hidden="true"></span>
+        <span class="chip-label">{{if .Hold.On}}On hold{{else}}Taking calls{{end}}</span>
+        {{- if and .Hold.On .Hold.Waiting}}<span class="chip-more"> · {{.Hold.Waiting}} waiting</span><span class="chip-count" aria-hidden="true">{{.Hold.Waiting}}</span>{{end}}
+      </a>
 {{- end}}{{end}}
+
+{{define "waitingrow"}}
+    <div class="row">
+      <span class="lead {{if .NoSpeech}}waiting{{else}}held{{end}}" aria-hidden="true"><svg class="ic"><use href="#{{if .NoSpeech}}m-node{{else}}g-pause{{end}}"/></svg></span>
+      <div class="body">
+        <div class="title">{{.Project}}{{if .Question}} <span class="badge">Question</span>{{end}}</div>
+        <div class="sub">{{.Why}}. {{.Rings}}.</div>
+        {{- if .Subject}}<div class="sub quiet">{{.Subject}}</div>{{end}}
+      </div>
+    </div>
+{{- end}}

@@ -199,9 +199,10 @@ class Hub:
             async with http.post(self.base + path, json=body) as r:
                 return r.status, await r.json(content_type=None)
 
-    async def phone(self, token, name, on_device, environment="sandbox"):
-        await self.post("/register", {"token": token, "environment": environment, "device": name, "on_device": on_device,
-                                      "notification_token": token[::-1]})
+    async def phone(self, token, name, on_device, environment="sandbox", hours=None):
+        body = {"token": token, "environment": environment, "device": name, "on_device": on_device,
+                "notification_token": token[::-1]}
+        await self.post("/register", body | (hours or {}))
         await self.post("/check", {"token": token})
 
     async def agent(self, name):
@@ -234,6 +235,17 @@ class Hub:
             raise RuntimeError(f"the live call's offer: {status}")
         self.callers.append(caller)
         await self.post("/events", {"call_id": call_id, "event": "audio connected", "at": iso(), "note": "from Sessions"})
+        await asyncio.sleep(0.3)
+
+    async def ringing_call(self):
+        """A call whose offer came while the phone rang, as the app makes it: not answered yet.
+        No push goes out for it: the stand-in agent takes any offer."""
+        phone_check.VOICE = f"127.0.0.1:{self.port}"
+        caller = phone_check.Phone()
+        status = await caller.offer(str(uuid.uuid4()).upper(), ringing=True)
+        if status != 200:
+            raise RuntimeError(f"the ringing call's offer: {status}")
+        self.callers.append(caller)
         await asyncio.sleep(0.3)
 
     async def place(self, agent, project, subject, question=False):
@@ -327,6 +339,22 @@ async def on_hold_calls(h, studio):
     await h.place(studio, "parser", "Which branch should the fix go to?")
 
 
+async def on_hold_hours(h):
+    """Outside work hours: they start in two hours, in UTC, so the hold ends then."""
+    start = datetime.now(timezone.utc) + timedelta(hours=2)
+    hours = {"hours_from": start.strftime("%H:%M"), "hours_to": (start + timedelta(hours=1)).strftime("%H:%M"), "time_zone": "UTC"}
+    await h.phone("f00d" * 16, "iPhone", False, hours=hours)
+    await h.agent("studio")
+    await h.node("gpu-tower", False)
+
+
+async def ringing(h):
+    await h.phone("f00d" * 16, "iPhone", False)
+    await h.agent("studio")
+    await h.node("gpu-tower", True)
+    await h.ringing_call()
+
+
 async def no_phone(h):
     await h.agent("studio")
     await h.node("gpu-tower", False)
@@ -350,18 +378,20 @@ async def busy(h):
 
 # name: (set up, APNs key, calls waiting for speech, words the status page must show)
 STATES = {
-    "working": (working, "good", [], ["Calls ring iPhone, and gpu-tower hears and speaks them", "On a call", "Speaks calls", "Taking calls"]),
+    "working": (working, "good", [], ["Calls ring your iPhone, and gpu-tower hears and speaks them", "On a call", "Used for calls", "Taking calls"]),
     "no-node-voice-off": (no_node_voice_off, "good", [("infra", "Backups moved to the new bucket")],
-                          ["Calls wait instead of ringing: there's no speech node", "Not set up", "None linked, so calls wait"]),
+                          ["Calls wait instead of ringing: there's no speech node", "Not set up", "None yet", "Waiting for a speech node"]),
     "no-node-voice-on": (no_node_voice_on, "good", [],
-                         ["Calls ring iPhone, which hears and speaks them itself", "On-device voice on", "Speaks calls"]),
-    "node-offline": (node_offline, "good", [], ["gpu-tower is offline", "Offline", "Forget"]),
-    "mac-asleep": (mac_asleep, "good", [], ["Asleep", "laptop", "Calls ring iPhone"]),
-    "push-failing": (push_failing, "broken", [], ["the push to Apple fails", "Key can't be read", "can't read its sandbox push key"]),
-    "on-hold": (on_hold, "good", [], ["On hold", "Once you take calls", "not with the phone's own voice", "Take calls"]),
+                         ["Calls ring your iPhone, which hears and speaks them itself", "device voice on", "Used for calls"]),
+    "node-offline": (node_offline, "good", [], ["Calls wait instead of ringing: gpu-tower is offline", "Offline", "Forget"]),
+    "mac-asleep": (mac_asleep, "good", [], ["Asleep", "laptop", "Calls ring your iPhone"]),
+    "push-failing": (push_failing, "broken", [], ["Calls can't ring: the hub can't read its Apple push key", "Key can't be read"]),
+    "on-hold": (on_hold, "good", [], ["On hold until you take calls", "When the hold ends", "not with the phone's own voice", "Take calls"]),
+    "on-hold-hours": (on_hold_hours, "good", [], ["when your work hours start", "When the hold ends", "Take calls"]),
+    "ringing": (ringing, "good", [], ["Ringing", "1 call ringing"]),
     "no-phone": (no_phone, None, [], ["No phone yet", "Not set up"]),
     "fresh": (fresh, None, [], ["No phone yet", "Not set up"]),
-    "busy": (busy, "good", [], ["and 1 more", "spare-box", "iPad", "a-project-with-a-rather-long-name-indeed"]),
+    "busy": (busy, "good", [], ["and 1 asleep", "spare-box", "iPad", "a-project-with-a-rather-long-name-indeed", "on one of your phones"]),
 }
 
 

@@ -7,5 +7,6 @@ hub = "10.0.0.1:8787"
 # The hub's agent token ([tokens] agent in its hub.toml).
 token = "…"
 
-# This Mac, for the hub's log and its portal (optional; its host name by default).
+# This Mac, for the hub's log and its portal (optional; by default its local host name, as
+# set in System Settings, General, Sharing).
 # name = "studio"

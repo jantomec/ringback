@@ -136,11 +136,13 @@ Stages, by parts that each run anywhere:
     - the sessions, each with the Mac it runs on;
     - the phone's registration and the last push;
     - the log's tail;
-    - the phone's settings, read-only (work hours, hold, On-device voice).
+    - the phone's settings, read-only (work hours, On-device voice), and the hold in every
+      page's bar.
   - **What it changes:** adding a node or a Mac (it shows the hub's address, the token from
-    the hub's config, and the commands to run there), the hold (every phone's hold switch at
-    once, so the app shows it too: while held, no call rings, whatever speech there is), and
-    forgetting a node or a Mac that's gone for good.
+    the hub's config, and the commands to run there), the hold, on Status only (every phone's
+    hold switch at once, so the app shows it too: while held, no call rings, whatever speech
+    there is, until you take calls or work hours next start), and forgetting a node or a Mac
+    that's gone for good.
   - **How it's built:** plain HTML and SVG from the hub's own binary, refreshing itself, with
     no JavaScript framework; the map is laid out by the hub and drawn in two shapes, wide for a
     desk and tall for a phone.
@@ -2060,6 +2062,45 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
        squeezing the sessions. `tools/hub-check` failed one check in 2 of 5 runs at first: a
        call placed just as a node went still found it, because noting the node as seen came
        before taking it off the registry; moved after, 8 runs of 8 passed (46 checks each).
+     - Second round (2026-11-02), from a review of the design and one of the code:
+       - The hold's words promise no more than it does: with work hours, their start ends a
+         hold as it ends the app's switch, so Status says "On hold until 08:00 tomorrow, when
+         your work hours start", and "until you take calls" only without them. A phone that
+         registers while you've held every other (their switches on hold) starts on hold, as
+         of when they were set; a reinstall or a second phone ended the hold before. One held
+         only by its work hours leaves a new phone to its own.
+       - One control: the bar on every page shows the hold only (a chip linking to Status,
+         hidden with no phone); the switch is on Status, whose card describes only the hold.
+         Setup no longer refreshes itself, so its tokens are fetched once.
+       - Each fact once or twice: what's wrong is said in the headline, with what to do under
+         it, and the list under it has only the rest; the hub shows its hold only when held;
+         the phone's facts lost the hold, which isn't the phone's; the lists of nodes and Macs
+         say only what the map doesn't. One colour for the hold, indigo; one for each
+         severity, the headline's dot matching the map.
+       - What a live call shows is what the hub knows: ringing is "Ringing" on the phones,
+         their links from Apple push lit; answered lights the phone only if there's one,
+         since neither the offer nor the phone's link says which phone answered.
+       - The map: the push links run round the outside of the Nebula links with two phones;
+         on a phone the nodes sit beside the hub and push between the phones, every link
+         meeting its tiles, a part's words drawn over the links into it with a halo; captions
+         over each group; "and 1 asleep" for a Mac not shown. Apple push not yet tried is
+         grey, not green.
+       - The Calls page lists the calls waiting first; a call without its project is titled
+         by its Mac, or a grey "Project unknown"; one still going is "Live now"; lengths are
+         as everywhere ("3 min 12 s"). The log is newest first.
+       - The code: `seen.json` says whether each part is linked, and at start those still
+         linked count as gone since then; Forget takes any name it has; a null device in
+         `devices.json` is dropped, and the locks around the phone's requests and the portal's
+         hold are let go even if they panic; the agent names its Mac by its local host name on
+         macOS (`scutil --get LocalHostName`), which stays put: with no host name set, as on the
+         Mac this was built on, macOS takes one from each network it joins.
+       - Checked with Go tests (`hub/portal_status_test.go`, 10 there, 19 in the hub, 1.4 s;
+         race-free over 3 runs), each fix taken out in turn making a test fail (10 of 10), and
+         in headless Chrome (`tools/portal-screens`, 12 states, 51 checks passed, 97
+         screenshots, 162 s). The switchboard's smoke test, run on the hub, found the first
+         version of the joining phone wrong: it joined a hold that only work hours had set, and
+         stayed on hold once they were gone; it now joins only a hold you set (139 checks
+         passed).
      - Not tried on the phone or with the real hub: the app showing a hold set on the portal
        (it reads the hold with the waiting calls, on opening and pull to refresh), and Safari
        on the iPhone (the screenshots are Chrome's).

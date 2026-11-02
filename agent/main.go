@@ -12,8 +12,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -59,8 +61,7 @@ func serve(options map[string]string) {
 	}
 	name := config["name"]
 	if name == "" {
-		name, _ = os.Hostname()
-		name = strings.TrimSuffix(name, ".local")
+		name = macName()
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -88,6 +89,21 @@ func serve(options map[string]string) {
 	}
 	logLine(fmt.Sprintf("voice listening for sessions on %s, through the hub at %s", socket, config["hub"]))
 	<-ctx.Done()
+}
+
+// macName is this Mac's name for the hub: on macOS its local host name, which you set in
+// Sharing; elsewhere the host name.
+func macName() string {
+	// macOS can take its host name from each network it joins, and the hub would see a new Mac.
+	if runtime.GOOS == "darwin" {
+		if out, err := exec.Command("scutil", "--get", "LocalHostName").Output(); err == nil {
+			if name := strings.TrimSpace(string(out)); name != "" {
+				return name
+			}
+		}
+	}
+	name, _ := os.Hostname()
+	return strings.TrimSuffix(name, ".local")
 }
 
 // loadConfig reads agent.toml: `key = "value"` lines and `#` comments, as the hub reads its

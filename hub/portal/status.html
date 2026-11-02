@@ -4,28 +4,24 @@
   <p class="updated">Updated {{$.Updated}}</p>
 </div>
 
-<section class="hold-card{{if .Hold.On}} on{{end}}{{if not .Hold.Phones}} none{{end}}" id="hold" aria-labelledby="hold-title">
-  <span class="hold-icon" aria-hidden="true"><svg class="ic"><use href="#{{if .Hold.On}}g-pause{{else}}t-calls{{end}}"/></svg></span>
-  <h2 id="hold-title">{{.Hold.Label}}{{with .Hold.Until}} <span class="until">{{.}}</span>{{end}}</h2>
-  {{- if not .Hold.Phones}}
-  <p>Once your iPhone registers with the hub, you can hold its calls here or in the app.</p>
-  {{- else if .Hold.On}}
-  <p>No call rings: not through a speech node, and not with the phone's own voice. Calls wait here{{if .Hold.Waiting}} ({{.Hold.Waiting}} now){{end}} and ring when you take calls.</p>
-  {{- else}}
-  <p>Calls ring as they come. Hold them and none rings, not through a speech node and not with the phone's own voice: they wait here until you take calls.</p>
-  {{- end}}
-  {{- if .Hold.Phones}}
+{{- if .Hold.Phones}}
+<section class="hold-card{{if .Hold.On}} on{{end}}" id="hold" aria-labelledby="hold-title">
+  <span class="hold-icon" aria-hidden="true"><svg class="ic"><use href="#g-pause"/></svg></span>
+  <h2 id="hold-title">{{.Hold.Title}}</h2>
+  <p>{{.Hold.Text}}</p>
   <form method="post" action="/portal/hold">
     <input type="hidden" name="csrf" value="{{$.CSRF}}">
-    <input type="hidden" name="back" value="status">
     <input type="hidden" name="hold" value="{{if .Hold.On}}off{{else}}on{{end}}">
     <button type="submit" class="hold-button"><svg class="ic" aria-hidden="true"><use href="#{{if .Hold.On}}g-play{{else}}g-pause{{end}}"/></svg>{{if .Hold.On}}Take calls{{else}}Hold calls{{end}}</button>
   </form>
-  {{- end}}
 </section>
+{{- end}}
 
 <section class="overview tone-{{.Tone}}" id="overview" aria-labelledby="headline">
   <p class="headline" id="headline">{{.Headline}}</p>
+  {{- with .Hint}}
+  <p class="hint">{{.}}</p>
+  {{- end}}
   <p class="detail">{{.Detail}}</p>
   {{- if .Problems}}
   <ul class="problems">
@@ -38,18 +34,17 @@
     {{template "map" .Wide}}
     {{template "map" .Narrow}}
   </div>
-  <ul class="key" aria-label="What the lines mean">
+  <ul class="key" aria-label="What the links mean">
     <li><svg aria-hidden="true"><path class="wire w-working" d="M2 6h24"/></svg>Working</li>
     <li><svg aria-hidden="true"><path class="wire w-working live" d="M2 6h24"/></svg>On a call</li>
     <li><svg aria-hidden="true"><path class="wire w-problem" d="M2 6h24"/></svg>Problem</li>
-    <li><svg aria-hidden="true"><path class="wire w-asleep" d="M2 6h24"/></svg>Asleep or offline</li>
+    <li><svg aria-hidden="true"><path class="wire w-asleep" d="M2 6h24"/></svg>Asleep or away</li>
     <li><svg aria-hidden="true"><path class="wire w-unset" d="M2 6h24"/></svg>Not set up</li>
   </ul>
-  <p class="legend">A speech node is the GPU computer that hears and speaks calls; without one, the phone can do it itself if its On-device voice is on. Apple push rings the phone, and the call's audio goes between the hub and the phone over Nebula.</p>
+  <p class="legend">A speech node is the GPU computer that hears and speaks calls; without one, the phone can do it itself if its {{"On‑device"}} voice is on. Apple push rings the phone, and the call's audio goes between the hub and the phone over Nebula.</p>
 </section>
 
 <div class="columns">
-<div class="column">
 <section id="calls">
   <h2>Calls</h2>
   <div class="group">
@@ -57,24 +52,15 @@
     <div class="row">
       <span class="lead live" aria-hidden="true"><svg class="ic"><use href="#t-calls"/></svg></span>
       <div class="body">
-        <div class="title">{{or .Project "A call"}}</div>
-        <div class="sub">{{.State}}, from {{.Mac}}</div>
+        <div class="title{{if .Untitled}} untitled{{end}}">{{.Title}}</div>
+        <div class="sub">{{.State}}, from {{.From}}</div>
         <div class="sub">{{.Speech}}</div>
         {{- if .Subject}}<div class="sub quiet">{{.Subject}}</div>{{end}}
       </div>
       <div class="meta">{{.For}}</div>
     </div>
   {{- end}}
-  {{- range .Waiting}}
-    <div class="row">
-      <span class="lead waiting" aria-hidden="true"><svg class="ic"><use href="#{{if .NoSpeech}}m-node{{else}}g-pause{{end}}"/></svg></span>
-      <div class="body">
-        <div class="title wait">{{.Project}}{{if .Question}} <span class="badge wait">Question</span>{{end}}</div>
-        <div class="sub">{{.Why}}. {{.Rings}}.</div>
-        {{- if .Subject}}<div class="sub quiet">{{.Subject}}</div>{{end}}
-      </div>
-    </div>
-  {{- end}}
+  {{- range .Waiting}}{{template "waitingrow" .}}{{end}}
   {{- if and (not .Live) (not .Waiting)}}
     <div class="row empty">No call is live or waiting.</div>
   {{- end}}
@@ -99,9 +85,7 @@
   </div>
   <p class="foot">The Claude Code sessions with ringback on, and the Mac each runs on.</p>
 </section>
-</div>
 
-<div class="column">
 <section id="phones">
   <h2>{{if gt (len .Phones) 1}}Phones{{else}}Phone{{end}}</h2>
   {{- range .Phones}}
@@ -116,15 +100,14 @@
     <dl class="facts">
       <div><dt>Last check-in</dt><dd>{{.CheckedIn}}</dd></div>
       <div><dt>Last push</dt><dd{{if .PushFailed}} class="bad"{{end}}>{{.Push}}</dd></div>
-      <div><dt>Hold</dt><dd>{{.Hold}}{{if .HoldSet}}<span class="sub">{{.HoldSet}}</span>{{end}}</dd></div>
       <div><dt>Work hours</dt><dd>{{.Hours}}</dd></div>
-      <div><dt>On-device voice</dt><dd>{{.OnDevice}}</dd></div>
+      <div><dt>{{"On‑device"}} voice</dt><dd>{{.OnDevice}}</dd></div>
     </dl>
   </div>
   {{- else}}
   <div class="group"><div class="row empty">No phone has registered. In the app's settings, enter the hub's address. <a href="/portal/setup#phone">How</a></div></div>
   {{- end}}
-  <p class="foot">Work hours and On-device voice are set in the app's settings, and shown as the hub last heard them.</p>
+  <p class="foot">Set in the app's settings, and shown as the hub last heard them.</p>
 </section>
 
 <section id="parts">
@@ -144,7 +127,6 @@
   <p class="foot">A Mac drops off while it sleeps and links again when it wakes. Forget a node or a Mac only once it's gone for good.</p>
 </section>
 </div>
-</div>
 {{end}}{{end}}
 
 {{define "partrow"}}
@@ -153,7 +135,6 @@
       <div class="body">
         <div class="title">{{.Part.Name}}</div>
         <div class="sub">{{.Part.Status}}</div>
-        <div class="sub quiet">{{.Part.Detail}}</div>
       </div>
       {{- if .Part.Gone}}
       <form method="post" action="/portal/forget">

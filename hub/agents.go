@@ -42,7 +42,7 @@ func agentOpened(l *link) {
 	registryMu.Lock()
 	agents[l] = nil
 	registryMu.Unlock()
-	sawLink(l)
+	sawLink(l, true)
 }
 
 func agentClosed(l *link) {
@@ -68,7 +68,7 @@ func agentClosed(l *link) {
 	stateMu.Lock()
 	dropContacts(agentKey(l))
 	stateMu.Unlock()
-	sawLink(l) // after it's off the registry, not to delay that
+	sawLink(l, false) // after it's off the registry, not to delay that
 }
 
 // fromAgent handles what an agent sends, outside a call (sessions, place) and in one.
@@ -98,6 +98,7 @@ func fromAgent(l *link, message map[string]any) {
 		registryMu.Lock()
 		placedBy[str(message, "call_id")] = l
 		registryMu.Unlock()
+		noteMac(str(message, "call_id"), l.name)
 		if answer["held"] != true {
 			// The phone rings: the speech nodes load their models now, while it rings.
 			warmNodes()
@@ -129,7 +130,7 @@ func nodeOpened(l *link) {
 	registryMu.Lock()
 	nodes[l] = true
 	registryMu.Unlock()
-	sawLink(l)
+	sawLink(l, true)
 	// The calls that waited for speech ask again now, and ring.
 	stateMu.Lock()
 	ids := waitingFor("no speech")
@@ -176,7 +177,7 @@ func nodeClosed(l *link) {
 		}
 	}
 	registryMu.Unlock()
-	sawLink(l) // after it's off the registry, not to delay that
+	sawLink(l, false) // after it's off the registry, not to delay that
 	for _, c := range gone {
 		c.say("its speech node went away")
 		c.end("disconnected")

@@ -72,6 +72,7 @@ func phoneSpeech(w http.ResponseWriter, r *http.Request) {
 	registryMu.Lock()
 	placedBy[callID] = agent
 	registryMu.Unlock()
+	noteMac(callID, agent.name)
 	if earlier := keepCall(c); earlier != nil {
 		c.say("a new offer replaces the earlier one")
 		earlier.end("replaced")

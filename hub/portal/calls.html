@@ -1,20 +1,26 @@
-{{define "content"}}
+{{define "content"}}{{with .Data}}
 <div class="head">
   <h1>Calls</h1>
-  <p class="updated">Updated {{.Updated}}</p>
+  <p class="updated">Updated {{$.Updated}}</p>
 </div>
-<p class="lede">The last 50 calls the phone reported, newest first. Open one for what happened, step by step.</p>
+<p class="lede">The calls waiting, then the last 50 the phone reported, newest first. Open one for what happened, step by step.</p>
 <div id="calls">
-{{- range .Data}}
+{{- if .Waiting}}
+<h2 class="day">Waiting</h2>
+<div class="group">
+  {{- range .Waiting}}{{template "waitingrow" .}}{{end}}
+</div>
+{{- end}}
+{{- range .Days}}
 <h2 class="day">{{.Label}}</h2>
 <div class="group">
   {{- range .Calls}}
   <details class="call" id="{{.ID}}">
     <summary>
-      <span class="lead{{if .Bad}} missed{{else if .Answered}} ok{{end}}" aria-hidden="true"><svg class="ic"><use href="#t-calls"/></svg></span>
+      <span class="lead{{if .Live}} live{{else if .Bad}} missed{{else if .Answered}} ok{{end}}" aria-hidden="true"><svg class="ic"><use href="#t-calls"/></svg></span>
       <div class="body">
-        <div class="title{{if .Bad}} bad{{end}}">{{or .Project "A call"}}</div>
-        <div class="sub"><span class="outcome{{if .Bad}} bad{{end}}">{{.Outcome}}</span>{{if .Duration}}, {{.Duration}}{{end}}</div>
+        <div class="title{{if .Bad}} bad{{end}}{{if .Untitled}} untitled{{end}}">{{.Title}}</div>
+        <div class="sub"><span class="outcome{{if .Bad}} bad{{end}}{{if .Live}} live{{end}}">{{.Outcome}}</span>{{if .Duration}}, {{.Duration}}{{end}}</div>
         {{- if .Subject}}<div class="sub quiet">{{.Subject}}</div>{{end}}
       </div>
       <div class="meta">{{.When}}</div>
@@ -28,8 +34,10 @@
   {{- end}}
 </div>
 {{- else}}
+{{- if not .Waiting}}
 <div class="group"><div class="row empty">No calls yet. Once the phone rings, each call shows here with what happened to it.</div></div>
+{{- end}}
 {{- end}}
 </div>
 <p class="foot">From <code>events.jsonl</code> in the hub's state folder. A call placed before the hub last started shows without its project.</p>
-{{end}}
+{{end}}{{end}}

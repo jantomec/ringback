@@ -49,18 +49,41 @@ var devicesPath = filepath.Join(stateDir, "devices.json")
 func loadDevices() map[string]map[string]string {
 	devices := map[string]map[string]string{}
 	readJSON(devicesPath, &devices)
+	for token, entry := range devices {
+		if entry == nil { // a null in the file: nothing to keep of it, and nothing to write to
+			delete(devices, token)
+		}
+	}
 	return devices
 }
 
 func saveDevices(devices map[string]map[string]string) error { return writeJSON(devicesPath, devices) }
 
 // registerDevice keeps a phone's tokens, whether its On-device voice is on ("yes" or "no",
-// missing if it didn't say) and its work hours; empty hours clear them.
+// missing if it didn't say) and its work hours; empty hours clear them. A phone new to the hub
+// while you've held every other (their switches on hold, in the app or on the portal) starts
+// on hold too, as of when the last of them was set: calls are held while every phone is, and a
+// new one (a reinstall, a second phone) mustn't end that. One held only by its work hours
+// leaves a new phone to its own.
 func registerDevice(token, environment, device, notificationToken, onDevice string, hours map[string]string) error {
 	devices := loadDevices()
 	entry := devices[token]
 	if entry == nil {
 		entry = map[string]string{}
+		switched := true
+		for _, other := range devices {
+			switched = switched && other["hold"] == "yes"
+		}
+		if held, _ := heldUntil(now()); held && switched {
+			entry["hold"] = "yes"
+			set := ""
+			for _, other := range devices {
+				set = max(set, other["hold_set"])
+			}
+			if set != "" {
+				entry["hold_set"] = set
+			}
+		}
 	}
 	entry["environment"] = environment
 	entry["device"] = device
