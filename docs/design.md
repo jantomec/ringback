@@ -1959,12 +1959,24 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
   3. Its login: password and passcode first, then passkeys once the portal has a name and a
      certificate.
   4. Setup on the portal: adding a node or a Mac, and the nodes' settings.
-- **Speech on the phone** (decided 2026-11-02; not started). First a trial on an older iPhone (4 GB)
+- **Speech on the phone** (decided 2026-11-02; a trial in progress, `tools/speech-trial`). First a trial on an older iPhone (4 GB)
   with Apple's on-device recognition, measured: how soon your words come after you stop,
   their accuracy on `tools/stt-eval`'s recordings, the app's memory, battery over a
   10-minute call, and whether it hears on a locked phone during a call. If it holds up: the
   phone as the call's speech node, the "On-device voice" switch in the Settings app, and the
   choice of voice.
+  - What Apple's documentation says (checked 2026-11-02, WWDC25 session 277 and the Speech
+    framework's pages): the model runs outside the app's memory, in a system service that
+    installs it once (`AssetInventory`) and shares it between apps; results come tentative and
+    fast, then final; its `SpeechDetector` gives no end of speech, so a call keeps its own
+    (Silero) and asks for the final words through there (`finalize(through:)`); custom
+    vocabulary is only for the older DictationTranscriber. Nothing says whether it runs in the
+    background on a locked phone.
+  - Accuracy (2026-11-02, on the phone, `tools/speech-trial`): Apple's SpeechTranscriber got
+    10.3% of words wrong on `tools/stt-eval`'s recordings, Parakeet v2 5.9%; repaired by Haiku,
+    8.2% and 4.6%. Its errors are technical words and answers to permission prompts ("allow
+    it once" as "I love it once"). Each utterance took a median of 0.09 s on the phone. Live in
+    a call, locked: not run yet.
 7. **Several sessions + retries.** A second session waits for the first call to end.
    "Not now" retries on schedule while the queue waits. A final decline holds all calls
    until a call back releases them.

@@ -58,5 +58,29 @@ and `DATA_DIR` the recordings folder of `tools/stt-eval`.
    0.6 s of quiet the trial waits for), how soon the first tentative words came after you
    started, the app's memory, and the battery per hour.
 
+## Results
+
+Accuracy, 2026-11-02, the test iPhone (4 GB) on iOS 27, the English model installed through
+the trial: all 99 utterances of the three recordings transcribed, none failed, each in a median
+of 0.09 s (0.21–0.26 s at most) from its first audio to its final words. Scored with
+`tools/stt-eval`, the share of words wrong:
+
+| | free speech | scripted, AirPods | scripted, phone | all |
+|---|---|---|---|---|
+| Apple, SpeechTranscriber | 7.5% | 14.7% | 12.1% | 10.3% |
+| Apple, repaired by Haiku | 7.5% | 10.8% | 7.3% | 8.2% |
+| Parakeet v2 (the speech node's) | 5.2% | 7.8% | 5.6% | 5.9% |
+| Parakeet v2, repaired by Haiku | 5.2% | 3.4% | 4.3% | 4.6% |
+
+Apple's model gets about 1.75 times as many words wrong as Parakeet, 1.8 times with Haiku's
+repair, mostly in the scripted sentences: technical words ("webrtc" as "rtc", "ffmpeg" as "ffm
+pack", "build" as "bill", "30 seconds" as "a 32nd"), and answers to permission prompts
+("deny that one" as "I add one", "allow it once" as "I love it once"). The free speech's
+reference was corrected from one model's transcript, which favours that model there
+(`tools/stt-eval`). Parakeet's times aren't comparable: its 41 ms is on an Apple silicon Mac,
+and the speech node takes 70–90 ms.
+
+Live, in a call: not run yet.
+
 The trial's code is `app/Ringback/SpeechTrial.swift`; the call goes through the app's own
 `CallService`, so it rings and shows as a call, named "Speech trial".
