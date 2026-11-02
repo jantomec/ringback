@@ -27,6 +27,7 @@ type piece struct {
 	done    bool      // all its audio has come
 	start   time.Time // when its first audio played; zero until then
 	partial []int16   // audio not yet a whole 20 ms frame
+	played  bool      // all of it has played (a phone that speaks itself says so)
 }
 
 func (p *piece) secs() float64 { return float64(p.samples) / speakingRate }
@@ -37,7 +38,11 @@ type outFrame struct {
 }
 
 type Call struct {
-	id, short       string
+	id, short string
+	// phone: the phone hears and speaks itself (phonespeech.go), and node is its link: no
+	// audio comes through the hub, and the phone says what it plays.
+	phone           bool
+	hearing         bool // a phone that speaks itself was told to listen
 	agent, node     *link
 	stream          uint32
 	ringing         bool
@@ -150,6 +155,10 @@ func newCall(id string, offer string, ringing bool, sensitivity, gate float64, a
 }
 
 func (c *Call) close() {
+	if c.phone {
+		c.node.cancel() // its link: the phone hangs up with it
+		return
+	}
 	c.pc.Close()
 	if c.enc != nil {
 		c.enc.close()
@@ -167,6 +176,7 @@ func (c *Call) markAnswered() {
 	c.mu.Unlock()
 	c.say("answered")
 	_ = c.agent.send(map[string]any{"type": "answered", "call_id": c.id})
+	c.hearIfLive()
 }
 
 func (c *Call) connected() {
@@ -179,6 +189,7 @@ func (c *Call) connected() {
 	c.mu.Unlock()
 	c.say(fmt.Sprintf("connected, %.2f s after the offer", now().Sub(c.offeredAt).Seconds()))
 	_ = c.agent.send(map[string]any{"type": "connected", "call_id": c.id})
+	c.hearIfLive()
 }
 
 // hear reads your audio: packets through the jitter buffer and the decoder, then in 20 ms
@@ -303,7 +314,7 @@ func (c *Call) heard(t time.Time) string {
 			continue
 		}
 		elapsed, secs := t.Sub(p.start).Seconds(), p.secs()
-		if p.done && elapsed >= secs {
+		if p.done && (elapsed >= secs || p.played) {
 			words = append(words, p.text)
 			continue
 		}
@@ -503,6 +514,9 @@ func (c *Call) speechStarted() {
 	}
 	c.replying, c.awaiting, c.queue, c.pieces, c.text, c.heardSent = false, false, nil, nil, "", ""
 	c.cutThisTurn = true
+	if c.phone {
+		c.playing = false // it stops at speak_cancel, and says nothing more of those pieces
+	}
 	c.generation++
 	_ = c.agent.send(map[string]any{"type": "interrupted", "call_id": c.id, "reply": c.cut, "heard": heard})
 	c.say(fmt.Sprintf("interrupted reply %d; you'd heard %q", c.cut, lastRunes(heard, 60)))
@@ -560,8 +574,12 @@ func (c *Call) end(why string) {
 		lasted = end.Sub(start).Seconds()
 	}
 	c.mu.Unlock()
-	_ = c.node.send(map[string]any{"type": "speak_cancel", "stream": c.stream})
-	_ = c.node.send(map[string]any{"type": "hear_end", "stream": c.stream})
+	if c.phone {
+		_ = c.node.send(map[string]any{"type": "end"})
+	} else {
+		_ = c.node.send(map[string]any{"type": "speak_cancel", "stream": c.stream})
+		_ = c.node.send(map[string]any{"type": "hear_end", "stream": c.stream})
+	}
 	go c.close()
 	forgetCall(c)
 	if replaced {

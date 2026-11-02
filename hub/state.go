@@ -72,6 +72,37 @@ func registerDevice(token, environment, device, notificationToken string, hours 
 	return saveDevices(devices)
 }
 
+// setOnDevice keeps whether a phone speaks itself when no speech node is linked (its On-device
+// voice); true if that turned it on.
+func setOnDevice(token string, on bool) (bool, error) {
+	devices := loadDevices()
+	entry := devices[token]
+	if entry == nil {
+		return false, nil
+	}
+	was := entry["on_device"] == "yes"
+	if on == was {
+		return false, nil
+	}
+	if on {
+		entry["on_device"] = "yes"
+	} else {
+		delete(entry, "on_device")
+	}
+	return on, saveDevices(devices)
+}
+
+// phoneSpeaks says whether a registered phone speaks itself, so a call can be talked through
+// without a speech node.
+func phoneSpeaks() bool {
+	for _, device := range loadDevices() {
+		if device["on_device"] == "yes" {
+			return true
+		}
+	}
+	return false
+}
+
 func setHours(entry, hours map[string]string) {
 	for _, key := range workHoursKeys {
 		if value, ok := hours[key]; ok {

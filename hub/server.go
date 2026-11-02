@@ -46,6 +46,8 @@ func serve(listen string) {
 				acceptLink(w, r, "agent", agentOpened, fromAgent, func(*link, []byte) {}, agentClosed)
 			case path == "/speech":
 				acceptLink(w, r, "speech", nodeOpened, fromNode, nodeAudio, nodeClosed)
+			case path == "/phone-speech":
+				phoneSpeech(w, r)
 			case path == "/ping":
 				// The phone checks it can reach the hub while it rings.
 				phoneJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -127,6 +129,17 @@ func register(body map[string]any) (map[string]any, error) {
 		return nil, err
 	}
 	registeredAgain(token, notificationToken)
+	if onDevice, sent := body["on_device"].(bool); sent {
+		turnedOn, err := setOnDevice(token, onDevice)
+		if err != nil {
+			return nil, err
+		}
+		// The calls that waited for speech can be talked through on the phone now.
+		if ids := waitingFor("no speech"); turnedOn && len(ids) > 0 {
+			log(fmt.Sprintf("%s speaks itself now: %d calls waited for speech, they ask again", device, len(ids)))
+			broadcast(map[string]any{"type": "reask", "call_ids": ids})
+		}
+	}
 	checks := ""
 	if notificationToken != "" {
 		checks = ", with connection checks"
@@ -194,7 +207,7 @@ func call(body map[string]any) (map[string]any, error) {
 	}
 	// A call the hub carries (an agent's) needs a speech node: without one it can't be
 	// talked through, so it waits instead of ringing, and asks again once a node links.
-	if voice == hubURL() && !speechLinked() {
+	if voice == hubURL() && !speechLinked() && !phoneSpeaks() {
 		question, _ := body["question"].(bool)
 		log("call " + prefix(callID, 8) + ": waits, no speech node is linked")
 		notify, err := holdCall(callID, project, subject, voice, "", question, session, "no speech")
@@ -326,7 +339,11 @@ func status(token string, device map[string]string, calls []map[string]any) map[
 		}
 	}
 	nodes, macs := linked()
-	speech := map[string]any{"ok": len(nodes) > 0 || (len(macs) == 0 && waitingForSpeech == 0), "nodes": nodes, "waiting": waitingForSpeech}
+	onDevice := device["on_device"] == "yes"
+	speech := map[string]any{
+		"ok":    len(nodes) > 0 || onDevice || (len(macs) == 0 && waitingForSpeech == 0),
+		"nodes": nodes, "waiting": waitingForSpeech, "on_device": onDevice,
+	}
 	pushed := map[string]any{"ok": true}
 	if last, found := lastPush(device, token); found {
 		pushed = map[string]any{"ok": last.ok(), "at": last.at.UTC().Format(time.RFC3339), "status": last.status}

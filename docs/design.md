@@ -1986,6 +1986,14 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
     app's 30 MB, but gets about 1.8 times Parakeet's words wrong, answers to permission prompts
     among them, which suits a fallback for when the speech node is down. Untried: a phone
     locked in a pocket (data protection on) through a call, and the battery over a long call.
+  - The fallback (2026-11-02, being built): with no node linked and the phone's own voice on,
+    a call rings, and the phone hears and speaks it over its own link to the hub, which carries
+    only text (`docs/protocol.md`, "The phone as the speech node"). The hub's side is built: it
+    rings such a call, takes the phone's link once the agent accepts the call, and runs the
+    call as with a node, counting what you've heard from the phone's `playing` and `played`;
+    `tools/hub-check` runs it with a stand-in phone (45 checks, all passed). The app's side:
+    hearing with SpeechTranscriber and a level detector, speaking with Apple's voices through
+    the same audio engine, so echo cancellation sees them.
 7. **Several sessions + retries.** A second session waits for the first call to end.
    "Not now" retries on schedule while the queue waits. A final decline holds all calls
    until a call back releases them.

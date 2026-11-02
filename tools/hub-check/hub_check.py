@@ -332,14 +332,116 @@ async def main() -> int:
               len(ended) == 1 and ended[0]["lasted"] is not None and abs(ended[0]["lasted"] - talked) < 3)  # fmt: skip
         check(f"and the node to stop hearing: {node.of('hear_end')}", len(node.of("hear_end")) == 1)
 
+        # With no speech node, a phone that speaks itself: the call rings, and the phone hears and
+        # speaks it over its own link, saying what it plays (docs/protocol.md).
+        await node.close()
+        await until(lambda: "speech check-speech: disconnected" in log.read_text(), 5)
+        async with aiohttp.ClientSession() as http:
+            async with http.post(f"http://{HUB}/register", json={"token": phone_token, "environment": "sandbox",
+                                 "device": "check phone", "on_device": True}) as r:  # fmt: skip
+                pass
+        phone_id = "known-phone-" + secrets.token_hex(10)
+        rings = await place(phone_id)
+        check(f"no node, the phone speaks itself: the call rings: {rings}", rings.get("ok") is True and not rings.get("held"))
+        status = (await waiting()).get("status", {}).get("speech", {})
+        check(f"and the status says calls can be talked through: {status}", status.get("ok") is True and status.get("on_device") is True)
+        said: list[dict] = []
+        cancels: list[float] = []
+        playing: dict[int, asyncio.Task] = {}
+
+        async def play(ws, piece: int, text: str):
+            secs = len(text) * SECS_PER_CHAR
+            await ws.send_json({"type": "spoken", "piece": piece, "secs": secs, "took": 0.05})
+            await ws.send_json({"type": "playing", "piece": piece})
+            await asyncio.sleep(secs)
+            await ws.send_json({"type": "played", "piece": piece})
+
+        async with aiohttp.ClientSession() as http:
+            ws = await http.ws_connect(f"http://{HUB}/phone-speech")
+            await ws.send_json({"type": "hello", "version": 1, "call_id": phone_id, "kind": "ring", "ringing": True})
+            welcome = await ws.receive_json(timeout=5)
+
+            async def phone_reads():
+                async for message in ws:
+                    m = json.loads(message.data)
+                    said.append(m)
+                    if m["type"] == "speak":
+                        # Played one after another, as the phone does.
+                        before = playing.get(max(playing) if playing else -1)
+                        async def after(prev=before, m=m):
+                            if prev:
+                                await prev
+                            await play(ws, m["piece"], m["text"])
+                        playing[m["piece"]] = asyncio.create_task(after())
+                    elif m["type"] == "speak_cancel":
+                        cancels.append(time.monotonic())
+                        for task in playing.values():
+                            task.cancel()
+
+            reader = asyncio.create_task(phone_reads())
+            check(f"its link is welcomed once the agent takes the call: {welcome}", welcome.get("type") == "welcome")
+            await until(lambda: [m for m in agent.of("connected") if m["call_id"] == phone_id], 3)
+            heard_before = not [m for m in said if m["type"] == "hear"]
+            answered_at = time.monotonic()
+            await ws.send_json({"type": "answered"})
+            await until(lambda: [m for m in said if m["type"] == "hear"], 3)
+            check(f"it listens only once you've answered: {[m['type'] for m in said]}",
+                  heard_before and [m for m in said if m["type"] == "hear"] and [m for m in agent.of("answered") if m["call_id"] == phone_id])  # fmt: skip
+            idles = len(agent.of("idle"))
+            for i in range(0, len(REPLY), 9):
+                await agent.ws.send_json({"type": "say", "call_id": phone_id, "reply": 1, "text": REPLY[i:i + 9]})
+            await agent.ws.send_json({"type": "said", "call_id": phone_id, "reply": 1})
+            await until(lambda: len(agent.of("idle")) > idles, 15)
+            pieces = [m["text"] for m in said if m["type"] == "speak"]
+            heard = [m["text"] for m in agent.of("heard") if m["call_id"] == phone_id]
+            check(f"the phone gets the reply in pieces, the first sentence alone: {pieces}", len(pieces) >= 2 and pieces[0] == "Hello there.")
+            check(f"from what it plays, the agent hears what you've heard, to the end, then idle: {heard[-1] if heard else None!r}",
+                  bool(heard) and heard[-1] == REPLY and len(agent.of("idle")) > idles)  # fmt: skip
+            # Cut off in a long reply: the phone is told to stop, the agent what you'd heard.
+            before = len(agent.of("interrupted"))
+            for i in range(0, len(LONG), 12):
+                await agent.ws.send_json({"type": "say", "call_id": phone_id, "reply": 2, "text": LONG[i:i + 12]})
+            await agent.ws.send_json({"type": "said", "call_id": phone_id, "reply": 2})
+            await asyncio.sleep(1.5)
+            await ws.send_json({"type": "speech_started"})
+            await until(lambda: len(agent.of("interrupted")) > before, 3)
+            cut = agent.of("interrupted")[before:]
+            check(f"cut off, the phone is told to stop and the agent hears what you'd heard: {cut and cut[0]['heard'][:40]!r}",
+                  bool(cancels) and len(cut) == 1 and cut[0]["reply"] == 2 and LONG.startswith(cut[0]["heard"]) and cut[0]["heard"])  # fmt: skip
+            await ws.send_json({"type": "speech_stopped"})
+            await ws.send_json({"type": "turn", "text": "That's enough.", "secs": 0.9, "took": 0.1})
+            await until(lambda: [m for m in agent.of("turn") if m["call_id"] == phone_id], 3)
+            check("your turn reaches the agent", [m["text"] for m in agent.of("turn") if m["call_id"] == phone_id] == ["That's enough."])
+            talked = time.monotonic() - answered_at
+            await ws.close()
+            reader.cancel()
+        await until(lambda: [m for m in agent.of("ended") if m["call_id"] == phone_id], 5)
+        ended = [m for m in agent.of("ended") if m["call_id"] == phone_id]
+        check(f"the phone hangs up: the call ended, lasting {ended and ended[0]['lasted']} (on the phone {talked:.1f} s)",
+              len(ended) == 1 and ended[0]["lasted"] is not None and abs(ended[0]["lasted"] - talked) < 2)  # fmt: skip
+
         # The agent's link drops during a call: the hub ends the call.
-        second = phone_check.Phone()
-        status = await second.offer("known-" + secrets.token_hex(12), ringing=False)
-        await until(lambda: len(agent.of("connected")) == 2, 5)
-        await agent.close()
-        gone = await until(lambda: len(node.of("hear_end")) == 2, 5)
-        check(f"the agent's link drops mid-call: the hub ends the call ({gone and round(gone, 2)} s)", status == 200 and gone is not None)
-        await second.hang_up()
+        # (A call the phone speaks itself, as no node is linked now.)
+        second_id = "known-" + secrets.token_hex(12)
+        async with aiohttp.ClientSession() as http:
+            ws = await http.ws_connect(f"http://{HUB}/phone-speech")
+            await ws.send_json({"type": "hello", "version": 1, "call_id": second_id, "kind": "now"})
+            welcomed = (await ws.receive_json(timeout=5)).get("type") == "welcome"
+            await until(lambda: [m for m in agent.of("connected") if m["call_id"] == second_id], 5)
+            await agent.close()
+            told: list[str] = []
+            started = time.monotonic()
+            while time.monotonic() - started < 5 and "end" not in told:
+                try:
+                    message = await ws.receive(timeout=5)
+                except asyncio.TimeoutError:
+                    break
+                if message.type != aiohttp.WSMsgType.TEXT:
+                    break
+                told.append(json.loads(message.data)["type"])
+            gone = time.monotonic() - started
+        check(f"the agent's link drops mid-call: the hub ends the call, and tells the phone ({gone:.2f} s): {told}",
+              welcomed and "end" in told)  # fmt: skip
     finally:
         await agent.close()
         await node.close()

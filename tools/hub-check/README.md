@@ -36,7 +36,14 @@ state in a throwaway HOME, and checks:
   cut the voice off since the last (the agent answers a stop with no words only then);
 - hung up, the agent hears the call ended and how long you talked, within 3 s of the time on
   the phone, and the node to stop hearing;
-- the agent's link dropping during a call ends the call.
+- with no node linked, a phone that speaks itself (`on_device` on `/register`): a call rings
+  rather than waiting, and the status says calls can be talked through; the phone's link is
+  welcomed once the agent takes the call, and told to listen once you've answered; it gets the
+  reply in pieces, the first sentence alone, and from its `playing` and `played` the agent
+  hears what you've heard, to the end, then `idle`; cut off in a long reply, it's told to stop
+  and the agent hears what you'd heard; your turn reaches the agent; it hangs up, and the call
+  ended and lasted as long as on the phone, within 2 s;
+- the agent's link dropping during a call ends the call, and the phone is told so.
 
 Build the hub first, then run from the repo root:
 
