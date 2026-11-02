@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 820" width="1600" height="820">
+  <!-- The README's hero: a session finishing in a terminal, and the phone ringing. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#121722"/><stop offset="1" stop-color="#07090d"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.74" cy="0.5" r="0.45">
+      <stop offset="0" stop-color="#30d158" stop-opacity=".22"/><stop offset="1" stop-color="#30d158" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a3550"/><stop offset=".55" stop-color="#151b2b"/><stop offset="1" stop-color="#0c0f17"/>
+    </linearGradient>
+    <linearGradient id="term" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b2029"/><stop offset="1" stop-color="#13171e"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity=".55"/>
+    </filter>
+    <radialGradient id="screenglow"><stop offset="0" stop-color="#30d158" stop-opacity=".22"/><stop offset="1" stop-color="#30d158" stop-opacity="0"/></radialGradient>
+    <clipPath id="screen"><rect x="1112" y="78" width="332" height="664" rx="52"/></clipPath>
+    <path id="handset" d="M6.6 4.5c.6-.3 1.3-.1 1.6.5l1.5 3c.3.5.1 1.2-.4 1.5l-1.4 1a12 12 0 0 0 5.6 5.6l1-1.4c.3-.5 1-.7 1.5-.4l3 1.5c.6.3.8 1 .5 1.6l-1 2a2.4 2.4 0 0 1-2.6 1.3C9.7 19.6 4.4 14.3 3.3 8.6A2.4 2.4 0 0 1 4.6 6z"/>
+  </defs>
+  <rect width="1600" height="820" rx="36" fill="url(#bg)"/>
+  <rect width="1600" height="820" rx="36" fill="url(#glow)"/>
+
+  <!-- the terminal -->
+  <g filter="url(#shadow)">
+    <rect x="96" y="150" width="760" height="520" rx="18" fill="#161a22" stroke="#2b313c" stroke-width="2"/>
+  </g>
+  <circle cx="132" cy="186" r="9" fill="#ff5f57"/><circle cx="162" cy="186" r="9" fill="#febc2e"/><circle cx="192" cy="186" r="9" fill="#28c840"/>
+  <text x="476" y="193" text-anchor="middle" font-family="SF Pro Text" font-size="20" fill="#8b93a3">parser — claude</text>
+  <line x1="96" y1="222" x2="856" y2="222" stroke="#2b313c" stroke-width="2"/>
+  <g font-family="Menlo" font-size="23">
+    <text x="136" y="280" fill="#8b93a3">&gt; <tspan fill="#e6e9ef">Fix the crash on empty lines,</tspan></text>
+    <text x="164" y="314" fill="#e6e9ef">then run the tests.</text>
+    <text x="136" y="378" fill="#e6e9ef"><tspan fill="#30d158">●</tspan> Fixed parser.py: blank lines before a</text>
+    <text x="164" y="412" fill="#e6e9ef">section header are skipped now.</text>
+    <text x="136" y="476" fill="#e6e9ef"><tspan fill="#30d158">●</tspan> Bash(pytest)</text>
+    <text x="164" y="510" fill="#8b93a3">142 passed in 38s</text>
+    <text x="136" y="590" fill="#30d158">↗ Ringback is calling your phone…</text>
+  </g>
+
+  <!-- the ring travelling across, the icon's arcs -->
+  <g fill="none" stroke-linecap="round">
+    <path d="M912 362a54 54 0 0 1 0 96" stroke="#ffffff" stroke-width="10"/>
+    <path d="M950 330a96 96 0 0 1 0 160" stroke="#ffffff" stroke-opacity=".55" stroke-width="10"/>
+    <path d="M990 298a138 138 0 0 1 0 224" stroke="#ffffff" stroke-opacity=".22" stroke-width="10"/>
+  </g>
+
+  <!-- the phone, ringing -->
+  <g filter="url(#shadow)">
+    <rect x="1098" y="64" width="360" height="692" rx="64" fill="#2a2d33"/>
+  </g>
+  <rect x="1104" y="70" width="348" height="680" rx="60" fill="#0b0c0f"/>
+  <g clip-path="url(#screen)">
+    <rect x="1112" y="78" width="332" height="664" fill="url(#wall)"/>
+    <circle cx="1278" cy="250" r="220" fill="url(#screenglow)"/>
+  </g>
+  <rect x="1233" y="94" width="90" height="28" rx="14" fill="#000"/>
+  <text x="1278" y="176" text-anchor="middle" font-family="SF Pro Text" font-size="19" fill="#c9cfdb">Ringback Audio</text>
+  <text x="1278" y="230" text-anchor="middle" font-family="SF Pro Display" font-weight="600" font-size="44" fill="#ffffff">parser</text>
+  <text x="1278" y="266" text-anchor="middle" font-family="SF Pro Text" font-size="19" fill="#c9cfdb">Parser fix ready to push</text>
+  <!-- decline and accept -->
+  <circle cx="1188" cy="640" r="38" fill="#ff3b30"/>
+  <use href="#handset" transform="translate(1188 640) rotate(135) translate(-20.7 -21.4) scale(1.7)" fill="#fff"/>
+  <circle cx="1368" cy="640" r="38" fill="#30d158"/>
+  <use href="#handset" transform="translate(1347.3 618.6) scale(1.7)" fill="#fff"/>
+  <text x="1188" y="704" text-anchor="middle" font-family="SF Pro Text" font-size="16" fill="#c9cfdb">Decline</text>
+  <text x="1368" y="704" text-anchor="middle" font-family="SF Pro Text" font-size="16" fill="#c9cfdb">Accept</text>
+  <rect x="1222" y="734" width="112" height="6" rx="3" fill="#ffffff" fill-opacity=".7"/>
+</svg>
