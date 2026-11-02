@@ -1944,7 +1944,8 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
        to ask again, and it rings.
      - The app shows the most serious problem as a banner (not set up; the hub can't be
        reached; calls can't ring this phone; Claude can't talk on calls; the microphone is
-       off), with "1 More Problem" for the rest. An offer the hub refuses for want of speech
+       off), with "1 More Problem" for the rest; `tools/app-screens` shows it (`speech-banner`,
+       light and dark). An offer the hub refuses for want of speech
        (503) ends the call with "The speech computer is offline".
      - Not tried: a push Apple refuses for the phone's registration ("phone"), which needs
        APNs to answer so.

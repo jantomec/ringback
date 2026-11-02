@@ -66,6 +66,15 @@ final class AppScreensUITests: XCTestCase {
         shot("banner")
         problem.terminate()
 
+        let speech = launch("speech")
+        note("speech banner", speech.staticTexts["Claude can't talk on calls"].waitForExistence(timeout: 10)
+            && speech.buttons["1 More Problem"].exists)
+        shot("speech-banner")
+        speech.buttons["1 More Problem"].tap()
+        note("every problem", speech.staticTexts["Microphone is off"].waitForExistence(timeout: 5))
+        shot("speech-banner-all")
+        speech.terminate()
+
         let setup = launch("setup")
         let open = setup.buttons["Open Settings"]
         note("set-up banner", open.waitForExistence(timeout: 10))

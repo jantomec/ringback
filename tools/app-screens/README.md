@@ -7,7 +7,7 @@ drawing, not ringing, push or audio.
 
 The project is the app's own sources (`app/Ringback`, `app/Settings.bundle`), built for a
 simulator without signing, and a UI test. The app shows the samples only in a debug build,
-when launched with `-RingbackSeed calls`, `problem` or `setup` (`app/Ringback/Seed.swift`);
+when launched with `-RingbackSeed calls`, `problem`, `speech` or `setup` (`app/Ringback/Seed.swift`);
 then it doesn't reach a switchboard and asks for no permissions. The test saves, for each
 appearance:
 - `recents`: waiting calls (one with a question, one without) under Waiting, and under
@@ -20,6 +20,8 @@ appearance:
   `session-menu`, a card held, and `session-details`, from its Details;
 - `banner`: Recents while the switchboard can't be reached, with Try Again, and the hold
   switch taking calls until 19:00;
+- `speech-banner`: no speech computer linked, a call waiting for it, and the microphone off:
+  the speech banner with "1 More Problem", then `speech-banner-all` with both;
 - `setup`: a phone that isn't set up, then `settings` and `settings-more`, Ringback's page in
   the Settings app, from the banner's Open Settings.
 

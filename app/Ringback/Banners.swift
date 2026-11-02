@@ -47,6 +47,7 @@ struct Banners: View {
                 withAnimation { showsAll.toggle() }
             }
             .font(.subheadline)
+            .foregroundStyle(.tint)
             .listRowSeparator(.hidden)
         }
     }

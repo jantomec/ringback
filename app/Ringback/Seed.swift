@@ -76,6 +76,18 @@ enum Seed {
             state.hold = HoldState(on: false, until: Calendar.current.date(byAdding: .hour, value: 19, to: today))
             state.connection = .failed(reason: "The request timed out.")
             state.lastConnected = at(0, max(0, hour - 2), 10)
+        case "speech":
+            // No speech computer linked, a call waiting for it, and the microphone off: the
+            // speech banner, with one more problem behind it.
+            state.hold = HoldState(on: false, until: Calendar.current.date(byAdding: .hour, value: 19, to: today))
+            state.connection = .connected(at: now)
+            state.status = HubStatus(speechOK: false, waitingForSpeech: 1)
+            state.microphoneOff = true
+            state.waiting = [
+                WaitingCall(
+                    id: "w3", project: "parser", subject: "Parser fix ready to push", voice: mac, heldUntil: nil,
+                    session: Self.ids["parser"]!, reason: "no speech")
+            ]
         case "setup":
             state.connection = .notSetUp
             state.seed([])

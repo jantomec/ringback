@@ -66,6 +66,9 @@ struct RootView: View {
     }
 
     private func checkMicrophone() {
+        #if DEBUG
+        if Seed.isOn { return }  // screenshots: the samples say whether it's off
+        #endif
         state.microphoneOff = AVAudioApplication.shared.recordPermission == .denied
     }
 
