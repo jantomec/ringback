@@ -101,7 +101,8 @@ You need:
 - a Linux machine with an NVIDIA GPU for the speech node: 3–3.5 GB of GPU memory and 3 GB of RAM
   during calls, next to nothing between them, and 4 GB on disk;
 - Claude Code on each Mac that runs sessions, on a Claude subscription that includes Opus;
-- a Mac with Xcode and Go, to build the app, the hub and the agent;
+- a Mac with Xcode, and Go, CMake, XcodeGen and pkg-config from Homebrew, to build the app, the
+  hub and the agent;
 - an iPhone on iOS 26 or later, and a paid Apple Developer account, for VoIP pushes;
 - a private network all of them reach, the phone too on mobile data: Nebula, with a lighthouse
   that relays, is the one it's tested on.
@@ -126,10 +127,12 @@ Ringback is a working prototype, built in stages and tested on real calls.
 - [x] Recents and Sessions: call any session, or a recent call back
 - [x] One hub, a speech node and an agent on each Mac, in Go, in place of a voice server on every
       Mac: calls on the phone, the GPU freed between calls, and banners for what's down
-- [ ] The rest on the Go stack on the phone (held calls, call backs, asks, Opus, weak signal):
-      tried offline, and on the earlier stack
+- [ ] The rest on the Go stack on the phone (held calls, call backs, Sessions, asks, Opus, weak
+      signal): tried offline, and on the earlier stack
+- [ ] Calls and asks that survive a restart of the agent or the hub: built, tried offline
 - [ ] The hold switch, its breathing light, and the Lock Screen widget: built, partly tried on the phone
-- [ ] Speech on the iPhone itself, without a speech node: a trial with Apple's recognition is next
+- [ ] Speech on the iPhone itself, without a speech node: a trial with Apple's recognition is
+      under way (it hears in the background, and gets more words wrong than Parakeet)
 - [ ] A small web page on the hub, to see and set up everything: planned
 - [ ] Several sessions calling in turn, with retries: planned
 

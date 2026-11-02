@@ -126,7 +126,7 @@ speech/build.sh                     # on the speech node, into bin/
 ~/ringback-speech/bin/ringback-speech serve
 ~/ringback-speech/bin/ringback-speech phonemes "All 142 tests pass."   # what the voice would say
 ~/ringback-speech/bin/ringback-speech say "All 142 tests pass." out.wav
-speech/check.sh                     # the node against fakehub, about 3 min
+speech/check.sh                     # the node against fakehub, about 2.5 min
 # A build in bin-next/, beside a node that runs, with its own port and settings (a copy of
 # speech.toml in the install directory):
 speech/build.sh ~/ringback-speech bin-next

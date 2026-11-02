@@ -183,7 +183,7 @@ export const register: Register = on => {
 
 // The end of the dim line under the prompt, while ringback is on.
 function tail(): string {
-  if (unreached.size || retry) return '☎ waiting for the voice server…'
+  if (unreached.size || retry) return '☎ waiting for the ringback agent…'
   if (holds.size) return '☎ asking you on the phone…'
   return isCalling ? '☎ calling your phone…' : '☎ ringback on'
 }
@@ -356,7 +356,7 @@ async function place($: EngineInterface, body: object, tries: number): Promise<v
       return
     }
   } catch {
-    failed = "the voice server isn't running (ringback-voice serve)"
+    failed = "the ringback agent isn't running (ringback-agent serve)"
   } finally {
     isCalling = false
     $.ui.invalidate('ui.render')
@@ -528,9 +528,9 @@ async function reply(response: Promise<HttpResponse>): Promise<Reply> {
   try {
     const r = await response
     if (r.ok) return { value: JSON.parse(r.text) }
-    return { error: errorOf(r.text) ?? `the voice server answered ${r.status}` }
+    return { error: errorOf(r.text) ?? `the ringback agent answered ${r.status}` }
   } catch {
-    return { error: "the voice server isn't running (ringback-voice serve)", isUnreached: true }
+    return { error: "the ringback agent isn't running (ringback-agent serve)", isUnreached: true }
   }
 }
 

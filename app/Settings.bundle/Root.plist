@@ -30,7 +30,7 @@
 		</dict>
 		<dict>
 			<key>FooterText</key>
-			<string>Claude calls only between these times. A call outside them waits until they start. From later than To runs past midnight, and the same time means any time. Changes reach your switchboard when Ringback next runs, at the latest within half an hour.</string>
+			<string>Claude calls only between these times. A call outside them waits until they start. From later than To runs past midnight, and the same time means any time. Changes reach your hub when Ringback next runs, at the latest within half an hour.</string>
 			<key>Title</key>
 			<string>Work Hours</string>
 			<key>Type</key>

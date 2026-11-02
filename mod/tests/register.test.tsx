@@ -535,10 +535,10 @@ test("a briefing the voice server can't take is offered again every 30 s, until 
   await briefed($)
   expect(placed(asked.fetches).length).toBe(1)
   expect(asked.logs).toEqual([
-    "Can't call yet: the voice server isn't running (ringback-voice serve). Trying again every 30 s for 30 min.",
+    "Can't call yet: the ringback agent isn't running (ringback-agent serve). Trying again every 30 s for 30 min.",
   ])
   expect(asked.toasts).toEqual([])
-  expect(await line()).toBe('? for shortcuts · ☎ waiting for the voice server…')
+  expect(await line()).toBe('? for shortcuts · ☎ waiting for the ringback agent…')
   await clock.advance(30_000)
   await settle()
   expect(placed(asked.fetches).length).toBe(2)
@@ -575,7 +575,7 @@ test('a briefing is offered for 30 min, then given up', { timeoutMs: 60_000 }, a
   await settle()
   // At once, then every 30 s for 30 min.
   expect(placed(asked.fetches).length).toBe(61)
-  expect(asked.logs.at(-1)).toBe("Couldn't call: the voice server isn't running (ringback-voice serve), for 30 min.")
+  expect(asked.logs.at(-1)).toBe("Couldn't call: the ringback agent isn't running (ringback-agent serve), for 30 min.")
   expect(await line()).toBe('? for shortcuts · ☎ ringback on')
   await clock.advance(60_000)
   expect(placed(asked.fetches).length).toBe(61)
@@ -938,7 +938,7 @@ test("a long poll that can't reach the voice server is asked again every 5 s, an
   await clock.advance(25_000)
   await settle()
   expect(asked.logs.at(-1)).toBe("Can't reach the voice server: asking again every 5 s.")
-  expect(await line()).toBe('? for shortcuts · ☎ waiting for the voice server…')
+  expect(await line()).toBe('? for shortcuts · ☎ waiting for the ringback agent…')
   await clock.advance(20_000)
   expect(answers(asked.debug)).toEqual([])
   expect(asked.slept).toEqual(Array(5).fill('/bin/sleep 5'))

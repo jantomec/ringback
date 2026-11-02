@@ -1,7 +1,7 @@
 # The speech node's settings: copy to speech.toml in the install directory (the folder above
 # bin/ringback-speech). Paths are relative to this file.
 
-hub = "ws://HUB-ADDRESS:PORT/speech"  # the hub's address, as in the app, with /speech
+hub = "ws://HUB-ADDRESS:PORT/speech"  # the hub's address with its port, as `listen` in its hub.toml
 token = "SAME AS [tokens] speech IN THE HUB'S CONFIG"
 name = "speech node"                  # for the hub's log
 provider = "cuda"                     # or "cpu"

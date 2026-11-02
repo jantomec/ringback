@@ -13,14 +13,15 @@ the app on your phone:
 | **app** | your iPhone | rings like a phone call, and lists your calls and sessions |
 
 The speech node and the agents dial out to the hub, and the phone reaches only the hub. The
-steps below set them up in that order. Replace the example addresses (`10.0.0.1` for the
-hub) with your own.
+steps below set them up in that order. Commands run from the repository's folder, unless they
+say where else. Replace the example addresses (`10.0.0.1` for the hub) with your own.
 
 ## You need
 
 - **A Mac with Xcode** that can build for your phone's iOS version (Xcode 27 for iOS 27),
-  with **XcodeGen**, **Go** and **CMake** (`brew install xcodegen go cmake`), to build the
-  app, the hub and the agent.
+  with **XcodeGen**, **Go**, **CMake** and **pkg-config** (`brew install xcodegen go cmake
+  pkgconf`), to build the app, the hub and the agent; and **uv** (`brew install uv`) for the
+  checks in step 8.
 - **A paid Apple Developer Program account.** VoIP pushes need it.
 - **An iPhone** on iOS 26 or later.
 - **An always-on Mac** for the hub, Intel or Apple silicon, on macOS 13 or later. It needs
@@ -37,8 +38,9 @@ hub) with your own.
   - the lighthouse is a relay (`relay.am_relay: true`), and each machine lists it in
     `relay.relays`: on mobile data, the phone reaches the hub only through that relay (see
     `docs/design.md`, Stage 0);
-  - the hub's Nebula firewall lets in the phone, on its port (TCP 8787 by default) and on any
-    UDP port, for the call's audio, and the speech node and the Macs on its port.
+  - the hub's Nebula firewall lets in the phone, on the hub's port (8787 in the examples, and
+    the app's default) and on any UDP port, for the call's audio, and the speech node and the
+    Macs on its port.
 
 ## 1. APNs key
 
@@ -54,15 +56,16 @@ pinned SHA-256, and links it in, so the hub is one file for Intel and Apple sili
 nothing else (the first build takes about a minute):
 
 ```sh
-cd hub && ./build.sh
+(cd hub && ./build.sh)
 ssh always-on-mac mkdir -p .local/bin .config/ringback
-scp build/ringback-hub-universal always-on-mac:.local/bin/ringback-hub
+scp hub/build/ringback-hub-universal always-on-mac:.local/bin/ringback-hub
+scp hub/hub.example.toml always-on-mac:.config/ringback/hub.toml
+scp AuthKey_XYZ9876543.p8 always-on-mac:.config/ringback/   # your APNs key, from step 1
 ```
 
-On the always-on Mac, copy `hub/hub.example.toml` to `~/.config/ringback/hub.toml`, put the
-APNs key next to it, and fill it in:
+On the always-on Mac, fill in `~/.config/ringback/hub.toml`:
 - `listen` is the hub's address on your private network, such as its Nebula address, and its
-  port. It listens only there. The call's audio uses the same address, on UDP ports it picks.
+  port, which it needs: 8787 is the app's default. It listens only there. The call's audio uses the same address, on UDP ports it picks.
 - `[tokens]` are what the speech node and the agents link with: make each a long random
   string, such as `openssl rand -hex 32` prints.
 - `[apns]` is your team ID, the app's bundle ID, and the key.
@@ -76,9 +79,10 @@ Then start it:
 What it keeps is in `~/.local/state/ringback/`: the phones (`devices.json`), the calls that
 wait (`waiting.json`), the sessions you can call (`contacts.json`) and every call's events
 (`events.jsonl`). Every 30 min it wakes each phone with a background push, and the app checks
-in over the network; if it can't, the phone warns you. `ringback-hub check` does that now,
-`ringback-hub devices` shows when each phone last checked in, and
-`ringback-hub ring --project myproject` rings every phone without audio, to try the push.
+in over the network; if it can't, the phone warns you. Once the app has registered (step 6),
+`ringback-hub check` does that now, `ringback-hub devices` shows when each phone last checked
+in, and `ringback-hub ring --project myproject` rings every phone without audio, to try the
+push.
 
 To start it at login, and again whenever it stops, run it as a launchd agent:
 
@@ -132,7 +136,8 @@ everything the node needs into one folder, `~/ringback-speech`, and nothing outs
 each archive checked against a pinned SHA-256, which took 69 s on a fast connection
 (`speech/README.md` lists what's where). Running it again keeps what's right and fetches only
 what's missing; a run you stop keeps what it fetched. It needs curl or wget, tar, bzip2, gzip,
-unzip and sha256sum, and installs Go into the folder too if the machine has none. Then, in
+unzip and sha256sum, and installs Go into the folder too if the machine has none. `build.sh`
+needs a C compiler (gcc; `sudo apt install build-essential` on Debian or Ubuntu). Then, in
 `~/ringback-speech/speech.toml`, set the hub's address and its speech token:
 
 ```toml
@@ -170,8 +175,8 @@ speaking, and its memory before, during and after a call.
 
 ```sh
 mkdir -p ~/.local/bin ~/.config/ringback
-cd agent && go build -o ~/.local/bin/ringback-agent .
-cp agent.example.toml ~/.config/ringback/agent.toml   # the hub's address and its agent token
+(cd agent && go build -o ~/.local/bin/ringback-agent .)
+cp agent/agent.example.toml ~/.config/ringback/agent.toml   # the hub's address and its agent token
 ~/.local/bin/ringback-agent serve
 ```
 
@@ -185,7 +190,8 @@ It remembers the calls it placed for a day after they end, so you can call them 
 app, and what it keeps for sessions survives a restart: it's written to `voice-state.json`
 beside its socket on every change, and read at start. That's the calls held outside your
 work hours, the calls to call back, what sessions asked you and what waits for their mods. A
-call you're on when it restarts ends, and its session is told so.
+call you're on when it restarts ends, and its session is told so. (Tried offline, not yet on
+the phone.)
 
 To start it at login, and again whenever it stops, run it as a launchd agent. Write the
 agent's file with `claude` on your `PATH`, as it finds it there:
@@ -250,7 +256,7 @@ days of the session's last start.
 
 While the agent is down, as while it restarts, the session doesn't give up: it offers its
 briefing again every 30 s for up to 30 min, and the dim line under the prompt ends with
-"☎ waiting for the voice server…". A permission or question it's asking you is asked again
+"☎ waiting for the ringback agent…". A permission or question it's asking you is asked again
 every 5 s, within its 15 min.
 
 When the session needs your permission, the prompt shows in the terminal and the voice
@@ -269,13 +275,14 @@ or Esc leaves it on. Remote Control needs a claude.ai subscription.
 
 ```sh
 cp app/Config/Local.xcconfig.example app/Config/Local.xcconfig   # your team ID and bundle ID
-cd app && xcodegen generate
-xcodebuild -project Ringback.xcodeproj -scheme Ringback -destination 'platform=iOS,id=<UDID>' \
-  -derivedDataPath build -allowProvisioningUpdates build
-xcrun devicectl device install app --device <UDID> build/Build/Products/Debug-iphoneos/Ringback.app
+(cd app && xcodegen generate && xcodebuild -project Ringback.xcodeproj -scheme Ringback \
+  -destination 'platform=iOS,id=<UDID>' -derivedDataPath build -allowProvisioningUpdates build)
+xcrun devicectl device install app --device <UDID> app/build/Build/Products/Debug-iphoneos/Ringback.app
 ```
 
 - `xcrun devicectl list devices` shows the UDID.
+- The phone needs **Developer Mode** on (Settings → Privacy & Security → Developer Mode,
+  which restarts it), and to trust this Mac: connect it by cable the first time and tap Trust.
 - Installing over the network needs the phone **unlocked and on the same Wi-Fi** as the
   Mac. On mobile data it shows as unavailable; a cable always works.
 - If Xcode's sign-in to your Apple account has expired, signing falls back to a profile
@@ -311,8 +318,8 @@ Remote Control on in the session); the call then never rings.
 
 When something calls need is down, a banner at the top of Recents says what, most serious
 first, with the others a tap away: the hub can't be reached, Apple refused the hub's push,
-the speech node isn't linked (calls then wait instead of ringing, and ring once it's back), or
-the microphone is off. Notifications are for a warning when the phone can't reach the hub,
+the speech node isn't linked (the app calls it the speech computer; calls then wait instead of
+ringing, and ring once it's back), or the microphone is off. Notifications are for a warning when the phone can't reach the hub,
 for a waiting call's question, and for a call waiting for the speech node.
 
 The pill beside the tabs is the **hold switch**. Press pause and every call waits, listed under
@@ -344,18 +351,28 @@ agent's log shows Haiku's side.
 
 ## 8. Checking without the phone
 
-- `tools/line-check` places a whole call through a hub and an agent it starts on this Mac and
-  your speech node, with a stand-in phone, and checks that you're heard and answered (about
-  45 s, one Haiku session).
-- `tools/hub-check` checks the hub's side of calls with stand-ins for everything around it.
-- `speech/check.sh` checks the speech node (step 3).
+These need uv (`brew install uv`); they run in the earlier stack's Python environment, which
+uv sets up the first time (about 1.7 GB).
+- **A whole call:** a hub and an agent started on this Mac, your speech node started over ssh
+  and linked to them, and a stand-in phone, which answers, says something and hangs up; it
+  checks that you're heard and answered (about 45 s, one Haiku session). `--listen` is this
+  Mac's address that the node reaches, with a free port, and `--node` the node's ssh host:
+
+      uv run --project voice tools/line-check/line_check.py --listen 10.0.0.2:18840 --node speech-host
+
+- **The hub's side of calls,** with stand-ins for everything around it (about 10 s):
+
+      (cd hub && go build -o build/ringback-hub .) && uv run --project voice tools/hub-check/hub_check.py
+
+- **The speech node,** on the node (step 3): `speech/check.sh` (about 2.5 min).
 
 ## Coming from the earlier stack
 
 Before the hub, a Python voice server on each Mac did the speech and the sessions' side, and a
 Swift switchboard rang the phone. To move:
-- **The hub replaces the switchboard,** with its state as it is. It reads
-  `~/.config/ringback/switchboard.toml` while there's no `hub.toml`; add `[tokens]` to it.
+- **The hub replaces the switchboard,** with its state as it is. Stop the switchboard first:
+  both listen on the same address. The hub reads `~/.config/ringback/switchboard.toml` while
+  there's no `hub.toml`; add `[tokens]` to it.
 - **The agent replaces each Mac's voice server,** on the same socket, and reads the voice
   server's `voice-state.json`. Stop the voice server first (`launchctl bootout
   gui/$(id -u)/ringback.voice` if it runs as a launchd agent).
