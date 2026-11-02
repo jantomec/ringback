@@ -106,3 +106,31 @@ written can be told from the next.
 | hub → agent | `{"type": "ended", "call_id", "lasted": 12.3}` when the call ends; `lasted` is null if its audio never connected |
 
 When an agent's link closes, the hub ends its calls, and the agent ends them on its side.
+
+## The phone as the speech node (`/phone-speech`)
+
+When no speech node is linked and the phone's own voice is on (**On-device voice** in the
+Settings app, which the app sends the hub as `"on_device": true` on `/register`), a call
+still rings, and the phone hears and speaks itself: no audio crosses the network, only text.
+The app learns it from the offer: the hub answers `/offer` 503 `{"error": "no speech node"}`,
+and the app, with its own voice on, opens this link instead, for that call.
+
+It's a WebSocket the app opens to the hub, `GET /phone-speech`; the call's ID is its secret,
+as for an offer, so there's no token. Messages are the speech node's, with no stream numbers
+(the link is one call) and no binary frames, and two more for what the phone plays.
+
+| Direction | Message |
+|---|---|
+| phone → hub | `{"type": "hello", "version": 1, "call_id", "kind": "ring" \| "now" \| "back" \| "contact", "session_id" (for contact), "ringing": true, "sensitivity": 0.5, "background_filter": 0.5}`, as the offer's fields |
+| hub → phone | `{"type": "welcome", "version": 1}` once the agent accepts the call, or `{"type": "refused", "status": 403, "error": "unknown call"}` and the link closes |
+| phone → hub | `{"type": "answered"}` when you answer a call whose link opened while it rang (as `/answered`) |
+| hub → phone | `{"type": "hear"}`: start listening (once you've answered) |
+| phone → hub | `{"type": "speech_started"}`, `{"type": "speech_stopped"}`, `{"type": "turn", "text": "…", "secs": 2.4, "took": 0.1}`, as the speech node's; `text` empty for a stop with no words |
+| hub → phone | `{"type": "speak", "piece": 3, "text": "…"}`: synthesise and play this piece, after the ones before |
+| phone → hub | `{"type": "spoken", "piece": 3, "secs": 2.1, "took": 0.2}` once its audio is all made, with its length |
+| phone → hub | `{"type": "playing", "piece": 3}` the moment it starts playing, and `{"type": "played", "piece": 3}` when it has played to its end; the hub counts what you've heard from these |
+| hub → phone | `{"type": "speak_cancel"}`: stop playing at once, and drop every piece not yet played |
+| hub → phone | `{"type": "end"}`: the call is over from the hub's side; the phone ends it |
+
+The link closing ends the call; the hub tells the agent how long you talked, from when the
+link was welcomed or you answered, whichever came last.
