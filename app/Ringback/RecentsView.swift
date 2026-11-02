@@ -44,6 +44,14 @@ struct RecentsView: View {
                 }
             }
             .navigationTitle("Recents")
+            #if DEBUG
+            // The on-device speech trial (SpeechTrial), in debug builds only.
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink { SpeechTrialView(calls: calls) } label: { Image(systemName: "waveform.badge.mic") }
+                }
+            }
+            #endif
             // Checks that calls can reach the phone, and fetches the waiting calls.
             .refreshable { await push.connect(force: true) }
             .navigationDestination(item: $details) { shown in
