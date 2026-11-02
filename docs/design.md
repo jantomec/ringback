@@ -1688,6 +1688,13 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
         with no Swift warnings; `tools/app-screens` showed every screen in light and dark,
         the cards and their menu included (one run, 2 min 20 s). The fetching every 3 s and
         the cards on the phone are untried.
+      - On the phone (2026-10-31): a session that turned ringback on showed on the open
+        Sessions tab at once, and the cards looked right; calls from a card connected in
+        0.6 s and opened with "I don't have a briefing from the session yet", one passed "Tell
+        the session to say hello" on, and the session's answer came back on the call; a call
+        back from Recents of a call you'd answered opened "Nothing new has come in since we
+        last spoke", without saying you'd missed it. Each session was told how long the call
+        lasted, as the phone showed it (31 s). Left: the alerts, and Open Settings.
    2. **A hold switch** (2026-11-02; built, tried offline and in a simulator, not yet on the
       phone). One switch holds every call until you let them through, in a pill beside the
       tabs and in Control Center; work hours set it at their edges (the switchboard's and the
