@@ -593,11 +593,11 @@ with a certificate, or a private certificate authority installed on each device 
 
 ## Limits and risks
 
-- **Anything on the private network can ring you,** through the hub's `/call`, which takes
-  no token and names where the call's audio goes; add to the app's Sessions through
-  `/sessions`; and, by registering a made-up push token, read the IDs of the waiting calls and
-  the sessions, and with a session's ID call it and pass it prompts (Security). The private
-  network is the only wall: keep it to your own devices.
+- **Anything on the private network can ring you** (to be fixed, Next), through the hub's
+  `/call`, which takes no token and names where the call's audio goes; add to the app's
+  Sessions through `/sessions`; and, by registering a made-up push token, read the IDs of the
+  waiting calls and the sessions, and with a session's ID call it and pass it prompts
+  (Security). The private network is the only wall: keep it to your own devices.
 - **Calls don't queue or retry.** Two sessions calling at once both ring, and a call you
   don't answer is forgotten after 90 s with only a note to its session (Next).
 - **A stale tunnel delays a call.** After the phone changes network, the VPN can take 10–20 s
@@ -679,17 +679,40 @@ for how things look):
 
 ## Next
 
-- **Several sessions in turn, with retries.** One queue for every Mac's calls: a second call
-  waits for the first to end. A call you decline or miss tries again 5 min, 20 min, 1 h, 2½ h
-  and 6 h after its first ring, with the queue paused in between; after the last, every call
-  waits until you call that session back.
-- **A public hub,** with TLS and a way to pair the phone and the Macs, so no private network is
-  needed; then passkeys for the portal.
-- **On-device voice on a weak signal,** even with a speech node linked, since only text crosses
-  the network.
-- **A phone-network fallback** for where data is too weak: SIP trunks from a local operator,
-  or an LTE modem with an ordinary SIM on the hub's machine, priced first.
-- **Showing you things:** sometimes you need to see what a session did, such as an image or a
-  large model. Claude Code's iMessage channel plugin can send images, but not the session's
+The to-do list, roughly in order. The first four go together: a hub on the internet needs its
+open endpoints closed and its parts paired, and several users on one hub need both.
+
+- [ ] **Close the hub's open endpoints** (to be fixed; Limits and risks). Take out `/call` and
+  `/sessions`, placing the smoke test's calls through a stand-in agent instead, and make a
+  phone prove it's yours before `/register` takes its token, so the IDs of waiting calls and
+  sessions go only to your phones.
+- [ ] **A public hub,** so no private network is needed: HTTPS and WSS with a certificate for a
+  domain name; the phone, the Macs and the speech nodes paired with the hub (a one-time code
+  from the portal) instead of trusting the network; the call's audio on the public address
+  (its UDP ports open); then passkeys for the portal.
+- [ ] **Several users on one hub,** each with their own sign-in, phones, Macs, sessions and
+  calls: a call rings only its user's phones, the portal shows each user only theirs, and the
+  agents' tokens belong to a user. Speech nodes could be shared. Needs the pairing above.
+- [ ] **End-to-end encrypted calls with On-device Voice.** With the phone hearing and speaking,
+  only text crosses the hub, so the hub needn't read it. The phone and each Mac's agent would
+  share keys from pairing them directly (a code the agent shows, so the hub can't swap the
+  keys), and the call's words, its subject and the push's text would cross the hub encrypted.
+  Cutting replies into pieces and counting what you've heard would move from the hub to the
+  agent, and the hub's log would lose the words it keeps now. Haiku still runs through
+  Anthropic, as it does now. With a speech node it can't be end to end: the node has to hear
+  you.
+- [ ] **Installing the agent without Go:** a ready-built binary for each Mac, and
+  `ringback-agent install` to write and load its launchd agent, as `docs/setup.md` now does by
+  hand.
+- [ ] **Several sessions in turn, with retries.** One queue for every Mac's calls: a second
+  call waits for the first to end. A call you decline or miss tries again 5 min, 20 min, 1 h,
+  2½ h and 6 h after its first ring, with the queue paused in between; after the last, every
+  call waits until you call that session back.
+- [ ] **On-device voice on a weak signal,** even with a speech node linked, since only text
+  crosses the network.
+- [ ] **A phone-network fallback** for where data is too weak: SIP trunks from a local
+  operator, or an LTE modem with an ordinary SIM on the hub's machine, priced first.
+- [ ] **Showing you things:** sometimes you need to see what a session did, such as an image or
+  a large model. Claude Code's iMessage channel plugin can send images, but not the session's
   questions.
-- **The call history in iCloud,** rather than on the phone only.
+- [ ] **The call history in iCloud,** rather than on the phone only.

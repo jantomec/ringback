@@ -136,8 +136,10 @@ tick means it has also been tried on a real phone, locked, with the current code
 - [ ] Speech on the iPhone itself, without a speech node (On-device Voice)
 - [ ] Calls and asks that survive a restart of the agent or the hub
 
-Planned: several sessions calling in turn, with retries, and a public hub that needs no
-private network ("Next" in [docs/design.md](docs/design.md)).
+Next, on the to-do list under "Next" in [docs/design.md](docs/design.md): closing the hub's
+endpoints that take no token, a public hub that needs no private network, several users on
+one hub, end-to-end encrypted calls with On-device Voice, and several sessions calling in
+turn, with retries.
 
 <details>
 <summary><b>Repository and development</b></summary>
