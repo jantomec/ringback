@@ -325,8 +325,10 @@ h3 { margin: 20px 4px 8px; font-size: 15px; font-weight: 600; }
 .badge use { stroke-width: 2.4; }
 .part .name { font-size: 13.5px; font-weight: 600; fill: var(--text); letter-spacing: -0.01em; }
 .part .sub { font-size: 12px; fill: var(--muted); }
-/* A part's words over a link that passes behind them, with a halo the colour of the card. */
-.part > text, .map-svg > .cap { paint-order: stroke; stroke: var(--card); stroke-width: 5px; stroke-linejoin: round; }
+/* Words over a link that passes behind them sit on a halo the colour of the card: a copy of
+   them drawn first, outlined. An outline under the words' own letters (paint-order) would do
+   in Chrome, but Safari outlines letter by letter, each over the one before. */
+.map-svg > text.outline, .map-svg .part > text.outline { fill: var(--card); stroke: var(--card); stroke-width: 5px; stroke-linejoin: round; }
 .s-untried .badge circle { fill: var(--faint); }
 .badge circle { fill: var(--good); stroke: var(--card); stroke-width: 2; }
 .badge use { color: #ffffff; }

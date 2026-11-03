@@ -3,8 +3,10 @@
 Screenshots the hub's portal (`hub/portal/`, "Status and the hub's portal" under Stages in
 `docs/design.md`) in every state its status page's map shows, to review how it looks: light
 and dark, on a desk (1440 px wide) and on a phone (390 px), and the Calls, Log, Setup and
-sign-in pages. Headless Chrome is fine for this: it's the page's drawing, not ringing, push or
-audio.
+sign-in pages. Headless Chrome is fine for most of this: it's the page's drawing, not ringing,
+push or audio. But Safari draws some things differently, and these screenshots don't show it:
+the map's words once had an outline under their letters (`paint-order`), which Safari drew
+letter by letter, each over the one before (2026-11-03).
 
 Each state is a throwaway hub (`hub/build/ringback-hub`, which it builds first) on localhost,
 with its own HOME under the output folder: its config with tokens, and an account made with

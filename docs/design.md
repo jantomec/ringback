@@ -2082,8 +2082,9 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
          since neither the offer nor the phone's link says which phone answered.
        - The map: the push links run round the outside of the Nebula links with two phones;
          on a phone the nodes sit beside the hub and push between the phones, every link
-         meeting its tiles, a part's words drawn over the links into it with a halo; captions
-         over each group; "and 1 asleep" for a Mac not shown. Apple push not yet tried is
+         meeting its tiles, a part's words drawn over the links into it with a halo (a copy
+         of them, outlined, drawn first: an outline under their own letters Safari drew letter
+         by letter, each over the one before, 2026-11-03); captions over each group; "and 1 asleep" for a Mac not shown. Apple push not yet tried is
          grey, not green.
        - The Calls page lists the calls waiting first; a call without its project is titled
          by its Mac, or a grey "Project unknown"; one still going is "Live now"; lengths are
@@ -2103,7 +2104,8 @@ next. A simulator run or a unit test isn't evidence for ringing, push or audio.
          passed).
      - Not tried on the phone or with the real hub: the app showing a hold set on the portal
        (it reads the hold with the waiting calls, on opening and pull to refresh), and Safari
-       on the iPhone (the screenshots are Chrome's).
+       on the iPhone (the screenshots are Chrome's; the map's words, which overlapped in
+       Safari, were checked in the Mac's own WebKit, light and dark, 1440 and 390 px wide).
 - **Speech on the phone** (decided 2026-11-02; trial done, `tools/speech-trial`, and its code taken out of the app after commit `a89043e`). First a trial on an older iPhone (4 GB)
   with Apple's on-device recognition, measured: how soon your words come after you stop,
   their accuracy on `tools/stt-eval`'s recordings, the app's memory, battery over a
