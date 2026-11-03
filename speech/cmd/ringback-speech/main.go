@@ -17,8 +17,12 @@ import (
 	"ringback/speech/internal/wav"
 )
 
-const usage = `usage: ringback-speech [--config FILE] serve | say TEXT OUT.wav | phonemes TEXT | hear FILE.wav
+const usage = `usage: ringback-speech [--config FILE] install | uninstall | serve | say TEXT OUT.wav
+       | phonemes TEXT | hear FILE.wav
 
+  install   run the node as a service (a systemd user unit): now, at boot, and again
+            whenever it stops; again after building a new binary, to restart it;
+            uninstall stops it and takes it away
   serve     dial the hub and hear and speak for its calls: the models load in a worker
             process when a call is coming, which exits when it has been idle
   say       speak TEXT as the voice does, into a WAV file (24 kHz)
@@ -50,6 +54,10 @@ func main() {
 	if len(args) == 0 {
 		fail(usage)
 	}
+	if args[0] == "uninstall" && len(args) == 1 {
+		uninstallService()
+		return
+	}
 	c, err := loadConfig(cfgPath)
 	if err != nil {
 		fail(err.Error())
@@ -67,6 +75,8 @@ func main() {
 	}
 
 	switch {
+	case args[0] == "install" && len(args) == 1:
+		installService(c)
 	case args[0] == "serve" && len(args) == 1:
 		if c.hub == "" || c.token == "" {
 			fail("No hub or token in " + c.path + ".")

@@ -11,9 +11,12 @@ import (
 	_ "time/tzdata" // the phones' time zones, wherever the hub runs
 )
 
-const usage = `usage: ringback-hub serve | ring [--project NAME] [--subject TEXT] [--voice URL] | check | devices
-       | portal-user NAME
+const usage = `usage: ringback-hub install | uninstall | serve | ring [--project NAME] [--subject TEXT]
+       [--voice URL] | check | devices | portal-user NAME
 
+  install  run the hub as a service (a launchd agent): now, at login, and again whenever
+           it stops; again after updating the binary, to restart it; uninstall stops it
+           and takes it away
   serve    serve the phone, the speech nodes and the agents: ring calls, carry their audio,
            and every 30 min ask each phone to check that it can still reach the hub
   ring     ring every registered phone, at any time, to try the push: without --voice it
@@ -35,6 +38,10 @@ func main() {
 		fail(usage)
 	}
 	switch args[0] {
+	case "install":
+		installService()
+	case "uninstall":
+		uninstallService()
 	case "serve":
 		listen := loadConfig()["listen"]
 		if listen == "" {

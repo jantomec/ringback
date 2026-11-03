@@ -366,8 +366,10 @@ meanwhile refuses the call, and the app says so.
   offers a briefing again every 30 s for up to 30 min, a newer one taking its place, and the
   line under the prompt says "☎ waiting for the ringback agent…"; what the session asks is
   tried again every 5 s within its 15 min.
-- **As services:** `docs/setup.md` runs the hub and the agent as launchd agents, and the
-  speech node as a systemd user unit, each started again if it stops.
+- **As services:** each part sets itself up as one with `install`: the hub and the agent as
+  launchd agents (at login), the speech node as a systemd user unit (at boot, with lingering
+  on), each started again whenever it stops. `install` refuses a config without the address
+  or the token, and a copy of the part already started by hand.
 
 ## Weak signal
 
@@ -632,8 +634,9 @@ with a certificate, or a private certificate authority installed on each device 
   (not checked).
 - **Several speech nodes aren't balanced:** a call goes to any one of them, and for a call
   that rings, all of them load their models.
-- **Nothing starts after a reboot** unless the parts run as services, and with FileVault and
-  no automatic login, not before someone logs in.
+- **After a reboot,** the hub and the agent start only once you log in (launchd agents), and
+  with FileVault and no automatic login, not before someone does; nothing has been tried
+  through a reboot yet.
 - **Development builds** use Apple's sandbox push environment, and their provisioning profiles
   expire; Xcode needs device support for the phone's iOS version.
 

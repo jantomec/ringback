@@ -1,10 +1,10 @@
 // The ringback agent, on each Mac that runs Claude Code sessions ("The parts" in
-// docs/design.md). The sessions' mods give it briefings and ask it things over a Unix socket (sessions.go, api.go);
-// it places their calls through the hub, and on a call Haiku (Opus on request) talks it
-// through as `claude -p`, on this Mac (voice.go, haiku.go). The hub does the call's audio and
-// speech; the agent's link to it carries the call's text both ways (hub.go,
-// docs/protocol.md). What it keeps for sessions and their calls is written beside the socket,
-// and read again at start (state.go).
+// docs/design.md). The sessions' mods give it briefings and ask it things over a Unix socket
+// (sessions.go, api.go); it places their calls through the hub, and on a call Haiku (Opus on
+// request) talks it through as `claude -p`, on this Mac (voice.go, haiku.go). The hub does
+// the call's audio and speech; the agent's link to it carries the call's text both ways
+// (hub.go, docs/protocol.md). What it keeps for sessions and their calls is written beside
+// the socket, and read again at start (state.go).
 package main
 
 import (
@@ -21,16 +21,22 @@ import (
 	"time"
 )
 
-const usage = `usage: ringback-agent serve [--socket PATH] [--config PATH] | mcp SOCKET [TOOL...]
+const usage = `usage: ringback-agent install | uninstall | serve [--socket PATH] [--config PATH]
+       | mcp SOCKET [TOOL...]
 
-  serve  place this Mac's sessions' calls through the hub, and talk on them with Haiku.
-         Sessions' mods reach it at PATH (default ~/.local/state/ringback/voice.sock).
-         The config (default ~/.config/ringback/agent.toml) says:
-           hub = "10.0.0.1:8787"   the hub's address on Nebula
-           token = "…"             the hub's [tokens] agent
-           name = "…"              this Mac, for the hub's log (default: on macOS its local
-                                   host name, as set in Sharing; elsewhere its host name)
-  mcp    the voice's tools for Claude Code, relayed to the call over SOCKET (Haiku starts it)`
+  install  run the agent as a service (a launchd agent), with the default socket and
+           config: now, at login, and again whenever it stops; again after updating the
+           binary, to restart it; uninstall stops it and takes it away
+  serve    place this Mac's sessions' calls through the hub, and talk on them with Haiku.
+           Sessions' mods reach it at PATH (default ~/.local/state/ringback/voice.sock).
+           The config (default ~/.config/ringback/agent.toml) says:
+             hub = "10.0.0.1:8787"   the hub's address and port, as its listen
+             token = "…"             the hub's [tokens] agent
+             name = "…"              this Mac, for the hub's log (default: on macOS its
+                                     local host name, as set in Sharing; elsewhere its
+                                     host name)
+  mcp      the voice's tools for Claude Code, relayed to the call over SOCKET (Haiku
+           starts it)`
 
 func main() {
 	args := os.Args[1:]
@@ -38,6 +44,10 @@ func main() {
 		fail(usage)
 	}
 	switch args[0] {
+	case "install":
+		installService()
+	case "uninstall":
+		uninstallService()
 	case "serve":
 		serve(parseOptions(args[1:], "--socket", "--config"))
 	case "mcp":

@@ -81,11 +81,21 @@ On the always-on Mac, fill in `~/.config/ringback/hub.toml`:
 - `[apns]` is your team ID and the app's bundle ID, and `[apns.sandbox]` the key: its key ID
   and the path of its `.p8` file.
 
-Then start it:
+Then install it as a service, a launchd agent: it starts now, at login, and again whenever it
+stops (at most every 30 s: while the network is down it can't listen on its address, and
+launchd tries again):
 
 ```sh
-~/.local/bin/ringback-hub serve
+~/.local/bin/ringback-hub install
 ```
+
+`install` refuses while the config lacks `listen` or the tokens, or while something else
+listens on the address, such as a hub started by hand. Its log is
+`~/Library/Logs/ringback-hub.log`. After copying a new binary over the old one, run `install`
+again to restart it; `ringback-hub uninstall` stops it and takes the launchd agent away. To
+try it in a terminal instead, `ringback-hub serve` runs it until you stop it. On a Mac with
+FileVault and no automatic login, nothing starts after a reboot until someone logs in, not
+even Nebula.
 
 What it keeps is in `~/.local/state/ringback/`: the phones (`devices.json`), the calls that
 wait (`waiting.json`), the sessions you can call (`contacts.json`) and every call's events
@@ -94,44 +104,6 @@ in over the network; if it can't, the phone warns you. Once the app has register
 `ringback-hub check` does that now, `ringback-hub devices` shows when each phone last checked
 in, and `ringback-hub ring --project myproject` rings every phone without audio, to try the
 push.
-
-To start it at login, and again whenever it stops, run it as a launchd agent:
-
-```sh
-cat > ~/Library/LaunchAgents/ringback.hub.plist <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>ringback.hub</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$HOME/.local/bin/ringback-hub</string>
-    <string>serve</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-  <key>ThrottleInterval</key>
-  <integer>30</integer>
-  <key>StandardOutPath</key>
-  <string>$HOME/Library/Logs/ringback-hub.log</string>
-  <key>StandardErrorPath</key>
-  <string>$HOME/Library/Logs/ringback-hub.log</string>
-</dict>
-</plist>
-EOF
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ringback.hub.plist
-```
-
-`KeepAlive` starts it again whenever it stops, at most every 30 s (`ThrottleInterval`): while
-the network is down, it can't listen on its address, and launchd tries again. Its log is
-`~/Library/Logs/ringback-hub.log`. To restart it, as after an update:
-`launchctl kickstart -k gui/$(id -u)/ringback.hub`. To stop it until you load it again:
-`launchctl bootout gui/$(id -u)/ringback.hub`. On a Mac with FileVault and no automatic
-login, nothing starts after a reboot until someone logs in, not even Nebula.
 
 ## 3. The hub's portal
 
@@ -222,28 +194,25 @@ hub = "ws://10.0.0.1:8787/speech"
 token = "…"   # [tokens] speech in the hub's hub.toml
 ```
 
-and start it:
+and install it as a service, a systemd user unit: it starts now, at boot, and again whenever
+it stops:
 
 ```sh
-. ~/ringback-speech/env.sh && ~/ringback-speech/bin/ringback-speech serve
+~/ringback-speech/bin/ringback-speech install
+journalctl --user -u ringback-speech -f      # its log
 ```
+
+`install` refuses while `speech.toml` lacks the hub or the token, or while a node started by
+hand runs. It also turns on lingering for you (`loginctl enable-linger`), so the node runs
+from boot, not only while you're logged in; where that needs an administrator, it says so.
+After building a new binary, run `install` again to restart it; `ringback-speech uninstall`
+stops it and takes the unit away. To try it in a terminal instead:
+`. ~/ringback-speech/env.sh && ~/ringback-speech/bin/ringback-speech serve`.
 
 It links to the hub ("linked to the hub" in its log, and "speech … connected" in the hub's),
 and holds no models until a call comes: the hub tells it when a call rings, and it loads them
 while the phone rings, in about 2 s. A minute after the call, it lets go of the GPU and its
 memory again.
-
-To run it as a service, from boot and again if it fails, use the systemd user unit in
-`speech/` (checked with `systemd-analyze` and run once, but not yet run enabled):
-
-```sh
-mkdir -p ~/.config/systemd/user
-cp speech/ringback-speech.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now ringback-speech
-loginctl enable-linger                       # so it runs from boot, not only while you're logged in
-journalctl --user -u ringback-speech -f      # its log
-```
 
 `speech/check.sh` checks the node against a stand-in hub (about 2.5 min): its hearing, its
 speaking, and its memory before, during and after a call.
@@ -253,13 +222,25 @@ speaking, and its memory before, during and after a call.
 ```sh
 mkdir -p ~/.local/bin ~/.config/ringback
 (cd agent && go build -o ~/.local/bin/ringback-agent .)
-cp agent/agent.example.toml ~/.config/ringback/agent.toml   # the hub's address and its agent token
-~/.local/bin/ringback-agent serve
+cp agent/agent.example.toml ~/.config/ringback/agent.toml
 ```
 
 In `agent.toml`, set `hub` to the hub's address and port, as in its `listen`, and `token` to
-`[tokens] agent` in the hub's `hub.toml`; the portal's Setup page shows both. Sessions on this
-Mac reach the agent through a socket only you can open,
+`[tokens] agent` in the hub's `hub.toml`; the portal's Setup page shows both. Then install it
+as a service, a launchd agent, from a terminal where `claude` runs: it starts now, at login,
+and again whenever it stops.
+
+```sh
+~/.local/bin/ringback-agent install
+```
+
+`install` refuses while the config lacks the hub or the token, while `claude` isn't on your
+`PATH` (the service gets its folder on its own `PATH`), or while an agent started by hand runs.
+Its log is `~/Library/Logs/ringback-agent.log`. After copying a new binary over the old one,
+run `install` again to restart it; `ringback-agent uninstall` stops it and takes the launchd
+agent away. To try it in a terminal instead, `ringback-agent serve` runs it until you stop it.
+
+Sessions on this Mac reach the agent through a socket only you can open,
 `~/.local/state/ringback/voice.sock`. It needs `claude` on its `PATH`: on a call, it runs Haiku
 as `claude -p`, on this Mac, and Opus when you ask for a better model. It links to the hub
 ("linked to the hub" in its log, and "agent … connected" in the hub's) and tells it which
@@ -271,47 +252,6 @@ beside its socket on every change, and read at start. That's the calls held outs
 work hours, the calls to call back, what sessions asked you and what waits for their mods. A
 call you're on when it restarts ends, and its session is told so. (Tried offline, not yet on
 the phone.)
-
-To start it at login, and again whenever it stops, run it as a launchd agent. Write the
-agent's file with `claude` on your `PATH`, as it finds it there:
-
-```sh
-cat > ~/Library/LaunchAgents/ringback.agent.plist <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>ringback.agent</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$HOME/.local/bin/ringback-agent</string>
-    <string>serve</string>
-  </array>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>PATH</key>
-    <string>$(dirname "$(which claude)"):/usr/bin:/bin:/usr/sbin:/sbin</string>
-  </dict>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-  <key>ThrottleInterval</key>
-  <integer>30</integer>
-  <key>StandardOutPath</key>
-  <string>$HOME/Library/Logs/ringback-agent.log</string>
-  <key>StandardErrorPath</key>
-  <string>$HOME/Library/Logs/ringback-agent.log</string>
-</dict>
-</plist>
-EOF
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ringback.agent.plist
-```
-
-Stop any agent you started by hand first: both would use the same socket. Its log is
-`~/Library/Logs/ringback-agent.log`; `launchctl kickstart -k gui/$(id -u)/ringback.agent`
-restarts it, and `launchctl bootout gui/$(id -u)/ringback.agent` stops it.
 
 ## 6. The ringback mod (every Mac that runs sessions)
 

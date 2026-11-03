@@ -29,17 +29,9 @@ token = "<span class="secret" data-secret="{{.SpeechToken}}">••••••�
     {{- else}}
     <p class="notice">The hub's config has no speech token yet. Set <code>speech</code> under <code>[tokens]</code> to a long random string, such as <code>openssl rand -hex 32</code> prints, and restart the hub.</p>
     {{- end}}
-    <div class="step"><span class="n">3</span><p>Start it. It links to the hub and shows on the status page's map.</p></div>
-    <pre class="code">. ~/ringback-speech/env.sh &amp;&amp; ~/ringback-speech/bin/ringback-speech serve</pre>
-    <details id="node-service">
-      <summary>Run it as a service, from boot</summary>
-      <pre class="code">mkdir -p ~/.config/systemd/user
-cp speech/ringback-speech.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now ringback-speech
-loginctl enable-linger                       # so it runs from boot, not only while you're logged in
+    <div class="step"><span class="n">3</span><p>Install it as a service: it starts now, at boot, and again whenever it stops. It links to the hub and shows on the status page's map.</p></div>
+    <pre class="code">~/ringback-speech/bin/ringback-speech install
 journalctl --user -u ringback-speech -f      # its log</pre>
-    </details>
   </div>
 </section>
 
@@ -63,42 +55,8 @@ token = "<span class="secret" data-secret="{{.AgentToken}}">••••••�
     {{- else}}
     <p class="notice">The hub's config has no agent token yet. Set <code>agent</code> under <code>[tokens]</code> to a long random string, such as <code>openssl rand -hex 32</code> prints, and restart the hub.</p>
     {{- end}}
-    <div class="step"><span class="n">3</span><p>Start it. It links to the hub and shows on the status page's map, with its sessions.</p></div>
-    <pre class="code">~/.local/bin/ringback-agent serve</pre>
-    <details id="mac-launchd">
-      <summary>Start it at login, with launchd</summary>
-      <pre class="code">cat &gt; ~/Library/LaunchAgents/ringback.agent.plist &lt;&lt;EOF
-&lt;?xml version="1.0" encoding="UTF-8"?&gt;
-&lt;!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"&gt;
-&lt;plist version="1.0"&gt;
-&lt;dict&gt;
-  &lt;key&gt;Label&lt;/key&gt;
-  &lt;string&gt;ringback.agent&lt;/string&gt;
-  &lt;key&gt;ProgramArguments&lt;/key&gt;
-  &lt;array&gt;
-    &lt;string&gt;$HOME/.local/bin/ringback-agent&lt;/string&gt;
-    &lt;string&gt;serve&lt;/string&gt;
-  &lt;/array&gt;
-  &lt;key&gt;EnvironmentVariables&lt;/key&gt;
-  &lt;dict&gt;
-    &lt;key&gt;PATH&lt;/key&gt;
-    &lt;string&gt;$(dirname "$(which claude)"):/usr/bin:/bin:/usr/sbin:/sbin&lt;/string&gt;
-  &lt;/dict&gt;
-  &lt;key&gt;RunAtLoad&lt;/key&gt;
-  &lt;true/&gt;
-  &lt;key&gt;KeepAlive&lt;/key&gt;
-  &lt;true/&gt;
-  &lt;key&gt;ThrottleInterval&lt;/key&gt;
-  &lt;integer&gt;30&lt;/integer&gt;
-  &lt;key&gt;StandardOutPath&lt;/key&gt;
-  &lt;string&gt;$HOME/Library/Logs/ringback-agent.log&lt;/string&gt;
-  &lt;key&gt;StandardErrorPath&lt;/key&gt;
-  &lt;string&gt;$HOME/Library/Logs/ringback-agent.log&lt;/string&gt;
-&lt;/dict&gt;
-&lt;/plist&gt;
-EOF
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ringback.agent.plist</pre>
-    </details>
+    <div class="step"><span class="n">3</span><p>Install it as a service, from a terminal where <code>claude</code> runs: it starts now, at login, and again whenever it stops. It links to the hub and shows on the status page's map, with its sessions.</p></div>
+    <pre class="code">~/.local/bin/ringback-agent install</pre>
     <div class="step"><span class="n">4</span><p>Load the ringback mod in Claude Code, for every session, in <code>~/.claude/settings.json</code>; then <code>/ringback</code> in a session turns calling on:</p></div>
     <pre class="code">{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/ringback/mod" } }</pre>
   </div>

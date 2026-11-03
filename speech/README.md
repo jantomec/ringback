@@ -63,7 +63,7 @@ later and its driver, 580 or later (CUDA 13):
 speech/install.sh                   # into ~/ringback-speech, or the folder given
 speech/build.sh                     # into its bin/
 # set hub and token in ~/ringback-speech/speech.toml
-. ~/ringback-speech/env.sh && ~/ringback-speech/bin/ringback-speech serve
+~/ringback-speech/bin/ringback-speech install   # a service: now, at boot, and whenever it stops
 ```
 
 `install.sh` needs only curl (or wget), tar, bzip2, gzip, unzip and sha256sum: no pip, Python
@@ -104,28 +104,25 @@ Everything lives in that one folder, nothing outside it:
 
 ## As a service
 
-`ringback-speech.service` is a systemd user unit, an example that nothing installs: it runs
-`bin/ringback-speech serve` in `~/ringback-speech` (change `WorkingDirectory` for another
-folder) with `env.sh`'s environment, starts it again if it fails, and logs to the journal;
-the stop signal goes to `serve` alone, which stops its worker. To use it:
+`ringback-speech install` makes the node a systemd user service: it writes
+`~/.config/systemd/user/ringback-speech.service`, which runs `bin/ringback-speech serve` in the
+install directory with `env.sh`'s environment and starts it again whenever it stops, enables
+and starts it, and turns on lingering, so it runs from boot rather than only while you're
+logged in. The stop signal goes to `serve` alone, which stops its worker. Its log is the
+journal's (`journalctl --user -u ringback-speech -f`). `install` refuses while `speech.toml`
+lacks the hub or the token, or while a node started by hand runs; run it again after a new
+build to restart the node; `ringback-speech uninstall` stops it and removes the unit.
 
-```sh
-cp speech/ringback-speech.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now ringback-speech
-loginctl enable-linger              # so it runs from boot, not only while you're logged in
-journalctl --user -u ringback-speech -f
-```
-
-It passes `systemd-analyze --user verify`, and its command, run once through `systemd-run
---user`, had `env.sh`'s library path and heard a recording on CUDA; it hasn't run enabled.
+On the speech node (2026-11-03), installed over a node that a unit made with `systemd-run`
+was running: the unit was enabled and active, the node linked to the hub, and killed with
+SIGKILL it was running again and linked 5 s later. Starting at boot isn't tried.
 
 ## Build, run, check
 
 ```sh
 speech/build.sh                     # on the speech node, into bin/
 . ~/ringback-speech/env.sh
-~/ringback-speech/bin/ringback-speech serve
+~/ringback-speech/bin/ringback-speech serve    # in a terminal, with no service running
 ~/ringback-speech/bin/ringback-speech phonemes "All 142 tests pass."   # what the voice would say
 ~/ringback-speech/bin/ringback-speech say "All 142 tests pass." out.wav
 speech/check.sh                     # the node against fakehub, about 2.5 min
