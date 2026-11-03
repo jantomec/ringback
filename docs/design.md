@@ -602,6 +602,10 @@ with a certificate, or a private certificate authority installed on each device 
   (Security). The private network is the only wall: keep it to your own devices.
 - **Calls don't queue or retry.** Two sessions calling at once both ring, and a call you
   don't answer is forgotten after 90 s with only a note to its session (Next).
+- **The phone's tunnel can stop receiving.** On one Wi-Fi network (2026-11-03), for over two
+  minutes, the phone's Nebula packets reached the hub and the hub answered, but nothing reached
+  the phone; it had happened for 10 s a few minutes before. A call that rang then stayed
+  silent: the app's offer and reports timed out. The cause isn't known yet (Next).
 - **A stale tunnel delays a call.** After the phone changes network, the VPN can take 10–20 s
   to reach the hub again; the app keeps trying, for up to 45 s after you answer.
 - **Every placed call costs a Haiku opening** on your subscription, even if you decline it,
@@ -654,6 +658,12 @@ current code, and what has only been checked offline.
 - A call with no speech node waits instead of ringing, with its notification, the app's banner
   and the call under Waiting; when the node links again, the call rings within a second, and
   the node loads its models in 2.1 s (unlocked, on Wi-Fi).
+- On-device Voice, with no speech node, on mobile data (one call, 64 s): the phone's link
+  connected while it rang, the voice started 1.85 s after you answered, you interrupted it,
+  and it answered each of your four turns. Apple's recognizer had your words 0.45–0.51 s after
+  you stopped, all right ("the first two" as "the 1st 2"), and the phone made each sentence's
+  speech in 0.07–0.33 s. The voice sounds flatter than Kokoro: its pacing, pronunciation and
+  intonation, with the best English voice installed then.
 - The portal on a real hub, from the phone's Safari: signing in, the map, and taking calls.
 - In the app, apart from the hub, with an earlier build whose code for them hasn't changed:
   ringing as call waiting during another call, a call recorded as ended when the app is
@@ -675,18 +685,25 @@ for how things look):
 - the weak-signal settings in the hub;
 - Interruption Sensitivity and Ignore Background Noise, with real noise or someone talking
   near you;
-- On-device voice in a real call (Apple's recognition was tried on the phone on its own,
-  `tools/speech-trial`, but not in the feature);
 - calls, asks and messages surviving a restart of the agent or the hub;
 - a stop with no words making the voice carry on.
 
 ## Next
 
-The to-do list, roughly in order. The first four go together, toward a hub someone hosts for
-others, so that each of them installs only the iPhone app and the Mac client: a hub on the
-internet needs its open endpoints closed and its parts paired, several users on one hub need
-both, and they'd want the host unable to read their calls.
+The to-do list, roughly in order; the README lists it too, one line an item. The four from
+closing the hub's open endpoints go together, toward a hub someone hosts for others, so that each of them installs
+only the iPhone app and the Mac client: a hub on the internet needs its open endpoints closed
+and its parts paired, several users on one hub need both, and they'd want the host unable to
+read their calls.
 
+- [ ] **Try on the phone what's only been checked offline** (Status): a session calling and
+  its answer coming back, asks, held calls and the hold switch, call backs and Sessions, Opus,
+  weak signal, and restarts.
+- [ ] **A call that can't reach the hub ends and says why.** When the phone's requests to the
+  hub fail after it has rung, the call stays on, silent, with nothing on screen; it should
+  give up after a while, end, and say the hub can't be reached.
+- [ ] **Find why the phone's tunnel stops receiving the hub's packets on some Wi-Fi** (Limits
+  and risks).
 - [ ] **Close the hub's open endpoints** (to be fixed; Limits and risks). Take out `/call` and
   `/sessions` (only the smoke test uses them, and a call held there isn't asked about again
   when you take calls), placing the smoke test's calls through a stand-in agent instead, and make a
@@ -717,6 +734,10 @@ both, and they'd want the host unable to read their calls.
   call waits for the first to end. A call you decline or miss tries again 5 min, 20 min, 1 h,
   2½ h and 6 h after its first ring, with the queue paused in between; after the last, every
   call waits until you call that session back.
+- [ ] **A better voice for On-device Voice.** Apple's built-in voices sound flat next to
+  Kokoro: first an Enhanced or Premium English voice, then Kokoro on the phone. If Apple's
+  recognizer proves too weak on more calls, Parakeet on the phone too (on Apple's Neural
+  Engine through Core ML; not checked).
 - [ ] **On-device voice on a weak signal,** even with a speech node linked, since only text
   crosses the network.
 - [ ] **A phone-network fallback** for where data is too weak: SIP trunks from a local

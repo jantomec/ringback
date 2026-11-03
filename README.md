@@ -120,26 +120,39 @@ claude --plugin-dir path/to/ringback/mod
 
 ## Status
 
-Ringback is a working prototype. Everything here is built and passes its offline checks; a
-tick means it has also been tried on a real phone, locked, with the current code.
+Ringback is a working prototype: everything below is built and passes its offline checks.
 
-- [x] A locked iPhone rings, and you talk with the voice, interrupting it, and what you ask to
-      pass on goes once you've heard it announced (a call placed through the agent by hand)
-- [x] A call waits while no speech node is linked, and rings once one links
-- [x] The hub's portal, from the phone
-- [ ] A session calling when it finishes, and its answer coming back to the call
-- [ ] Permission prompts and questions, answered on the call
-- [ ] Work hours, the hold switch, its breathing light and the Lock Screen widget
-- [ ] Calling back, calling a waiting call now, and the Sessions tab
-- [ ] Opus on the line
-- [ ] Weak signal: 3G, and the Network Link Conditioner's Very Bad Network
-- [ ] Speech on the iPhone itself, without a speech node (On-device Voice)
-- [ ] Calls and asks that survive a restart of the agent or the hub
+**Tried on a real phone**, locked, with the current code:
+- a locked iPhone rings, you talk with the voice and interrupt it, and what you ask to pass on
+  goes once you've heard it announced (a call placed through the agent by hand);
+- a call waits while no speech node is linked, and rings once one links;
+- with no speech node, the phone hears and speaks a call itself (On-device Voice): you talk,
+  interrupt, and it answers, on mobile data;
+- the hub's portal, from the phone.
 
-Next, on the to-do list under "Next" in [docs/design.md](docs/design.md): closing the hub's
-endpoints that take no token, a public hub that needs no private network, a hub hosted for
-several users, end-to-end encrypted calls with On-device Voice, and several sessions calling in
-turn, with retries.
+**Not yet tried on the phone:** a session calling when it finishes; permission prompts and
+questions on the call; work hours, the hold switch, its breathing light and the Lock Screen
+widget; calling back, calling a waiting call now, and the Sessions tab; Opus on the line; weak
+signal; calls and asks surviving a restart of the agent or the hub.
+
+## To do
+
+What each item means is under "Next" in [docs/design.md](docs/design.md).
+
+- [ ] Try on the phone what's only been checked offline (above)
+- [ ] A call that can't reach the hub ends and says why, rather than staying silent
+- [ ] Find why the phone's tunnel stops receiving the hub's packets on some Wi-Fi
+- [ ] Close the hub's endpoints that take no token
+- [ ] A public hub, so no private network is needed
+- [ ] A hub hosted for several users, who install only the app and the Mac client
+- [ ] End-to-end encrypted calls with On-device Voice
+- [ ] The Mac client as a package
+- [ ] Several sessions calling in turn, with retries
+- [ ] A better voice for On-device Voice, and Parakeet on the phone if its hearing falls short
+- [ ] On-device Voice on a weak signal
+- [ ] A phone-network fallback
+- [ ] Showing you things: images and other things a call can't say
+- [ ] The call history in iCloud
 
 <details>
 <summary><b>Repository and development</b></summary>

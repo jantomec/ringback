@@ -69,6 +69,8 @@ What it needs to run is under "You need" in `docs/setup.md`.
 
 - Build a rough version, say what's untested, and move on: tuning and edge cases wait
   until testers report a real problem ("Limits and risks" in `docs/design.md`).
+- The to-do list is "Next" in `docs/design.md`, and the README's "To do" lists the same items,
+  one line each: change both together, and tick an item off in both when it's done.
 - Verify every change to calls on the real phone (locked, on mobile data, with headphones).
   Simulator runs and unit tests don't count for ringing, push or audio.
 - Facts marked unverified or "not checked" in `docs/design.md` must be checked against
