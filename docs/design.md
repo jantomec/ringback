@@ -675,6 +675,20 @@ current code, and what has only been checked offline.
   you stopped, all right ("the first two" as "the 1st 2"), and the phone made each sentence's
   speech in 0.07–0.33 s. It works, but not well enough to use: the voice sounds flatter than
   Kokoro in its pacing, pronunciation and intonation, with an Enhanced voice (Samantha).
+- A real Claude Code session's call (2026-11-03): the session finished a task, the agent
+  placed the call, the audio connected 1.9 s before you answered, the voice started 0.16 s
+  after, answered from the briefing and took an interruption.
+- Calling back a call from Recents: connected 1.5 s after the tap, the voice opening with
+  "Nothing new since our last call" and what had happened since. On that call, Opus on the
+  line: Haiku said so, the handover took 0.37 s once you'd heard it, Opus spoke about 6 s
+  after you asked and carried on with the whole conversation.
+- Calling a session from the Sessions tab: connected 0.8 s after the tap, opening on the
+  session's latest briefing; the session was told afterwards.
+- Pairing the phone from the portal's link, on mobile data, from the app's banner.
+- A call that can't reach the hub (the hub stopped right after it pushed): it rang, and once
+  answered stayed silent until the app gave up, 71 s after you answered, ended the call, and
+  said that Ringback can't reach your hub in a notification and its banner (on Wi-Fi). Hang
+  up before that and nothing says why.
 - The portal on a real hub, from the phone's Safari: signing in, the map, and taking calls.
 - In the app, apart from the hub, with an earlier build whose code for them hasn't changed:
   ringing as call waiting during another call, a call recorded as ended when the app is
@@ -685,17 +699,14 @@ agents and node, `tools/hub-check` with a stand-in phone, agent and node, `tools
 with a real session, agent and hub, `tools/line-check` with the real hub, agent and node and a
 stand-in phone, `claude plugin test mod`, `tools/app-screens` and `tools/portal-screens` for
 how things look):
-- a real Claude Code session calling through the mod and the agent, and its answer coming
-  back to the call;
+- a session's answer coming back to a call you're on, and what you ask to pass on reaching
+  a real session;
 - held calls, work hours, and the hold set from the app's pill or Control Center, or put on
   from the portal, with the pill's breathing light, the icon's badge and the Lock Screen
   widget;
 - the connection check's push, and the app checking in with the hub;
-- pairing the phone: the app's banner, the portal's pairing page and its link back to the app
-  (the hub's side checked, the app only built);
-- calling back, calling a waiting call now, and calling from the Sessions tab;
+- calling a waiting call now;
 - permissions and questions on a call, and a held call's question sent to the Claude app;
-- Opus on the line;
 - the weak-signal settings in the hub;
 - Interruption Sensitivity and Ignore Background Noise, with real noise or someone talking
   near you;
@@ -710,16 +721,14 @@ of them installs only the iPhone app and the Mac client: a hub on the internet n
 phones and other parts paired, several users on one hub need that too, and they'd want the
 host unable to read their calls.
 
-- [ ] **Try on the phone what's only been checked offline** (Status): a session calling and
-  its answer coming back, asks, held calls and the hold switch, call backs and Sessions, Opus,
-  weak signal, and restarts.
-- [ ] **A call that can't reach the hub ends and says why** (built; not yet tried on the
-  phone). When the phone's requests to the hub failed after it rang, the call stayed on,
-  silent, with nothing on screen. Now a call you're on whose audio can't connect, or is lost,
-  ends through CallKit, with a notification and the app's banner saying why: that the hub
-  can't be reached, as the connection check says, or the error.
-- [ ] **A phone proves it's yours before the hub takes its push token** (built; not yet tried
-  on the phone). The app's banner sends an unpaired phone to the portal's pairing page, whose
+- [ ] **Try on the phone what's only been checked offline** (Status): a session's answer
+  coming back to a call, asks, held calls and the hold switch, weak signal, and restarts.
+- [x] **A call that can't reach the hub ends and says why** (tried on the phone). A call you're
+  on whose audio can't connect, or is lost, ends through CallKit, with a notification and the
+  app's banner saying why: that the hub can't be reached, as the connection check says, or the
+  error.
+- [x] **A phone proves it's yours before the hub takes its push token** (tried on the phone).
+  The app's banner sends an unpaired phone to the portal's pairing page, whose
   one-time link opens Ringback, which trades it for the phone's key; every request that names
   the phone by its push token carries the key (Security). A phone registered before this
   pairs once.
