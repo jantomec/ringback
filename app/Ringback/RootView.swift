@@ -44,8 +44,13 @@ struct RootView: View {
         }
         // The hub's portal pairs this phone with a link to the app (ringback://pair).
         .onOpenURL { url in Task { await push.open(url) } }
-        .alert(state.pairingMessage ?? "", isPresented: .constant(state.pairingMessage != nil)) {
-            Button("OK") { state.pairingMessage = nil }
+        .sheet(isPresented: Binding(get: { state.justPaired }, set: { state.justPaired = $0 })) {
+            PairedView { state.justPaired = false }
+        }
+        .alert("Couldn't Pair", isPresented: .constant(state.pairingProblem != nil)) {
+            Button("OK") { state.pairingProblem = nil }
+        } message: {
+            Text(state.pairingProblem ?? "")
         }
         .onChange(of: scenePhase, initial: true) { _, phase in
             guard phase == .active else { return }
@@ -84,3 +89,37 @@ struct RootView: View {
         showsCallBackProblem = state.callBackProblem != nil
     }
 }
+
+/// The phone has just paired with the hub, from the portal's link.
+private struct PairedView: View {
+    let done: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 64))
+                .foregroundStyle(.green)
+                .symbolEffect(.bounce, options: .nonRepeating)
+            Text("Paired")
+                .font(.title.bold())
+            Text(hub.map { "Your hub at \($0) can ring this iPhone now." } ?? "Your hub can ring this iPhone now.")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button(action: done) {
+                Text("Done").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .padding(.top, 8)
+        }
+        .padding(.horizontal, 32)
+        .padding(.vertical, 24)
+        .presentationDetents([.height(320)])
+        .presentationDragIndicator(.visible)
+    }
+
+    /// The hub's address as you'd recognise it: its host, without the scheme and port.
+    private var hub: String? { Switchboard.url?.host() }
+}
+

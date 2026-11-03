@@ -66,6 +66,12 @@ final class AppScreensUITests: XCTestCase {
         shot("banner")
         problem.terminate()
 
+        let paired = launch("paired")
+        note("paired sheet", paired.buttons["Done"].waitForExistence(timeout: 10))
+        sleep(1)  // the checkmark's bounce
+        shot("paired")
+        paired.terminate()
+
         let speech = launch("speech")
         note("speech banner", speech.staticTexts["Claude can't talk on calls"].waitForExistence(timeout: 10)
             && speech.buttons["1 More Problem"].exists)

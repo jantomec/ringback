@@ -55,7 +55,7 @@ final class PushService: NSObject, PKPushRegistryDelegate {
                 Shared.key = try await Switchboard.pair(
                     code: code, token: token, notificationToken: notificationToken, hours: hours, onDevice: onDevice)
                 state.pairingCode = nil
-                state.pairingMessage = "This iPhone is paired with your hub: calls can ring it now."
+                state.justPaired = true
             } else {
                 try await Switchboard.register(token: token, notificationToken: notificationToken, hours: hours, onDevice: onDevice)
             }
@@ -79,7 +79,7 @@ final class PushService: NSObject, PKPushRegistryDelegate {
             state.pairingCode = nil
             state.connection = .notPaired
             state.needsPairing = true
-            state.pairingMessage = "\(refused.localizedDescription). Pair again from your hub's portal."
+            state.pairingProblem = "\(refused.localizedDescription). Pair again from your hub's portal."
             return
         } catch {
             state.connection = .failed(reason: error.localizedDescription)

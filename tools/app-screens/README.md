@@ -7,9 +7,9 @@ it's SwiftUI's drawing, not ringing, push or audio.
 
 The project is the app's own sources (`app/Ringback`, `app/Settings.bundle`), built for a
 simulator without signing, and a UI test. The app shows the samples only in a debug build,
-when launched with `-RingbackSeed calls`, `problem`, `speech` or `setup` (`app/Ringback/Seed.swift`);
-then it doesn't reach a hub and asks for no permissions. The test saves, for each
-appearance:
+when launched with `-RingbackSeed calls`, `problem`, `paired`, `speech` or `setup`
+(`app/Ringback/Seed.swift`); then it doesn't reach a hub and asks for no permissions. The
+test saves, for each appearance:
 - `recents`: waiting calls (one with a question, one without) under Waiting, and under
   Calls, calls answered, missed, declined, called back, called from Sessions, one that
   didn't connect, one on another call, from today, yesterday, this week and earlier; and the
@@ -22,6 +22,7 @@ appearance:
   switch taking calls until 19:00;
 - `speech-banner`: no speech computer linked, a call waiting for it, and the microphone off:
   the speech banner with "1 More Problem", then `speech-banner-all` with both;
+- `paired`: the sheet a phone shows once it has paired from the hub's portal;
 - `setup`: a phone that isn't set up, then `settings` and `settings-more`, Ringback's page in
   the Settings app, from the banner's Open Settings.
 

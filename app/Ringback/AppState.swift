@@ -150,7 +150,10 @@ final class AppState {
     /// knows. Only pairing clears it, so its banner stays while the hub can't be reached.
     var needsPairing = Shared.key == nil
     /// How pairing went, shown once: paired, or why not.
-    var pairingMessage: String?
+    /// The phone has just paired, for the sheet that says so.
+    var justPaired = false
+    /// Why a pairing link didn't pair, for an alert.
+    var pairingProblem: String?
     var activeCall: ActiveCall?
     /// Why a call you made ended by itself, a call back or a waiting call you called, shown
     /// once the in-call screen is gone; or why a waiting call's question didn't go to the

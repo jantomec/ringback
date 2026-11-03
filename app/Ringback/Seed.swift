@@ -90,6 +90,10 @@ enum Seed {
                     id: "w3", project: "parser", subject: "Parser fix ready to push", voice: mac, heldUntil: nil,
                     session: Self.ids["parser"]!, reason: "no speech")
             ]
+        case "paired":
+            // Just paired from the portal's link: the sheet that says so.
+            state.connection = .connected(at: now)
+            state.justPaired = true
         case "setup":
             state.connection = .notSetUp
             state.seed([])
