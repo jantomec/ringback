@@ -611,10 +611,12 @@ with a certificate, or a private certificate authority installed on each device 
 
 - **Calls don't queue or retry.** Two sessions calling at once both ring, and a call you
   don't answer is forgotten after 90 s with only a note to its session (Next).
-- **The phone's tunnel can stop receiving.** On one Wi-Fi network (2026-11-03), for over two
-  minutes, the phone's Nebula packets reached the hub and the hub answered, but nothing reached
-  the phone; it had happened for 10 s a few minutes before. A call that rang then stayed
-  silent: the app's offer and reports timed out. The cause isn't known yet (Next).
+- **The phone's tunnel can stop receiving.** Once (2026-11-03), after the phone moved from
+  home Wi-Fi to mobile data to another Wi-Fi, for over two minutes its Nebula packets reached
+  the hub and the hub answered, but nothing reached the phone. Moving between networks, with
+  another VPN beside Nebula, a tunnel doesn't always recover by itself. Ringback can't fix it; it
+  notices: a call whose audio can't connect ends, with a notification and a banner saying the
+  hub can't be reached, and the connection check warns between calls.
 - **A stale tunnel delays a call.** After the phone changes network, the VPN can take 10–20 s
   to reach the hub again; the app keeps trying, for up to 45 s after you answer.
 - **Every placed call costs a Haiku opening** on your subscription, even if you decline it,
@@ -716,8 +718,6 @@ host unable to read their calls.
   silent, with nothing on screen. Now a call you're on whose audio can't connect, or is lost,
   ends through CallKit, with a notification and the app's banner saying why: that the hub
   can't be reached, as the connection check says, or the error.
-- [ ] **Find why the phone's tunnel stops receiving the hub's packets on some Wi-Fi** (Limits
-  and risks).
 - [ ] **A phone proves it's yours before the hub takes its push token** (built; not yet tried
   on the phone). The app's banner sends an unpaired phone to the portal's pairing page, whose
   one-time link opens Ringback, which trades it for the phone's key; every request that names

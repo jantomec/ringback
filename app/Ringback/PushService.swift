@@ -50,14 +50,16 @@ final class PushService: NSObject, PKPushRegistryDelegate {
             let onDevice = OnDeviceVoice.isOn
             let url = Switchboard.url
             if let code = state.pairingCode {
-                // A pairing link opened the app: the code makes the phone its key.
-                state.pairingCode = nil
+                // A pairing link opened the app: the code makes the phone its key. If the hub
+                // can't be reached, the code stays for the next try, within its 10 minutes.
                 Shared.key = try await Switchboard.pair(
                     code: code, token: token, notificationToken: notificationToken, hours: hours, onDevice: onDevice)
+                state.pairingCode = nil
                 state.pairingMessage = "This iPhone is paired with your hub: calls can ring it now."
             } else {
                 try await Switchboard.register(token: token, notificationToken: notificationToken, hours: hours, onDevice: onDevice)
             }
+            state.needsPairing = false
             sentNotificationToken = notificationToken
             sentHours = hours
             sentOnDevice = onDevice
@@ -71,9 +73,12 @@ final class PushService: NSObject, PKPushRegistryDelegate {
             if force { state.confirmations += 1 }
         } catch is NotPaired {
             state.connection = .notPaired
+            state.needsPairing = true
             return
         } catch let refused as PairingRefused {
+            state.pairingCode = nil
             state.connection = .notPaired
+            state.needsPairing = true
             state.pairingMessage = "\(refused.localizedDescription). Pair again from your hub's portal."
             return
         } catch {

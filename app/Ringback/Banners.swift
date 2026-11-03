@@ -25,17 +25,19 @@ struct Banners: View {
         // The state starts as not set up, until the first check: the address says.
         if state.connection == .notSetUp && Switchboard.url == nil {
             found.append(.notSetUp)
-        } else if state.connection == .notPaired {
-            found.append(.notPaired)
-        } else if lastConnectionWarning > 0 || state.connection.failed || isRetrying {
-            // A connection check in the background warned you, or the hub can't be
-            // reached now. It repeats the warning, which is gone once you tap it, and goes
-            // away by itself once the hub is reachable again.
-            found.append(.unreachable)
-        } else if let status = state.status {
-            // Only while the hub answers: otherwise what it said last may be stale.
-            if let problem = status.pushProblem { found.append(.push(problem)) }
-            if !status.speechOK { found.append(.speech(waiting: status.waitingForSpeech)) }
+        } else {
+            // Pairing stays asked for until it's done, whether or not the hub can be reached now.
+            if state.needsPairing { found.append(.notPaired) }
+            if lastConnectionWarning > 0 || state.connection.failed || isRetrying {
+                // A connection check in the background warned you, or the hub can't be
+                // reached now. It repeats the warning, which is gone once you tap it, and goes
+                // away by itself once the hub is reachable again.
+                found.append(.unreachable)
+            } else if !state.needsPairing, let status = state.status {
+                // Only while the hub answers: otherwise what it said last may be stale.
+                if let problem = status.pushProblem { found.append(.push(problem)) }
+                if !status.speechOK { found.append(.speech(waiting: status.waitingForSpeech)) }
+            }
         }
         if let problem = state.onDeviceProblem { found.append(.onDevice(problem)) }
         if state.microphoneOff { found.append(.microphone) }

@@ -146,6 +146,9 @@ final class AppState {
     var connection: Connection = .notSetUp
     /// A pairing link's one-time code, until the hub has taken it (PushService.connect).
     var pairingCode: String?
+    /// The hub has to pair this phone: it has no key yet, or the hub said its key isn't one it
+    /// knows. Only pairing clears it, so its banner stays while the hub can't be reached.
+    var needsPairing = Shared.key == nil
     /// How pairing went, shown once: paired, or why not.
     var pairingMessage: String?
     var activeCall: ActiveCall?
@@ -197,6 +200,7 @@ final class AppState {
             found = try await Switchboard.waiting(token: token)
         } catch is NotPaired {
             connection = .notPaired
+            needsPairing = true
             return
         } catch {
             return

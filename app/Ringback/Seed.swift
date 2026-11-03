@@ -71,6 +71,8 @@ enum Seed {
         // On hold until tomorrow's work hours, with the two calls waiting; taking calls for the
         // connection banner's screenshot, until 19:00.
         state.hold = HoldState(on: true, until: tomorrow)
+        // Paired, as a phone in use is: the samples have no hub to pair with.
+        state.needsPairing = false
         switch mode {
         case "problem":
             state.hold = HoldState(on: false, until: Calendar.current.date(byAdding: .hour, value: 19, to: today))

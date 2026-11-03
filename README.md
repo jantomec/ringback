@@ -142,7 +142,6 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 
 - [ ] Try on the phone what's only been checked offline (above)
 - [ ] A call that can't reach the hub ends and says why, rather than staying silent (built, untried)
-- [ ] Find why the phone's tunnel stops receiving the hub's packets on some Wi-Fi
 - [ ] A phone proves it's yours before the hub takes its push token (built, untried)
 - [ ] A public hub, so no private network is needed
 - [ ] A hub hosted for several users, who install only the app and the Mac client
