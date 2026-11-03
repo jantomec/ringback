@@ -164,6 +164,9 @@ words, and ask what they want. You can pass their questions or instructions to t
 	// Sent to Haiku when something stopped the voice but no words were recognised (see
 	// "Interruptions" in docs/design.md): the hub's turn with no words.
 	noise = `Something stopped you, but no words were recognised, so it was probably noise. Carry on from the start of the sentence you were in.`
+	// A call placed with the session's news you hung up before hearing (Calls.callAgain).
+	unheardSubject  = `The answer you didn't hear`
+	unheardBriefing = `The developer hung up on the last call before hearing the session's answer, which this call brings. Open with it. The session's answer, as it wrote it for its terminal:`
 	// Sent to Haiku when nothing has been heard for a while since the voice finished, and the
 	// session waits for an answer (the hub's `quiet`).
 	reask = `Nothing has been heard from the developer for a few seconds since you finished, and the session still waits for an answer. Their answer may not have been heard: say so in a few words and ask again, briefly.`

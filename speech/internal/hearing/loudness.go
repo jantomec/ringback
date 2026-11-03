@@ -2,8 +2,9 @@ package hearing
 
 import "math"
 
-// The volume the background filter compares with its gate is Pipecat's: the loudness of the
-// last 400 ms of audio (ITU-R BS.1770, one gating block), from 0 to 1 for -110 to -10 LUFS.
+// The volume the background filter compares with its gate is Pipecat's: the loudness of a
+// block of audio (ITU-R BS.1770, one gating block, at most 400 ms), from 0 to 1 for -110 to
+// -10 LUFS. Which audio it's of differs from Pipecat (speechVolume in vad.go).
 
 const volumeWindow = Rate * 400 / 1000 // samples in a BS.1770 gating block
 

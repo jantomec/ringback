@@ -18,7 +18,7 @@ import (
 )
 
 const usage = `usage: ringback-speech [--config FILE] install | uninstall | serve | say TEXT OUT.wav
-       | phonemes TEXT | hear FILE.wav
+       | phonemes TEXT | hear FILE.wav | listen [--sensitivity S] [--gate G] FILE.wav...
 
   install   run the node as a service (a systemd user unit): now, at boot, and again
             whenever it stops; again after building a new binary, to restart it;
@@ -28,6 +28,9 @@ const usage = `usage: ringback-speech [--config FILE] install | uninstall | serv
   say       speak TEXT as the voice does, into a WAV file (24 kHz)
   phonemes  print the phonemes the voice would speak for TEXT, chunk by chunk
   hear      print Parakeet's words for a WAV file (16 kHz, one stretch of speech)
+  listen    hear WAV files as a call does, each its own call, with the app's interruption
+            sensitivity and background filter (0 to 1; 0.5 each by default): print what's
+            heard as JSON lines (tools/short-answers)
 
   --config FILE  the settings (default: speech.toml in the install directory, the folder
                  above the binary's); the hub's address, the token and the idle time in it
@@ -134,6 +137,8 @@ func main() {
 		t := time.Now()
 		text := m.asr.Transcribe(audio)
 		fmt.Printf("%.0f ms: %s\n", time.Since(t).Seconds()*1000, text)
+	case args[0] == "listen" && len(args) >= 2:
+		listen(c, args[1:])
 	default:
 		fail(usage)
 	}

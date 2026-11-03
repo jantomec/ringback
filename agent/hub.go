@@ -507,7 +507,7 @@ func (a *agent) ended(id string, lasted *float64) {
 		a.logCall(id, fmt.Sprintf("finished: you talked %.1f s", *lasted))
 	}
 	if !o.answered.IsZero() {
-		a.calls.end(id, lasted)
+		a.calls.end(id, lasted, o.voice.unheardNews())
 	}
 }
 

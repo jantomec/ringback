@@ -260,6 +260,48 @@ func TestNotesAndAsksOnACall(t *testing.T) {
 	check(t, "hung up without an answer: none", none["verdict"] == "none", none)
 }
 
+// The session's news that came to a call is heard once a reply given it has played to its end.
+// Hung up before that, the session calls again with it; heard, it doesn't.
+func TestUnheardNews(t *testing.T) {
+	hub := newFakeHub(t)
+	a := startAgent(t, hub, "")
+	a.collect("s3-session")
+	a.setReplies(
+		fakeReply{Match: "[The session: Tests pass.]", Steps: []fakeStep{say("It says the tests pass.")}},
+		fakeReply{Match: "[The session: Merged.]", Steps: []fakeStep{say("It says it's merged, and the branch is gone.")}},
+	)
+	places := func() int { return hub.count(is("place")) }
+
+	// Heard to the end, then hung up: no call.
+	callID, _ := a.placeCall("s3-session", "Pushed", "Pushed the branch.")
+	a.played(callID, a.answer(callID))
+	_, news := a.mod("POST", "/sessions/s3-session/news", map[string]any{"text": "Tests pass."})
+	check(t, "news reaches the call you're on", news["live"] == true, news)
+	text, _ := hub.reply(callID, 2, 5*time.Second)
+	a.played(callID, text)
+	before := places()
+	hub.send(map[string]any{"type": "ended", "call_id": callID, "lasted": 20.0})
+	time.Sleep(300 * time.Millisecond)
+	check(t, "news heard to the end: no call again", places() == before, places()-before)
+
+	// Hung up while the voice told it: the session calls again, with the news as its briefing.
+	callID, _ = a.placeCall("s3-session", "Pushed", "Pushed the branch.")
+	a.played(callID, a.answer(callID))
+	a.mod("POST", "/sessions/s3-session/news", map[string]any{"text": "Merged."})
+	hub.reply(callID, 2, 5*time.Second)
+	hub.send(map[string]any{"type": "speaking", "call_id": callID})
+	hub.send(map[string]any{"type": "heard", "call_id": callID, "text": "It says"})
+	from := hub.mark()
+	hub.send(map[string]any{"type": "ended", "call_id": callID, "lasted": 20.0})
+	again, _ := hub.wait(from, 5*time.Second, is("place"))
+	check(t, "hung up before hearing it: the session calls again", again != nil && again["subject"] == unheardSubject &&
+		again["session_id"] == "s3-session" && again["call_id"] != callID, again)
+	eventually(t, "its Haiku starts", 5*time.Second, func() bool { return len(a.starts()) == 3 })
+	system := a.starts()[2]["system"].(string)
+	check(t, "with the news you didn't hear as its briefing, and not the news you did",
+		strings.HasSuffix(system, unheardBriefing+"\n\nMerged.\n") && !strings.Contains(system, "Tests pass."), system)
+}
+
 // The phone can offer a call again: one that ended unanswered stays placed, a new offer
 // replaces the earlier one, and takes over the call's Haiku unless a voice has read it.
 func TestOfferReplaced(t *testing.T) {

@@ -26,7 +26,8 @@ const longestWait = 25 * time.Second
 //     session's project and folder, for the app's Sessions tab;
 //   - `POST /sessions/{id}/messages` leaves one, as the voice does (for tools);
 //   - `POST /sessions/{id}/news` brings a session's answer: `{"live": true}` if the voice
-//     told the call you're on, false if the session should call you;
+//     told the call you're on, false if the session should call you. If you hang up on that
+//     call before you've heard it, the agent calls you again with it;
 //   - `POST /sessions/{id}/permissions` asks your permission for a tool call, and
 //     `POST /sessions/{id}/questions` asks you questions, each with their options. Either is
 //     put to the call you're on with the session (`"call": "live"`) or to one placed to ask

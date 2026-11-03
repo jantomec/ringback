@@ -138,6 +138,11 @@ type voice struct {
 	cutOff     *string // what you'd heard of the reply you interrupted
 
 	reasked map[string]bool // asks the voice has asked again after you said nothing
+	// The session's news that came to this call, until you've heard a reply given it to its
+	// end (see heardNews), and how many of them the reply newsReply had been given.
+	unheard   []string
+	newsGiven int
+	newsReply int
 }
 
 func newVoice(calls *Calls, call *Call, haiku *Haiku, out func(map[string]any)) *voice {
@@ -224,6 +229,7 @@ func (v *voice) handle(m any) {
 		v.turnAt = time.Time{}
 	case idleMsg:
 		v.idle = true
+		v.heardNews()
 		v.tryAnswer()
 	case quietMsg:
 		v.onQuiet()
@@ -237,6 +243,9 @@ func (v *voice) handle(m any) {
 		v.onTurn(m.text, m.interrupted)
 	case noteMsg:
 		v.parts = append(v.parts, part{true, m.text})
+		if news, ok := strings.CutPrefix(m.text, newsPrefix); ok {
+			v.unheard = append(v.unheard, news)
+		}
 		v.tryAnswer()
 	case toolMsg:
 		v.drainEvents()
@@ -609,7 +618,23 @@ func (v *voice) answer() {
 		t.add("Developer", v.said)
 	}
 	v.calls.mu.Unlock()
+	// Every bit of news so far was in this turn's notes or an earlier one's.
+	if len(v.unheard) > 0 {
+		v.newsGiven, v.newsReply = len(v.unheard), reply
+	}
 	v.send(note+text, reply)
+}
+
+// heardNews: the voice is idle. If you heard its last reply to the end, and Haiku had been
+// given the session's news by then, you've heard that news. A reply you cut off doesn't
+// count, nor one with nothing said.
+func (v *voice) heardNews() {
+	if v.newsGiven == 0 || v.current < v.newsReply || v.writing || v.cut || words(v.reply) == 0 ||
+		words(v.heard) < words(v.reply) {
+		return
+	}
+	v.unheard = v.unheard[v.newsGiven:]
+	v.newsGiven = 0
 }
 
 // send sends a turn to Haiku, as reply number reply.
@@ -935,6 +960,20 @@ func (v *voice) close() {
 }
 
 // end ends the voice and waits until it has passed on what you'd heard.
+// unheardNews is the session's news you didn't hear told to the end, with any kept for a voice
+// that never started talking. Asked once the voice has ended.
+func (v *voice) unheardNews() []string {
+	news := v.unheard
+	v.calls.mu.Lock()
+	defer v.calls.mu.Unlock()
+	for _, n := range v.link.notes {
+		if text, ok := strings.CutPrefix(n.text, newsPrefix); ok {
+			news = append(news, text)
+		}
+	}
+	return news
+}
+
 func (v *voice) end() {
 	v.inbox.put(endMsg{})
 	<-v.done

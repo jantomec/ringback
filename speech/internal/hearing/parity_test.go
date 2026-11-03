@@ -1,7 +1,8 @@
 //go:build parity
 
 // Compares the voice-activity states and Smart Turn's verdict with Pipecat's own, on the
-// speech node with the real models:
+// speech node with the real models. Since the background filter's volume differs from
+// Pipecat's (speechVolume), states can differ where speech is near its gate:
 //
 //	RINGBACK_HEARING_REF=DIR RINGBACK_MODELS=INSTALL_DIR/models go test -tags parity ./internal/hearing
 package hearing

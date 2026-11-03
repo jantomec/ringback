@@ -125,6 +125,7 @@ speech/build.sh                     # on the speech node, into bin/
 ~/ringback-speech/bin/ringback-speech serve    # in a terminal, with no service running
 ~/ringback-speech/bin/ringback-speech phonemes "All 142 tests pass."   # what the voice would say
 ~/ringback-speech/bin/ringback-speech say "All 142 tests pass." out.wav
+~/ringback-speech/bin/ringback-speech listen --gate 0.5 yes.wav   # heard as a call hears it
 speech/check.sh                     # the node against fakehub, about 2.5 min
 # A build in bin-next/, beside a node that runs, with its own port and settings (a copy of
 # speech.toml in the install directory):
@@ -158,6 +159,15 @@ all of it kept out by the filter. No stream that was heard logged one.
 The pure Go parts have tests that run anywhere (`go test ./internal/hearing
 ./internal/speaking`); with `RINGBACK_KOKORO_DIR` set to Kokoro's folder they check that
 every word of sentences sherpa-onnx dropped words from gets sounds.
+
+Two things in hearing differ from Pipecat on purpose, after short answers on calls went
+unheard (`tools/short-answers`, with its results): the background filter compares its gate
+with the loudness of the speech Silero hears, over as much of it as has come, up to 400 ms,
+rather than of the last 400 ms smoothed from window to window; and a stretch of speech that
+Parakeet writes down as nothing is written down once more from 0.1 s before it began, without
+the second kept before it. `listen` hears WAV files as a call does, each as a call of its own,
+and prints what it heard as JSON lines.
+
 `internal/hearing/parity_test.go` (build tag `parity`, on the speech node) compares the
 voice-activity states, frame by frame, and Smart Turn's verdict with Pipecat's own, from
 reference values made with Pipecat 1.14.0 (`RINGBACK_HEARING_REF`; the script that makes them

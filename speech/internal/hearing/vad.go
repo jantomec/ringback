@@ -19,7 +19,6 @@ const (
 	resetSecs       = 2.0
 	resetConfidence = 0.1
 	resetWindows    = 5
-	smoothing       = 0.2 // of the volume, from one window to the next
 )
 
 type vadState int
@@ -32,7 +31,8 @@ const (
 )
 
 // analyzer is Pipecat's VADAnalyzer with SileroVADAnalyzer: Silero's confidence and the
-// volume of each 32 ms window, through a quiet/starting/speaking/stopping state machine.
+// volume of each 32 ms window, through a quiet/starting/speaking/stopping state machine. The
+// volume is measured differently (speechVolume).
 type analyzer struct {
 	model       Silero
 	params      VADParams
@@ -48,7 +48,7 @@ type analyzer struct {
 	sinceReset int // windows since the model's state was reset
 	lowWindows int // windows in a row that were clearly not speech
 	volumeBuf  []int16
-	prevVolume float64
+	voicedRun  int // windows in a row Silero has taken for speech
 	input      [sileroContext + sileroWindow]float32
 	err        error // the model's last failure, if any
 
@@ -100,12 +100,11 @@ func (a *analyzer) analyze(samples []int16) vadState {
 	for len(a.buf) >= sileroWindow {
 		window := a.buf[:sileroWindow]
 		confidence := a.confidence(window)
-		volume := a.smoothedVolume(window)
-		a.prevVolume = volume
-		a.buf = a.buf[sileroWindow:]
-
 		// numpy compares the model's float32 with the threshold as float32
 		voiced := confidence >= float32(a.params.Confidence)
+		volume := a.speechVolume(window, voiced)
+		a.buf = a.buf[sileroWindow:]
+
 		isSpeech := voiced && volume >= a.params.MinVolume
 		a.track(voiced, isSpeech, confidence, volume)
 		if isSpeech {
@@ -197,16 +196,22 @@ func (a *analyzer) confidence(window []int16) float32 {
 	return p
 }
 
-// smoothedVolume adds a window to the last 400 ms of audio and returns its volume, smoothed;
-// the volume is 0 until 400 ms have come (Pipecat's AudioVolumeTracker).
-func (a *analyzer) smoothedVolume(window []int16) float64 {
+// speechVolume adds a window to the last 400 ms of audio and returns the volume the
+// background filter compares with its gate: that of the speech Silero hears, over as much of
+// it as has come, up to those 400 ms (outside speech, the whole block's). Pipecat's
+// AudioVolumeTracker takes the whole 400 ms, silence before the speech included, and smooths
+// it from one window to the next, so a short word's volume rose only as the word ended: a
+// "yes" of 0.38 s at -33 LUFS never passed the gate at -40 (tools/short-answers).
+func (a *analyzer) speechVolume(window []int16, voiced bool) float64 {
 	a.volumeBuf = append(a.volumeBuf, window...)
 	if over := len(a.volumeBuf) - volumeWindow; over > 0 {
 		a.volumeBuf = append(a.volumeBuf[:0], a.volumeBuf[over:]...)
 	}
-	v := 0.0
-	if len(a.volumeBuf) == volumeWindow {
-		v = volume(a.volumeBuf)
+	if !voiced {
+		a.voicedRun = 0
+		return volume(a.volumeBuf)
 	}
-	return a.prevVolume + smoothing*(v-a.prevVolume)
+	a.voicedRun++
+	n := min(len(a.volumeBuf), a.voicedRun*sileroWindow)
+	return volume(a.volumeBuf[len(a.volumeBuf)-n:])
 }

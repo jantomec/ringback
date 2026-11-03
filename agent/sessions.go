@@ -164,11 +164,15 @@ func (l *Link) send(text string) {
 	}
 }
 
+// newsPrefix starts the note that tells the voice the session's news, so the voice can tell
+// whether you heard it (see heardNews).
+const newsPrefix = "The session: "
+
 func (l *Link) news(text string) {
 	if l.transcript != nil {
 		l.transcript.add("The session's answer", text)
 	}
-	l.tell("The session: "+text, nil)
+	l.tell(newsPrefix+text, nil)
 }
 
 // listen is the call's voice, from an offer on: notes wait until it has started talking.
@@ -661,6 +665,23 @@ func (c *Calls) place(session, project, cwd, subject, briefing string, ask *Ask)
 	}
 	c.stayAwake()
 	return call, nil
+}
+
+// callAgain places a call with the session's news that came to a call you hung up before
+// hearing it: its briefing is that news. Not if ringback is off in the session by now. The
+// news is in the new call's briefing, not a note, so hanging up on that call too doesn't
+// place another.
+func (c *Calls) callAgain(session, project, cwd string, news []string) {
+	c.mu.Lock()
+	listening := c.listening(session)
+	c.mu.Unlock()
+	if !listening {
+		return
+	}
+	briefing := unheardBriefing + "\n\n" + strings.Join(news, "\n\n")
+	if _, err := c.place(session, project, cwd, unheardSubject, briefing, nil); err != nil {
+		c.log(fmt.Sprintf("couldn't call again with the news you didn't hear: %v", err))
+	}
 }
 
 // newLink is a call's link to its session. The transcript joins it when you answer.
@@ -1225,13 +1246,17 @@ func contains(list []string, s string) bool {
 }
 
 // end: a call you answered has ended. You talked for lasted seconds, or nil if its audio
-// never connected.
-func (c *Calls) end(id string, lasted *float64) {
+// never connected. The session's news you hadn't heard comes in a new call (callAgain).
+func (c *Calls) end(id string, lasted *float64, unheard []string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if call, ok := c.calls.get(id); ok {
 		call.Lasted = lasted
 		c.forget(call)
+		if len(unheard) > 0 && call.Link.listening {
+			c.logCall(call, fmt.Sprintf("you hung up before hearing the session's news (%d): it calls again", len(unheard)))
+			go c.callAgain(call.Session, call.Project, call.Cwd, unheard)
+		}
 	}
 }
 

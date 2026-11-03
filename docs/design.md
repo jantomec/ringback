@@ -19,7 +19,7 @@ no server of anyone else's in between, apart from Apple's push service.
    included.
 3. **One session per call.** The voice opens with what's new, then what needs you. What you
    want done goes to that session, and its answer comes back to the call. If you've hung up
-   by then, the session calls again.
+   by then, or before you've heard it, the session calls again.
 4. **You approve by voice.** A permission prompt or a question the session asks you comes to
    the call. A clear yes or no settles a permission; a question takes one of its options or
    your own words. The terminal shows the prompt at the same time, and whichever you answer
@@ -116,8 +116,10 @@ built or run on Linux. The agent runs where the sessions run, on a Mac.
 4. **Answering.** The app tells the hub (`/answered`), and the voice speaks its opening.
 5. **Hearing you.** The hub decodes your audio and sends it to the speech node at 16 kHz.
    Silero says when you start and stop speaking; Smart Turn says when you've finished, and a
-   pause of 1.5 s ends your turn anyway; Parakeet writes down what you said. Your words reach
-   the hub about 0.3 s after you stop (`speech/README.md`).
+   pause of 1.5 s ends your turn anyway; Parakeet writes down what you said, and when it writes
+   nothing for a stretch of speech, writes it down once more from just before it began (it
+   misses a short "Yes." with a second of audio before it). Your words reach the hub about
+   0.3 s after you stop (`speech/README.md`).
 6. **The reply.** The hub gives your words to the agent, and Haiku answers in a Claude Code
    session that stays open for the whole call, so each turn sends only what's new. Its first
    words come about 1.2 s after your turn (`tools/reply-speed`). The agent passes the reply
@@ -126,7 +128,8 @@ built or run on Linux. The agent runs where the sessions run, on a Mac.
 7. **Passing it on.** What you want done goes to the session (Acting on the call, below). The
    mod collects it once a second and submits it to the session as a prompt; the session's
    answer comes back to the call as a note, and the voice tells you once it has finished
-   speaking and you aren't.
+   speaking and you aren't. If you hang up before you've heard a reply that came after it to
+   its end, the session calls again, with its answer as the briefing; once.
 8. **The end.** Either side hangs up. The agent finishes the transcript and leaves the
    session a note on how the call went: answered and for how long, with the transcript's path;
    not answered within 90 s; or answered but the audio never connected. The note is added to
@@ -155,7 +158,11 @@ Two settings in the app decide what counts as you speaking, and go with each cal
 - **Ignore Background Noise** is a level gate: speech quieter than a threshold doesn't start a
   turn or stop the voice. With AirPods or the phone at your ear, other people are much farther
   from the microphone than you, so they arrive quieter. Its default kept out another voice
-  20 dB below yours, offline. It decides when a turn starts, not what's heard in it.
+  20 dB below yours, offline. It decides when a turn starts, not what's heard in it. It
+  measures the loudness of the speech Silero hears, over as much of it as has come, up to
+  400 ms: Pipecat's measure, over the last 400 ms with the silence before the speech and
+  smoothed again, rose only as a short word ended, so a loud "yes" never started a turn
+  (`tools/short-answers`).
 
 Before that, the phone's voice processing removes echo and background noise, and Voice
 Isolation (switched on once in Control Center) more of it.
@@ -635,12 +642,15 @@ with a certificate, or a private certificate authority installed on each device 
   could still stop the voice or be heard as you, and the filter could swallow your own quiet
   speech. If that proves fragile, the next step is a gate set relative to your own level on
   the call.
-- **Very short words can go unheard:** a recorded "Great." (about 0.3 s) never started a
-  turn, once on a call "wait" said while the voice talked wasn't heard (Silero needs 0.2 s
-  of speech), and once a "yes" to a permission wasn't, cause unknown. The voice now asks
-  again after 8 s of silence, and the speech node logs each stretch Silero took for speech
-  that started no turn, and why: quieter than the background filter, or too short ("not
-  taken for speech", `journalctl --user -u ringback-speech`).
+- **Short words can go unheard or misheard.** On calls, "wait" said while the voice talked
+  wasn't heard (Silero needs 0.2 s of speech), and short "yes" answers to a permission weren't:
+  the background filter's volume lagged behind a short word, and Parakeet wrote nothing for a
+  short "Yes." with audio before it. Both are fixed offline (`tools/short-answers`: of 168
+  short answers at -25 to -35 LUFS, 134 were heard before and 167 after), not yet on the phone,
+  and with Kokoro's voices, not yours. Parakeet still writes "No." as "Noble." now and then,
+  and "Okay." as "Locate."; the voice reads them in context. The voice asks again after 8 s of
+  silence, and the speech node logs each stretch Silero took for speech that started no turn,
+  and why ("not taken for speech", `journalctl --user -u ringback-speech`).
 - **Mods are new,** so their API may change. That the terminal prompt shows while the mod
   waits on `PermissionRequest`, and that whichever answers first decides, was seen in one
   run; the docs don't say it. Where Claude Code's built-in guard mod loads (managed settings,
@@ -695,8 +705,15 @@ current code, and what has only been checked offline.
   telling you 1.4–1.7 s after it came. The session's permission to compile and run came to
   the call 7.7 s after you'd asked for that; allowed by voice, it ran at once and its output
   came back. The voice answered 2.0–3.5 s after each of your turns. Your first "yes" went
-  unheard, with 35 s of silence after it, and the voice read out a tool call; the voice now
-  asks again after 8 s, and leaves out a sentence naming a tool, not yet tried on the phone.
+  unheard, with 35 s of silence after it, and the voice read out a tool call; it now leaves
+  out a sentence naming a tool, not yet tried on the phone.
+- A session's question with options, and the voice asking again (2026-11-03, one call of
+  1 min 27 s): the session's question placed a call at once, which rang 1 s later and opened
+  with the question and its options; your choice went to the session, which carried on. When
+  your "yes" to its next permission went unheard, the voice asked again 8 s after it had
+  finished. That "yes" wasn't taken for speech, and the next was taken but written down as
+  nothing (both since fixed offline, above); "It's a yes." was heard. You hung up 0.3 s into
+  the voice telling the session's answer, and nothing called back (since fixed offline).
 - Calling back a call from Recents: connected 1.5 s after the tap, the voice opening with
   "Nothing new since our last call" and what had happened since. On that call, Opus on the
   line: Haiku said so, the handover took 0.37 s once you'd heard it, Opus spoke about 6 s
@@ -724,10 +741,10 @@ how things look):
   widget;
 - the connection check's push, and the app checking in with the hub;
 - calling a waiting call now;
-- questions on a call, a permission refused on a call, and a held call's question sent to the
-  Claude app;
-- the voice asking again after 8 s of silence while an answer is waited for, and leaving out a
-  sentence that names a tool;
+- a permission refused on a call, and a held call's question sent to the Claude app;
+- the voice leaving out a sentence that names a tool;
+- short answers heard with the background filter's new measure and Parakeet's second try;
+- the session calling again with an answer you hung up before hearing;
 - the weak-signal settings in the hub;
 - Interruption Sensitivity and Ignore Background Noise, with real noise or someone talking
   near you;
@@ -742,9 +759,9 @@ of them installs only the iPhone app and the Mac client: a hub on the internet n
 phones and other parts paired, several users on one hub need that too, and they'd want the
 host unable to read their calls.
 
-- [ ] **Try on the phone what's only been checked offline** (Status): questions and a refused
-  permission on a call, the voice asking again, held calls and the hold switch, weak signal,
-  and restarts.
+- [ ] **Try on the phone what's only been checked offline** (Status): short answers and a
+  refused permission on a call, calling again with an answer you didn't hear, held calls and
+  the hold switch, weak signal, and restarts.
 - [x] **A call that can't reach the hub ends and says why** (tried on the phone). A call you're
   on whose audio can't connect, or is lost, ends through CallKit, with a notification and the
   app's banner saying why: that the hub can't be reached, as the connection check says, or the

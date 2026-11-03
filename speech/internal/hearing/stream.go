@@ -22,6 +22,7 @@ type Events interface {
 const (
 	preRoll     = Rate     // audio kept before speech starts, for the transcription (1 s)
 	trailingPad = Rate / 2 // silence after a stretch of speech, so its last word is heard
+	retryLead   = 0.1      // seconds before the speech began that a second transcription keeps
 	IdleTimeout = 1.0      // seconds without audio that end your speech (Pipecat's VADController)
 )
 
@@ -43,11 +44,12 @@ type Stream struct {
 
 	// The turn (Pipecat's TurnAnalyzerUserTurnStopStrategy).
 	vadSpeaking bool
-	complete    bool     // Smart Turn or the turn wait says the turn is over
-	pending     int      // stretches of speech being transcribed
-	nextID      int      // the next stretch's id
-	words       []string // the turn's words so far
-	spoke       float64  // seconds of speech in the turn
+	complete    bool              // Smart Turn or the turn wait says the turn is over
+	pending     int               // stretches of speech being transcribed
+	nextID      int               // the next stretch's id
+	retry       map[int][]float32 // each stretch's audio from just before it began, until its words come
+	words       []string          // the turn's words so far
+	spoke       float64           // seconds of speech in the turn
 	took        float64
 }
 
@@ -104,6 +106,15 @@ func (s *Stream) Idle() {
 
 // Transcribed gives the words of a stretch of speech that Events.Transcribe asked for.
 func (s *Stream) Transcribed(id int, text string, took float64) {
+	if audio, ok := s.retry[id]; ok && strings.TrimSpace(text) == "" {
+		// Parakeet often writes nothing for a short word with audio before it ("Yes." after the
+		// second kept before you started), and hears it alone (tools/short-answers): ask once
+		// more for the stretch from just before it began.
+		delete(s.retry, id)
+		s.ev.Transcribe(id, audio)
+		return
+	}
+	delete(s.retry, id)
 	s.pending--
 	if text = strings.TrimSpace(text); text != "" {
 		s.words = append(s.words, text)
@@ -139,11 +150,16 @@ func (s *Stream) stopped() {
 	for i, v := range s.segment {
 		audio[i] = float32(v) / 32768
 	}
+	from := max(0, len(audio)-trailingPad-int((s.now-s.segmentStart+retryLead)*Rate))
 	s.segment = nil
 	s.spoke += max(0, s.now-s.params.StopSecs-s.segmentStart)
 	s.pending++
 	id := s.nextID
 	s.nextID++
+	if s.retry == nil {
+		s.retry = map[int][]float32{}
+	}
+	s.retry[id] = audio[from:]
 	s.ev.Transcribe(id, audio)
 
 	s.vadSpeaking = false
