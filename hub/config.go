@@ -11,7 +11,7 @@ import (
 
 var (
 	home       = homeDir()
-	configPath = findConfig()
+	configPath = expand("~/.config/ringback/hub.toml")
 	stateDir   = expand("~/.local/state/ringback")
 )
 
@@ -28,23 +28,6 @@ func expand(path string) string {
 		return home + path[1:]
 	}
 	return path
-}
-
-// findConfig is the hub's config: hub.toml, or, while there's none, switchboard.toml, which is
-// read the same way.
-func findConfig() string {
-	path := expand("~/.config/ringback/hub.toml")
-	if _, err := os.Stat(path); err != nil {
-		if old := expand("~/.config/ringback/switchboard.toml"); fileExists(old) {
-			return old
-		}
-	}
-	return path
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 // loadConfig reads hub.toml. It uses only `[section]` headers, `key = "value"`

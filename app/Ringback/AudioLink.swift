@@ -118,7 +118,7 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     /// work hours, and `contact` calls that session, from Sessions, as a new call `callID`. The
     /// hub answers each at once, as the call's agent says, and throws `RefusedCall`, with its
     /// reason, if the agent doesn't know the call, it no longer waits, or the session isn't
-    /// listening. A contact offer is marked `back` too.
+    /// listening.
     @MainActor
     func start(
         voiceURL: URL, callID: String, back: Bool = false, now: Bool = false, contact: String? = nil
@@ -143,7 +143,7 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
             "background_filter": Self.backgroundFilter,
         ]
         if ringing { body["ringing"] = true }
-        if back || contact != nil { body["back"] = true }
+        if back { body["back"] = true }
         if now { body["now"] = true }
         body["contact"] = contact
         var request = URLRequest(url: voiceURL.appending(path: "offer"), timeoutInterval: 15)

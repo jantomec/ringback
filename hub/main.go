@@ -12,18 +12,17 @@ import (
 )
 
 const usage = `usage: ringback-hub install | uninstall | serve | ring [--project NAME] [--subject TEXT]
-       [--voice URL] | check | devices | portal-user NAME
+       | check | devices | portal-user NAME
 
   install  run the hub as a service (a launchd agent): now, at login, and again whenever
            it stops; again after updating the binary, to restart it; uninstall stops it
            and takes it away
   serve    serve the phone, the speech nodes and the agents: ring calls, carry their audio,
            and every 30 min ask each phone to check that it can still reach the hub
-  ring     ring every registered phone, at any time, to try the push: without --voice it
-           rings without audio (an agent places a session's calls)
+  ring     ring every registered phone, at any time, to try the push; the call has no
+           audio (an agent places a session's calls)
              --project NAME  shown as the caller (default: ringback)
              --subject TEXT  a few words on what the call is about
-             --voice URL     where the phone offers the call's audio (its /offer)
   check    ask every phone to check its connection now; one that can't reach the
            hub shows a warning
   devices  list registered phones, when each last checked in, their work hours and
@@ -49,7 +48,7 @@ func main() {
 		}
 		serve(listen)
 	case "ring":
-		options := parseOptions(args[1:], "--project", "--subject", "--voice")
+		options := parseOptions(args[1:], "--project", "--subject")
 		if len(loadDevices()) == 0 {
 			fail("No phone registered yet: open the app and enter the hub's address.")
 		}
@@ -57,7 +56,7 @@ func main() {
 		if project == "" {
 			project = "ringback"
 		}
-		for _, line := range ring(context.Background(), project, options["--subject"], options["--voice"], "", "") {
+		for _, line := range ring(context.Background(), project, options["--subject"], "", "", "") {
 			fmt.Println(line)
 		}
 	case "check":

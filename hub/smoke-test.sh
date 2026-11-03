@@ -303,9 +303,7 @@ check "held calls ring nobody" no "$(yes_if grep -qE 'call hold000[13] →' "$ho
 check "the others ring, the last once you take calls" 4 "$(grep -cE 'call hold000[2456] → Test phone' "$home/log")"
 
 if [ "${1:-}" = --apns ]; then
-    config=~/.config/ringback/hub.toml
-    [ -f "$config" ] || config=~/.config/ringback/switchboard.toml  # as the hub reads it
-    cp "$config" "$home/.config/ringback/hub.toml"
+    cp ~/.config/ringback/hub.toml "$home/.config/ringback/hub.toml"
     cp ~/.config/ringback/AuthKey_*.p8 "$home/.config/ringback/"
     printf '{"%s": {"environment": "sandbox", "device": "made-up phone"}}' \
         0000000000000000000000000000000000000000000000000000000000000000 > "$state/devices.json"

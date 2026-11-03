@@ -106,9 +106,8 @@ class Phone:
         self, call_id: str, ringing: bool, back: bool = False, now: bool = False, contact: str | None = None
     ) -> int | tuple[int, str]:
         """Offers the call's audio: while it rings, once you've answered, calling it back,
-        calling a waiting call now, or calling a session from the Sessions tab (marked "back"
-        too, as the app does). A call to a session that's refused gives the status and the
-        error."""
+        calling a waiting call now, or calling a session from the Sessions tab. A call to a
+        session that's refused gives the status and the error."""
         if not ringing:
             self.mic.on.set()
         await self.pc.setLocalDescription(await self.pc.createOffer())
@@ -120,7 +119,7 @@ class Phone:
         if now:
             body["now"] = True
         if contact:
-            body |= {"contact": contact, "back": True}
+            body["contact"] = contact
         async with aiohttp.ClientSession() as http:
             async with http.post(f"http://{HUB}/offer", json=body) as r:
                 if r.status != 200:

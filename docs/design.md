@@ -688,7 +688,8 @@ internet needs its open endpoints closed and its parts paired, several users on 
 both, and they'd want the host unable to read their calls.
 
 - [ ] **Close the hub's open endpoints** (to be fixed; Limits and risks). Take out `/call` and
-  `/sessions`, placing the smoke test's calls through a stand-in agent instead, and make a
+  `/sessions` (only the smoke test uses them, and a call held there isn't asked about again
+  when you take calls), placing the smoke test's calls through a stand-in agent instead, and make a
   phone prove it's yours before `/register` takes its token, so the IDs of waiting calls and
   sessions go only to your phones.
 - [ ] **A public hub,** so no private network is needed: HTTPS and WSS with a certificate for a
