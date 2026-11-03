@@ -679,8 +679,10 @@ for how things look):
 
 ## Next
 
-The to-do list, roughly in order. The first four go together: a hub on the internet needs its
-open endpoints closed and its parts paired, and several users on one hub need both.
+The to-do list, roughly in order. The first four go together, toward a hub someone hosts for
+others, so that each of them installs only the iPhone app and the Mac client: a hub on the
+internet needs its open endpoints closed and its parts paired, several users on one hub need
+both, and they'd want the host unable to read their calls.
 
 - [ ] **Close the hub's open endpoints** (to be fixed; Limits and risks). Take out `/call` and
   `/sessions`, placing the smoke test's calls through a stand-in agent instead, and make a
@@ -690,9 +692,13 @@ open endpoints closed and its parts paired, and several users on one hub need bo
   domain name; the phone, the Macs and the speech nodes paired with the hub (a one-time code
   from the portal) instead of trusting the network; the call's audio on the public address
   (its UDP ports open); then passkeys for the portal.
-- [ ] **Several users on one hub,** each with their own sign-in, phones, Macs, sessions and
-  calls: a call rings only its user's phones, the portal shows each user only theirs, and the
-  agents' tokens belong to a user. Speech nodes could be shared. Needs the pairing above.
+- [ ] **A hosted hub for several users.** Someone runs the hub, and each user has their own
+  account and sees only their own phones, Macs, sessions and calls: a call rings only its
+  user's phones, the portal shows each user only theirs, and each Mac's agent links as its
+  user's. The host's speech nodes are shared, or a user relies on On-device Voice. The app
+  comes from the App Store or TestFlight under the host's developer account, so users need no
+  account of their own, and pushes go through the host's production APNs key. Needs the
+  pairing above, and the end-to-end encryption below so the host can't read the calls.
 - [ ] **End-to-end encrypted calls with On-device Voice.** With the phone hearing and speaking,
   only text crosses the hub, so the hub needn't read it. The phone and each Mac's agent would
   share keys from pairing them directly (a code the agent shows, so the hub can't swap the
@@ -701,9 +707,8 @@ open endpoints closed and its parts paired, and several users on one hub need bo
   agent, and the hub's log would lose the words it keeps now. Haiku still runs through
   Anthropic, as it does now. With a speech node it can't be end to end: the node has to hear
   you.
-- [ ] **Installing the agent without Go:** a ready-built binary for each Mac, and
-  `ringback-agent install` to write and load its launchd agent, as `docs/setup.md` now does by
-  hand.
+- [ ] **The Mac client as a package:** a signed, ready-built agent and mod that a user
+  installs without Go or a copy of this repository, set up as a service from the start.
 - [ ] **Several sessions in turn, with retries.** One queue for every Mac's calls: a second
   call waits for the first to end. A call you decline or miss tries again 5 min, 20 min, 1 h,
   2½ h and 6 h after its first ring, with the queue paused in between; after the last, every

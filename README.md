@@ -137,8 +137,8 @@ tick means it has also been tried on a real phone, locked, with the current code
 - [ ] Calls and asks that survive a restart of the agent or the hub
 
 Next, on the to-do list under "Next" in [docs/design.md](docs/design.md): closing the hub's
-endpoints that take no token, a public hub that needs no private network, several users on
-one hub, end-to-end encrypted calls with On-device Voice, and several sessions calling in
+endpoints that take no token, a public hub that needs no private network, a hub hosted for
+several users, end-to-end encrypted calls with On-device Voice, and several sessions calling in
 turn, with retries.
 
 <details>
