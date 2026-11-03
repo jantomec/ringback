@@ -21,7 +21,7 @@ package main
 // Opus resumes its session, with the whole call so far, and speaks next.
 //
 // A note from the session waits until the hub says the voice is idle (it has finished
-// speaking and you aren't), then starts a reply, as Pipecat held one until then.
+// speaking and you aren't), then starts a reply.
 
 import (
 	"fmt"
@@ -421,9 +421,8 @@ func (v *voice) onInterrupted(reply int, heard string) {
 }
 
 // onTurn: your words, which start the next reply at once. A turn with no words, a stop where
-// nothing was recognised, has the voice carry on if it cut the voice off, once in a row, as
-// Pipecat's empty user turns did (maxRecoveries); otherwise it goes unanswered, and its reply
-// is just its end.
+// nothing was recognised, has the voice carry on if it cut the voice off, once in a row
+// (maxRecoveries); otherwise it goes unanswered, and its reply is just its end.
 func (v *voice) onTurn(text string, interrupted bool) {
 	empty := strings.TrimSpace(text) == ""
 	if empty && (!interrupted || v.recoveries >= maxRecoveries) {
@@ -459,8 +458,7 @@ func (v *voice) onTurn(text string, interrupted bool) {
 // tryAnswer starts the next reply when it can: your turn as soon as Haiku has finished the
 // last one and Opus, if it's taking over, has started; notes and Opus's first reply once the
 // voice is idle.
-// maxRecoveries is how many stops with no words in a row the voice answers (Pipecat's
-// max_consecutive_recoveries).
+// maxRecoveries is how many stops with no words in a row the voice answers.
 const maxRecoveries = 1
 
 func (v *voice) tryAnswer() {

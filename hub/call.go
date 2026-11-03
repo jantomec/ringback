@@ -81,7 +81,7 @@ type Call struct {
 func (c *Call) say(line string) { log("call " + c.short + ": " + line) }
 
 // newCall answers the phone's offer: a peer connection offering only the hub's own address,
-// as the voice server did, with Opus asked of the phone as phoneOpus says. It returns the
+// with Opus asked of the phone as phoneOpus says. It returns the
 // answer's SDP once its addresses are gathered.
 func newCall(id string, offer string, ringing bool, sensitivity, gate float64, agent, node *link, listen string) (*Call, string, error) {
 	c := &Call{id: id, short: prefix(id, 8), agent: agent, node: node, ringing: ringing,
@@ -540,7 +540,7 @@ func (c *Call) speechStopped() {
 func (c *Call) turn(text string, secs, took float64) {
 	c.mu.Lock()
 	c.userSpeaking, c.idleSent, c.awaiting = false, false, true
-	// As Pipecat counted it: you cut the voice off, or a reply it was thinking of, or it hadn't
+	// Interrupted: you cut the voice off, or a reply it was thinking of, or it hadn't
 	// finished speaking once yet. The agent answers a stop with no words only then.
 	interrupted := c.cutThisTurn || !c.finishedOnce
 	c.cutThisTurn = false

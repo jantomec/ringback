@@ -56,7 +56,7 @@ import (
 	"unsafe"
 )
 
-// Espeak gives the sounds of words in no lexicon, as the Python voice's misaki does.
+// Espeak gives the sounds of words in no lexicon, as misaki, Kokoro's own G2P, does.
 type Espeak struct{ mu sync.Mutex } // espeak-ng isn't thread-safe
 
 // OpenEspeak loads espeak-ng from dir: lib/libespeak-ng.so.1 and espeak-ng-data/.

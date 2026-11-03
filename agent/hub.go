@@ -12,7 +12,8 @@ package main
 // offer made while ringing didn't connect. An offer of kind "back" calls back a call from the
 // phone's call history, answered or not: it's answered at once, and the voice picks up. So is
 // one of kind "now", for a call held outside your work hours that you called from the app's
-// waiting calls, and one of kind "contact", for a session you called from the app's Contacts.
+// waiting calls, and one of kind "contact", for a session you called from the app's Sessions
+// tab.
 // From the waiting calls you can also send a held call's question to the Claude app
 // (claude_app): the session asks it in its own dialog, which Remote Control shows there, and
 // the call is forgotten.
@@ -371,7 +372,7 @@ func (a *agent) offer(m map[string]any) (int, string) {
 	var call *Call
 	switch kind {
 	case "contact":
-		// You called a session from the app's Contacts: a new call under the ID the phone made,
+		// You called a session from the app's Sessions tab: a new call under the ID the phone made,
 		// answered at once. It must be long enough not to be guessed.
 		session, _ := m["session_id"].(string)
 		if len(id) >= 16 {

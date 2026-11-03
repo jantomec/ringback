@@ -3,7 +3,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 type On = Parameters<Parameters<typeof test>[1]>[1]
 
-// What the voice server answers, by path: `live` says whether you're on a call with the
+// What the agent answers, by path: `live` says whether you're on a call with the
 // session, and `waiting` is what the voice passed on for it. A call is `placed` with that
 // answer (by default `{ ok: true }`) and `placedStatus` (200). A permission or question put
 // to you is `created` (by default 200, `p1` or `q1`), and each long-poll for its answer takes
@@ -22,7 +22,7 @@ type Voice = {
   held?: boolean
   // The session's folder can't be read: the mod's hook fails.
   isCwdBroken?: boolean
-  // The voice server isn't running: its socket refuses every request while this is set.
+  // The agent isn't running: its socket refuses every request while this is set.
   isDown?: boolean
   // What the mod's store holds at the start.
   stored?: Record<string, unknown>
@@ -241,7 +241,7 @@ test('what the voice passes on becomes a prompt, with the transcript', async ($,
   expect(asked.prompts.length).toBe(1)
 })
 
-test("collecting says the session's project and folder, for the phone's Contacts", async ($, on) => {
+test("collecting says the session's project and folder, for the app's Sessions tab", async ($, on) => {
   const asked = engine(on)
   const clock = mock.clock(on)
   await start($)
@@ -310,7 +310,7 @@ test("a call's outcome waits while a turn runs, and is added when it ends", asyn
   expect(asked.prompts[0]).toContain('Subject: ')
 })
 
-// Work hours. A time on 30 or 31 October 2026 here, and as the switchboard writes it: ISO 8601
+// Work hours. A time on 30 or 31 October 2026 here, and as the hub writes it: ISO 8601
 // with this machine's offset from UTC.
 const at = (day: number, hour: number, minute = 0) => new Date(2026, 9, day, hour, minute)
 const written = (date: Date) => {
@@ -516,7 +516,7 @@ test('a resumed session collects what the voice passed on', async ($, on) => {
   expect(asked.prompts[0]).toContain('The developer says: push it.')
 })
 
-// While the voice server is down, as while it restarts.
+// While the agent is down, as while it restarts.
 
 const briefed = async ($: any, briefing = 'Subject: Parser fixed\n\nI fixed the parser.') => {
   await $.turn.complete(turn('Done.'))
@@ -526,7 +526,7 @@ const briefed = async ($: any, briefing = 'Subject: Parser fixed\n\nI fixed the 
 }
 const placed = (fetches: { url: string; init: any }[]) => fetches.filter(f => f.url === 'http://voice/calls')
 
-test("a briefing the voice server can't take is offered again every 30 s, until it can", async ($, on) => {
+test("a briefing the agent can't take is offered again every 30 s, until it can", async ($, on) => {
   const clock = mock.clock(on)
   const voice: Voice = { clock, isDown: true }
   const asked = engine(on, voice)
@@ -581,7 +581,7 @@ test('a briefing is offered for 30 min, then given up', { timeoutMs: 60_000 }, a
   expect(placed(asked.fetches).length).toBe(61)
 })
 
-test("one the voice server can't place is offered again, with why", async ($, on) => {
+test("one the agent can't place is offered again, with why", async ($, on) => {
   const clock = mock.clock(on)
   const voice: Voice = { clock, placedStatus: 502, placed: { error: "can't reach the switchboard at 10.0.0.1:8787" } }
   const asked = engine(on, voice)
@@ -598,7 +598,7 @@ test("one the voice server can't place is offered again, with why", async ($, on
   expect(asked.toasts).toEqual([])
 })
 
-test("one the voice server refuses isn't offered again", async ($, on) => {
+test("one the agent refuses isn't offered again", async ($, on) => {
   const clock = mock.clock(on)
   const asked = engine(on, { clock, placedStatus: 400, placed: { error: 'needs session_id, project and briefing' } })
   await start($)
@@ -610,7 +610,7 @@ test("one the voice server refuses isn't offered again", async ($, on) => {
   expect(asked.logs).toEqual([])
 })
 
-test("switched off, a briefing waiting for the voice server isn't offered again", async ($, on) => {
+test("switched off, a briefing waiting for the agent isn't offered again", async ($, on) => {
   const clock = mock.clock(on)
   const asked = engine(on, { clock, isDown: true })
   await start($)
@@ -757,7 +757,7 @@ test("a subagent's permission prompt is put to you too", async ($, on) => {
   expect(core.ran).toEqual(['Bash'])
 })
 
-test("when the voice server can't reach you, the terminal asks at once", above(observing), async ($, on) => {
+test("when the agent can't reach you, the terminal asks at once", above(observing), async ($, on) => {
   mock.clock(on)
   const asked = engine(on, { created: { status: 502, body: { error: "the switchboard didn't answer" } } })
   tools(on)
@@ -920,10 +920,10 @@ test('while a permission waits, its turn runs on: outcomes wait, messages queue 
   expect(session.appended().length).toBe(1)
 })
 
-// While the voice server can't be reached, as while it restarts. It keeps what was asked
+// While the agent can't be reached, as while it restarts. It keeps what was asked
 // across a restart, so the same permission's poll carries on.
 
-test("a long poll that can't reach the voice server is asked again every 5 s, and carries on", above(observing), async ($, on) => {
+test("a long poll that can't reach the agent is asked again every 5 s, and carries on", above(observing), async ($, on) => {
   const clock = mock.clock(on)
   const later: object[] = []
   const voice: Voice = { clock, answers: later }
@@ -959,7 +959,7 @@ test("a long poll that can't reach the voice server is asked again every 5 s, an
   expect(await line()).toBe('? for shortcuts · ☎ ringback on')
 })
 
-test('asked while the voice server is down, a permission is asked again every 5 s', above(observing), async ($, on) => {
+test('asked while the agent is down, a permission is asked again every 5 s', above(observing), async ($, on) => {
   const clock = mock.clock(on)
   const later: object[] = []
   const voice: Voice = { clock, answers: later, isDown: true }
@@ -978,7 +978,7 @@ test('asked while the voice server is down, a permission is asked again every 5 
 })
 
 // 15 min of collecting once a second, and of asking every 5 s, takes about 5 s.
-test("when the voice server doesn't come back in 15 min, the terminal asks", { timeoutMs: 30_000, ...above(observing) }, async ($, on) => {
+test("when the agent doesn't come back in 15 min, the terminal asks", { timeoutMs: 30_000, ...above(observing) }, async ($, on) => {
   const clock = mock.clock(on)
   const voice: Voice = { clock }
   const asked = engine(on, voice)
@@ -996,7 +996,7 @@ test("when the voice server doesn't come back in 15 min, the terminal asks", { t
 
 test('a long poll answered 404 still ends the wait: the permission is gone', above(observing), async ($, on) => {
   mock.clock(on)
-  // No clock for the voice server: once the scripted answers are used up, it answers 404.
+  // No clock for the agent: once the scripted answers are used up, it answers 404.
   const asked = engine(on, { answers: [{ verdict: 'pending', said: null }] })
   tools(on)
   await start($)
@@ -1039,7 +1039,7 @@ test('a question is answered on the call, as from the dialog', async ($, on) => 
   expect(withdrawn(asked.fetches)).toEqual([])
 })
 
-// The voice server keeps it pending after a call you don't answer, for a call back or the
+// The agent keeps it pending after a call you don't answer, for a call back or the
 // session's next call. 10 min of collecting once a second takes about 3 s.
 test("a question waits through a call you don't answer, for a call back", { timeoutMs: 30_000 }, async ($, on) => {
   const clock = mock.clock(on)
@@ -1114,7 +1114,7 @@ test('a held question you send to the Claude app shows the dialog at once', asyn
   const ran = $.tool.call(asking)
   await clock.advance(60_000)
   expect(core.asked).toEqual([])
-  // From the app's waiting calls: the voice server answers the poll `terminal`.
+  // From the app's waiting calls: the agent answers the poll `terminal`.
   later.push({ status: 'terminal', answers: null, said: null })
   await clock.advance(25_000)
   await ran
@@ -1180,7 +1180,7 @@ test('off, a question shows the dialog untouched', async ($, on) => {
   expect(core.asked).toEqual(['AskUserQuestion'])
 })
 
-test("when the voice server can't reach you, a question shows the dialog", async ($, on) => {
+test("when the agent can't reach you, a question shows the dialog", async ($, on) => {
   mock.clock(on)
   const asked = engine(on, { created: { status: 502, body: { error: "the switchboard didn't answer" } } })
   const core = tools(on)

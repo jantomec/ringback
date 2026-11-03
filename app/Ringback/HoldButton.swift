@@ -70,8 +70,8 @@ struct HoldButton: View {
         return "On hold, \(waiting), " + (hold.until.map { "takes calls \($0.ringsLabel)" } ?? "until you take calls")
     }
 
-    /// Shows the new state at once, then sets it at the switchboard; taking calls, the waiting
-    /// calls' Macs ask again now, so they ring. If the switchboard can't be reached, it goes back
+    /// Shows the new state at once, then sets it at the hub; taking calls, the waiting
+    /// calls' agents ask again now, so they ring. If the hub can't be reached, it goes back
     /// and says so.
     private func toggle() {
         guard let before = state.hold else { return }

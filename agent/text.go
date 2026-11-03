@@ -81,8 +81,8 @@ func whileAgo(seconds float64) string {
 	return fmt.Sprintf("about %d hours", hours)
 }
 
-// pyrepr is a value as Python's repr() writes it, so the log lines read as the voice
-// server's did: strings in single quotes (double if they hold one and no double), dicts and
+// pyrepr is a value as Python's repr() writes it, for the log lines: strings in single
+// quotes (double if they hold one and no double), dicts and
 // lists with their items so.
 func pyrepr(value any) string {
 	switch v := value.(type) {

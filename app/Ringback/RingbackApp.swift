@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         Task { await push.connect() }
     }
 
-    /// The switchboard's background push for a connection check, which also fetches the calls
+    /// The hub's background push for a connection check, which also fetches the calls
     /// that wait. Work hours changed in the Settings app go with it, at the latest every 30 min.
     func application(
         _ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],

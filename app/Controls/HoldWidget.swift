@@ -2,7 +2,7 @@ import SwiftUI
 import WidgetKit
 
 /// The hold switch on the Lock Screen: whether calls are on hold, how many wait, and until when,
-/// so you see it before you open Ringback. It asks the switchboard when iOS refreshes it (or the
+/// so you see it before you open Ringback. It asks the hub when iOS refreshes it (or the
 /// app tells it something changed), and has a second entry ready for when the work hours change
 /// the switch by themselves.
 struct HoldWidget: Widget {

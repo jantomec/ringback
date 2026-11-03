@@ -1,8 +1,8 @@
 #if DEBUG
 import Foundation
 
-/// Sample calls, waiting calls and contacts, for screenshots in a simulator
-/// (tools/app-screens), with no switchboard and no system prompts: launched with
+/// Sample calls, waiting calls and sessions, for screenshots in a simulator
+/// (tools/app-screens), with no hub and no system prompts: launched with
 /// `-RingbackSeed calls`, `-RingbackSeed problem` for the connection banner, or
 /// `-RingbackSeed setup` for a phone that isn't set up. Only in debug builds; a release build
 /// has none of it.

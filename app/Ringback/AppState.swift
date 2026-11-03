@@ -10,7 +10,7 @@ struct CallRecord: Codable, Identifiable {
         case busy
     }
 
-    let id: String  // the switchboard's call ID; a call back's own, made on the phone
+    let id: String  // the call's ID, from the push; a call back's own, made on the phone
     let project: String
     /// A few words on what the call is about, written on the calling Mac.
     var subject: String?
@@ -21,8 +21,8 @@ struct CallRecord: Codable, Identifiable {
     var outcome: Outcome
     /// It rang as call waiting during another call (phone, WhatsApp, FaceTime…).
     var onAnotherCall: Bool?
-    /// The voice server the push named, which a call back goes to. Calls from before calling
-    /// back have none, so they can't be called back.
+    /// Where the call's audio goes, as the push named it (the hub), which a call back goes to.
+    /// Older calls in the history may have none, so they can't be called back.
     var voice: URL?
     /// On a call you made by calling one back: the ID of the call it calls back, which its
     /// offer carries.
@@ -33,7 +33,7 @@ struct CallRecord: Codable, Identifiable {
     /// You called its session from Sessions. Its ID is the phone's own, which its offer carries.
     var contact: Bool?
     /// The session that called, or that you called: its ID, from the push, the waiting calls or
-    /// Sessions. Calls from a switchboard or voice server before the Sessions tab have none.
+    /// Sessions. Older calls in the history may have none.
     var session: String?
 
     var callerName: String { project }
@@ -52,19 +52,19 @@ struct CallRecord: Codable, Identifiable {
 }
 
 /// A call that waits to ring: held while your phone holds calls (outside your work hours, or
-/// paused). The switchboard keeps them, and the app fetches them; tapping one calls it now. One
+/// paused). The hub keeps them, and the app fetches them; tapping one calls it now. One
 /// with a question can send it to the Claude app instead.
 struct WaitingCall: Identifiable, Equatable {
     let id: String  // the call's ID, which its offer carries
     let project: String
     let subject: String?
-    /// The voice server of the Mac whose session placed it.
+    /// Where its audio goes: the hub, which passes it to the agent whose session placed it.
     let voice: URL
     /// When it rings, once your work hours start; nil if it waits until you take calls.
     let heldUntil: Date?
     /// The session asks you a question on it, and waits for the answer.
     var question = false
-    /// The session that placed it, if the switchboard says.
+    /// The session that placed it, if the hub says.
     var session: String?
     /// Why it waits, when it isn't your work hours or the hold switch: "no speech", the
     /// speech computer isn't linked to the hub, so it can't be talked through.
@@ -87,8 +87,8 @@ struct HubStatus: Equatable {
     var pushProblem: String?
 }
 
-/// A session you can call: one with ringback on, on any of your Macs, as the switchboard lists
-/// them for the Sessions tab. Its voice server takes the call.
+/// A session you can call: one with ringback on, on any of your Macs, as the hub lists
+/// them for the Sessions tab. Its Mac's agent takes the call, through the hub.
 struct Contact: Identifiable, Equatable {
     var id: String { session }
     let session: String
@@ -97,7 +97,7 @@ struct Contact: Identifiable, Equatable {
     /// What its latest briefing was about, and when the session wrote it, if it has one.
     let subject: String?
     let briefedAt: Date?
-    /// Since when ringback has been on in it, as its voice server saw.
+    /// Since when ringback has been on in it, as its agent saw.
     let since: Date?
 }
 
@@ -117,7 +117,7 @@ struct ActiveCall: Equatable {
     var muted = false
 }
 
-/// Whether calls can reach this phone: it has a push token and the switchboard has it.
+/// Whether calls can reach this phone: it has a push token and the hub has it.
 enum Connection: Equatable {
     case notSetUp
     case waitingForToken
@@ -149,14 +149,14 @@ final class AppState {
     /// once the in-call screen is gone; or why a waiting call's question didn't go to the
     /// Claude app, or the hold switch couldn't be set.
     var callBackProblem: String?
-    /// The calls that wait to ring, soonest first, as the switchboard last gave them.
+    /// The calls that wait to ring, soonest first, as the hub last gave them.
     var waiting: [WaitingCall] = []
-    /// The hold switch, as the switchboard last gave it with the waiting calls; nil until then.
+    /// The hold switch, as the hub last gave it with the waiting calls; nil until then.
     var hold: HoldState?
     /// What the hub last said about what calls need, with the waiting calls; nil until then,
-    /// or from a switchboard from before the hub.
+    /// or if its answer had none.
     var status: HubStatus?
-    /// The sessions you can call, by project, as the switchboard last gave them.
+    /// The sessions you can call, by project, as the hub last gave them.
     var contacts: [Contact] = []
     /// Microphone access is off, so Claude can't hear you on calls.
     var microphoneOff = false
@@ -165,7 +165,7 @@ final class AppState {
     var onDeviceProblem: String?
     /// Counts successful checks you started yourself; the haptic tap plays on each.
     var confirmations = 0
-    /// The last time the switchboard confirmed this phone, kept across launches.
+    /// The last time the hub confirmed this phone, kept across launches.
     var lastConnected: Date? = UserDefaults.standard.object(forKey: lastConnectedKey) as? Date {
         didSet { UserDefaults.standard.set(lastConnected, forKey: Self.lastConnectedKey) }
     }
@@ -183,7 +183,7 @@ final class AppState {
         save()
     }
 
-    /// Fetches the calls that wait from the switchboard, and the hold switch. If it can't be
+    /// Fetches the calls that wait from the hub, and the hold switch. If it can't be
     /// reached, both stay as they were.
     @MainActor
     func refreshWaiting() async {
@@ -196,8 +196,8 @@ final class AppState {
         try? await UNUserNotificationCenter.current().setBadgeCount(waiting.count)
     }
 
-    /// Fetches the sessions you can call from the switchboard. If it can't be reached, or is
-    /// from before the Sessions tab, the list stays as it was.
+    /// Fetches the sessions you can call from the hub. If it can't be reached, the list stays
+    /// as it was.
     @MainActor
     func refreshContacts() async {
         guard Switchboard.url != nil, let token else { return }
@@ -205,7 +205,7 @@ final class AppState {
     }
 
     /// The session a call in the history is from, if it's in Sessions now: by its ID, or for a
-    /// call from before the Sessions tab, the only session of that project on that Mac.
+    /// call without one, the only session of that project at that address.
     func contact(for call: CallRecord) -> Contact? {
         if let session = call.session { return contacts.first { $0.session == session } }
         let same = contacts.filter { $0.project == call.project && (call.voice == nil || $0.voice == call.voice) }

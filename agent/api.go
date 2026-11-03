@@ -23,7 +23,7 @@ const longestWait = 25 * time.Second
 //   - `GET /sessions/{id}/messages` collects what waits for a session: each message has a
 //     `kind`, `message` for what the voice passed on and `outcome` for how a call went, its
 //     `text`, and the call's `transcript` if there is one. `?project=…&cwd=…` say the
-//     session's project and folder, for the phone's Contacts;
+//     session's project and folder, for the app's Sessions tab;
 //   - `POST /sessions/{id}/messages` leaves one, as the voice does (for tools);
 //   - `POST /sessions/{id}/news` brings a session's answer: `{"live": true}` if the voice
 //     told the call you're on, false if the session should call you;

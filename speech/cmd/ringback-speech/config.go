@@ -42,7 +42,7 @@ func idleTime(v string) (time.Duration, error) {
 }
 
 // loadConfig reads speech.toml: `[section]` headers, `key = "value"` lines and `#` comments,
-// as the hub's switchboard.toml.
+// as the hub's hub.toml.
 func loadConfig(path string) (config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

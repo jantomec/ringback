@@ -273,7 +273,7 @@ func (n *node) busy() bool {
 	return streams > 0 || n.gpu.busy()
 }
 
-// --- The GPU: one worker, so hearing and speaking take turns, as in the Python voice. Your
+// --- The GPU: one worker, so hearing and speaking take turns. Your
 // words go first; speech goes a chunk (about a sentence) at a time, so your words wait at
 // most for one chunk.
 

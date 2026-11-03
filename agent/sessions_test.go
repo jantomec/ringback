@@ -235,7 +235,7 @@ func TestHeldCalls(t *testing.T) {
 	a.waitLog("call "+speechID[:8]+": placed for demo (s8-sessi), held until now: No speech", time.Second)
 }
 
-// Calling back a call from the phone's history, and calling a session from Contacts.
+// Calling back a call from the phone's history, and calling a session from the Sessions tab.
 func TestCallBackAndContacts(t *testing.T) {
 	hub := newFakeHub(t)
 	a := startAgent(t, hub, "")
@@ -269,7 +269,7 @@ func TestCallBackAndContacts(t *testing.T) {
 	reply = hub.request(map[string]any{"type": "offer", "call_id": "short", "kind": "contact", "session_id": "s8-session"})
 	check(t, "an ID too short to be a secret: 403", reply["status"] == float64(403), reply)
 	reply = hub.request(map[string]any{"type": "offer", "call_id": contactID, "kind": "contact", "session_id": "s8-session"})
-	check(t, "a session from Contacts", reply["ok"] == true, reply)
+	check(t, "a session from the Sessions tab", reply["ok"] == true, reply)
 	a.waitLog("call "+contactID[:8]+": called from Contacts, demo (s8-sessi), with its latest briefing 'Parser fix'", time.Second)
 	a.waitTurn(3, 5*time.Second)
 	starts = a.starts()

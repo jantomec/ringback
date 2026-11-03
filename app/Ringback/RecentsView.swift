@@ -84,8 +84,8 @@ private struct CallRow: View {
         }
     }
 
-    /// Calls before calling back don't say their voice server: those call the session from
-    /// Sessions, while it's there.
+    /// Older calls in the history may have no address for their audio: those call the session
+    /// from Sessions, while it's there.
     private var canCall: Bool {
         call.outcome != .ringing && call.outcome != .onCall && (call.voice != nil || state.contact(for: call) != nil)
     }

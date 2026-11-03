@@ -28,7 +28,8 @@ const usage = `usage: ringback-agent serve [--socket PATH] [--config PATH] | mcp
          The config (default ~/.config/ringback/agent.toml) says:
            hub = "10.0.0.1:8787"   the hub's address on Nebula
            token = "…"             the hub's [tokens] agent
-           name = "…"              this Mac, for the hub's log (default: its host name)
+           name = "…"              this Mac, for the hub's log (default: on macOS its local
+                                   host name, as set in Sharing; elsewhere its host name)
   mcp    the voice's tools for Claude Code, relayed to the call over SOCKET (Haiku starts it)`
 
 func main() {
@@ -80,7 +81,7 @@ func serve(options map[string]string) {
 		fail(err.Error())
 	}
 	calls.restore()
-	// The sessions that listen, for the phone's Contacts.
+	// The sessions that listen, for the app's Sessions tab.
 	go calls.publish(ctx, resend)
 	go hub.run(ctx)
 	if _, err := listen(sessionSide(calls), socket); err != nil {
@@ -158,8 +159,7 @@ func parseOptions(args []string, allowed ...string) map[string]string {
 
 var logMu sync.Mutex
 
-// logLine writes a line of the log, with the time to the millisecond, as the voice server
-// did.
+// logLine writes a line of the log, with the time to the millisecond.
 func logLine(line string) {
 	logMu.Lock()
 	defer logMu.Unlock()

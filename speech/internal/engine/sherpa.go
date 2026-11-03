@@ -106,7 +106,7 @@ func OpenKokoro(dir, provider string, threads, voice int) (*Kokoro, error) {
 	c.model.num_threads = C.int32_t(threads)
 	c.model.provider = cs.add(provider)
 	c.max_num_sentences = 1
-	c.silence_scale = 1 // Kokoro's pauses as it makes them, as the Python voice plays them
+	c.silence_scale = 1 // Kokoro's pauses as it makes them
 	t := C.SherpaOnnxCreateOfflineTts(&c)
 	if t == nil {
 		return nil, errors.New("Kokoro didn't load from " + dir)

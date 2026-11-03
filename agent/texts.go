@@ -120,7 +120,7 @@ Open with what changed since the {earlier}, then what needs the developer now. W
 two differ, the newer one is right.`
 	settledLead = `The session no longer waits for an answer to {names}, which the {earlier}'s briefing asks:
 don't ask it.`
-	// An earlier call made from the app's Contacts before the session had written a briefing.
+	// An earlier call made from the app's Sessions tab before the session had written a briefing.
 	noBriefing = `(none: the session hadn't written a briefing yet)`
 	// The lead of the briefing of a call that was waiting for the developer's work hours, which they
 	// called from the app.
@@ -128,7 +128,7 @@ don't ask it.`
 hours to start; they saw it waiting in the app and called it now, and you've picked up. So
 don't introduce yourself, greet them at length, or say you're calling: open straight with
 what the call is about.`
-	// The lead of a call the developer makes to a session from the app's Contacts.
+	// The lead of a call the developer makes to a session from the app's Sessions tab.
 	calledContact = `This call is the developer calling the session: they chose it in their phone's contacts and
 called, and you've picked up. So don't introduce yourself, greet them at length, or say
 you're calling.`

@@ -69,11 +69,11 @@ const remembered = (session: string) => `on:${session}`
 // A session is forgotten this long after it last started with ringback on.
 const REMEMBER_MS = 30 * 24 * 3600_000
 
-// A briefing the voice server didn't take, as while it restarts, is offered again this often,
+// A briefing the agent didn't take, as while it restarts, is offered again this often,
 // for this long.
 const RETRY_MS = 30_000
 const RETRY_FOR_MS = 30 * 60_000
-// While the voice server can't be reached, what the session asks you is asked again this often.
+// While the agent can't be reached, what the session asks you is asked again this often.
 const REACH_MS = 5000
 
 let isOn = false
@@ -85,13 +85,13 @@ let collecting: { cancel(): void } | undefined
 let isCollecting = false
 // A turn of the main loop is running: calls' outcomes wait for it to end.
 let isTurning = false
-// Calls' outcomes from the voice server, to add to the conversation between turns.
+// Calls' outcomes from the agent, to add to the conversation between turns.
 const outcomes: string[] = []
 // The permissions and questions put to you on a call and still waiting: each one's stop.
 const holds = new Set<(why?: string) => void>()
-// Those of them waiting for the voice server to come back.
+// Those of them waiting for the agent to come back.
 const unreached = new Set<(why?: string) => void>()
-// The latest briefing given to the voice server, and the one waiting to be offered again.
+// The latest briefing given to the agent, and the one waiting to be offered again.
 let latest: object | undefined
 let retry: { body: object; timer: { cancel(): void } } | undefined
 
@@ -204,7 +204,7 @@ function remoteControl($: EngineInterface): void {
 
 // Switches ringback on or off, and remembers it: for a reload of the mod, and by the session's
 // ID for when it's resumed. Off, what waits for your answer from a call goes back to the
-// terminal, and a briefing waiting for the voice server is dropped.
+// terminal, and a briefing waiting for the agent is dropped.
 async function switchTo($: EngineInterface, on: boolean, isRemembered = true): Promise<void> {
   isOn = on
   isBriefing = false
@@ -251,7 +251,7 @@ async function restore($: EngineInterface): Promise<void> {
   }
 }
 
-// The voice server on this Mac, over a socket only you can open.
+// The ringback agent on this Mac, over a socket only you can open.
 async function voice($: EngineInterface, path: string, body?: object, method = body ? 'POST' : 'GET') {
   return $.http.fetch(`http://voice${path}`, {
     method,
@@ -267,7 +267,7 @@ async function finished($: EngineInterface, answer: string): Promise<void> {
     const response = await voice($, `/sessions/${await $.session.id()}/news`, { text: answer })
     if (response.ok && JSON.parse(response.text).live) return
   } catch {
-    // No voice server: the call below says so.
+    // No agent: the call below says so.
   }
   if (!isOn) return
   isBriefing = true
@@ -276,7 +276,7 @@ async function finished($: EngineInterface, answer: string): Promise<void> {
 
 // Submits what the voice passed on for this session, each as a prompt of its own. A call's
 // outcome isn't a prompt: it's added to the conversation. Collecting also says the session's
-// project and folder, so the phone's Contacts can list it while ringback is on, and a call from
+// project and folder, so the app's Sessions tab can list it while ringback is on, and a call from
 // there knows where its transcript goes.
 async function collect($: EngineInterface): Promise<void> {
   if (!isOn || isCollecting) return
@@ -291,7 +291,7 @@ async function collect($: EngineInterface): Promise<void> {
       else void $.prompt.submit({ text: fromCall(m.text, m.transcript) })
     }
   } catch {
-    // The voice server isn't running; nothing can be waiting.
+    // The agent isn't running; nothing can be waiting.
   } finally {
     isCollecting = false
   }
@@ -313,7 +313,7 @@ async function addOutcomes($: EngineInterface): Promise<void> {
   }
 }
 
-// Gives the briefing to the voice server, which asks the switchboard to ring the phone. A
+// Gives the briefing to the agent, which asks the hub to ring the phone. A
 // newer briefing replaces one still waiting to be offered again.
 async function call($: EngineInterface, answer: string): Promise<void> {
   const [first = '', ...rest] = answer.trim().split('\n')
@@ -333,8 +333,8 @@ async function call($: EngineInterface, answer: string): Promise<void> {
   await place($, body, RETRY_FOR_MS / RETRY_MS)
 }
 
-// Offers a briefing to the voice server. If it can't take it, because it isn't running (it
-// may be restarting) or can't reach the switchboard, the briefing is offered again every
+// Offers a briefing to the agent. If it can't take it, because it isn't running (it
+// may be restarting) or can't reach the hub, the briefing is offered again every
 // 30 s, for 30 min (`tries` more times); a dim line says so once, and the line under the
 // prompt meanwhile.
 async function place($: EngineInterface, body: object, tries: number): Promise<void> {
@@ -349,7 +349,7 @@ async function place($: EngineInterface, body: object, tries: number): Promise<v
       if (heldUntil !== undefined || fieldOf(response.text, 'held') === true) await showHeld($, heldUntil)
       return
     }
-    failed = errorOf(response.text) ?? `the voice server answered ${response.status}`
+    failed = errorOf(response.text) ?? `the ringback agent answered ${response.status}`
     if (response.status < 500) {
       retry = undefined
       $.ui.toast(`Can't call: ${failed}`)
@@ -377,7 +377,7 @@ async function place($: EngineInterface, body: object, tries: number): Promise<v
 const projectOf = (cwd: string) => cwd.split('/').filter(Boolean).pop() ?? 'Claude'
 
 // While your phone holds calls (outside your work hours, or paused in the app) the
-// switchboard holds the call: a dim line says when it rings, in this Mac's time, with the
+// hub holds the call: a dim line says when it rings, in this Mac's time, with the
 // date unless it's today, or that it rings when you take calls, if there's no time.
 async function showHeld($: EngineInterface, heldUntil: unknown): Promise<void> {
   const at = typeof heldUntil === 'string' ? new Date(heldUntil) : undefined
@@ -396,7 +396,7 @@ async function showHeld($: EngineInterface, heldUntil: unknown): Promise<void> {
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-// The voice server's answer: what a permission or question resolved to (`terminal` when you
+// The agent's answer: what a permission or question resolved to (`terminal` when you
 // sent the held call's question to the Claude app), and whether its call is held outside your
 // work hours.
 type Answer = {
@@ -408,7 +408,7 @@ type Answer = {
 }
 
 // Puts a permission or a question to you on a call, and waits for your answer: long-polls the
-// voice server until it has one, you hang up without one (`none`), ringback is switched off,
+// agent until it has one, you hang up without one (`none`), ringback is switched off,
 // the tool call is abandoned or 15 min pass. A call you don't answer leaves it `pending`, so
 // the wait goes on, for a call back or the session's next call. Unanswered, it's withdrawn,
 // and it's left to the terminal (undefined). A long-poll is a call on `$`, so its wait doesn't
@@ -417,7 +417,7 @@ type Answer = {
 // outside your work hours, the 15 min start again with each poll, so they count from when
 // it rings. If you send its question to the Claude app from the phone, the answer is
 // `terminal`: it's left to the terminal at once, where Remote Control shows it. While the
-// voice server can't be reached, as
+// agent can't be reached, as
 // while it restarts, it's asked again every 5 s within the 15 min; it keeps what was asked
 // across a restart, so a poll carries on. A 404 means it's gone.
 async function hold(
@@ -452,7 +452,7 @@ async function hold(
   let path = ''
   let created: Promise<Reply> | undefined
   let answer: Answer | undefined
-  // While the voice server can't be reached: says so once, and waits 5 s before asking again;
+  // While the agent can't be reached: says so once, and waits 5 s before asking again;
   // false if the hold was stopped meanwhile.
   const unreachable = async (): Promise<boolean> => {
     if (!unreached.size && !retry) $.ui.log("Can't reach the voice server: asking again every 5 s.")
@@ -505,7 +505,7 @@ async function hold(
     unreached.delete(stop)
     $.ui.invalidate('ui.render')
     if (!answer) {
-      // Withdrawn where it was made, once it's made: switched off while the voice server was
+      // Withdrawn where it was made, once it's made: switched off while the agent was
       // still placing the call, it's withdrawn when that answers.
       const withdraw = () =>
         void created?.then(({ value }) => value && voice($, `${path}/${value[id]}`, undefined, 'DELETE').catch(() => {}))
@@ -520,7 +520,7 @@ async function hold(
   }
 }
 
-// What the voice server answered, parsed, or why it didn't: `isUnreached` when it couldn't be
+// What the agent answered, parsed, or why it didn't: `isUnreached` when it couldn't be
 // reached at all, as while it isn't running.
 type Reply = { value?: any; error?: string; isUnreached?: boolean }
 
@@ -606,7 +606,7 @@ function errorOf(text: string): string | undefined {
   return fieldOf(text, 'error') as string | undefined
 }
 
-// One field of the voice server's JSON answer, if it has it.
+// One field of the agent's JSON answer, if it has it.
 function fieldOf(text: string, key: string): unknown {
   try {
     return JSON.parse(text)?.[key]

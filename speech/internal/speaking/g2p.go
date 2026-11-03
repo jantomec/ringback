@@ -1,6 +1,6 @@
 // Package speaking turns a piece of a reply into Kokoro's phonemes. sherpa-onnx 2.x reads text
 // only through its lexicon and silently drops every word it doesn't have (numbers, file
-// names, "onnx"), so the node does what the Python voice's G2P (misaki) does instead: words
+// names, "onnx"), so the node does what misaki, Kokoro's own G2P, does instead: words
 // from the same lexicon, numbers and symbols read out, identifiers split into their words,
 // acronyms spelled, other unknown words through espeak-ng, and the result handed to
 // sherpa-onnx as phonemes.

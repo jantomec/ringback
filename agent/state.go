@@ -10,9 +10,8 @@ import (
 	"time"
 )
 
-// The state file, in the voice server's format (voice-state.json), so either reads what the
-// other wrote: each Ask once, in "asks", which the calls, the pool and the asks a mod can read
-// refer to by its place there.
+// The state file (voice-state.json): each Ask once, in "asks", which the calls, the pool and
+// the asks a mod can read refer to by its place there.
 type savedState struct {
 	Calls   []savedCall          `json:"calls"`
 	Past    []savedCall          `json:"past"`
@@ -81,7 +80,7 @@ type savedAsk struct {
 	Answers pairs           `json:"answers"`
 }
 
-// requestJSON is a request as the voice server keeps it: a permission's fields, or the
+// requestJSON is a request as the state file keeps it: a permission's fields, or the
 // questions'.
 func (a *Ask) requestJSON() any {
 	r := a.Request

@@ -1,5 +1,5 @@
 // Package hearing decides when you start and stop speaking and when your turn is over, as
-// the Python voice does with Pipecat: Silero's voice-activity detection with a volume gate
+// Pipecat 1.14.0 does: Silero's voice-activity detection with a volume gate
 // (Pipecat's VADAnalyzer and VADController), Smart Turn v3 (Pipecat's BaseSmartTurn and
 // TurnAnalyzerUserTurnStopStrategy) and one transcription per stretch of speech (Pipecat's
 // SegmentedSTTService). The models themselves come from outside, through interfaces, so this
@@ -26,7 +26,7 @@ const (
 )
 
 // Thresholds at the app's lowest, middle and highest sensitivity, with straight lines in
-// between (hearing.py). The middle is Pipecat's defaults.
+// between. The middle is Pipecat's defaults.
 var (
 	lowest  = VADParams{Confidence: 0.85, StartSecs: 0.35}
 	middle  = VADParams{Confidence: 0.7, StartSecs: 0.2}

@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 import WebRTC
 
-/// A call's audio: a WebRTC connection that the phone opens to the calling Mac's voice server
+/// A call's audio: a WebRTC connection that the phone opens to the hub
 /// over Nebula. (On mobile data only the phone can open a Nebula tunnel.) It's made while the
 /// phone rings, so the voice can start as soon as you answer.
 ///
@@ -15,12 +15,13 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     }()
 
     /// How easily your speech stops the voice, from 0 to 1, set in the app and sent with each
-    /// call. The Mac turns it into the thresholds of its voice-activity detection.
+    /// call. The speech node, or the phone's own speech, turns it into the thresholds of its
+    /// voice-activity detection.
     static let sensitivityKey = "interruptionSensitivity"
     static let defaultSensitivity = 0.5
-    /// Whether the Mac ignores speech quieter than yours, such as people nearby, and how
+    /// Whether the voice ignores speech quieter than yours, such as people nearby, and how
     /// strongly, from 0.1 to 1. Set in the app and sent with each call, as 0 when it's off.
-    /// The Mac turns it into a volume threshold.
+    /// The speech node, or the phone's own speech, turns it into a volume threshold.
     static let backgroundFilterOnKey = "ignoreBackgroundNoise"
     static let backgroundFilterKey = "backgroundFilter"
     static let defaultBackgroundFilter = 0.5
@@ -34,17 +35,17 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
 
     private var peer: RTCPeerConnection?
     private var microphone: RTCAudioTrack?
-    /// What the voice server sends.
+    /// What the hub sends: the voice.
     private var voice: RTCMediaStreamTrack?
     private var muted = false
     private var stopped = false
     /// Waits for the call's stats while the link stops (`stop(reporting:)`).
     private var reporting: (([String: String]) -> Void)?
-    /// Which addresses the offer gave, for the switchboard's log.
+    /// Which addresses the offer gave, for the hub's log.
     private(set) var addresses = ""
     /// True while the phone rings. The link then neither sends your microphone nor plays the
     /// voice: a call you're on may be using them (call waiting). An offer that goes while it's
-    /// true says so, and the voice server then waits for `answered` before it talks.
+    /// true says so, and the hub then waits for `answered` before it talks.
     var ringing = false {
         didSet { updateTracks() }
     }
@@ -52,9 +53,9 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     var onConnected: ((Date) -> Void)?
     var onFailed: ((String) -> Void)?
 
-    /// Tries to reach the voice server over Nebula until it answers or `deadline` passes, and
+    /// Tries to reach the hub over Nebula until it answers or `deadline` passes, and
     /// returns when it answered and after how many tries; nil if it never did. Any HTTP answer
-    /// counts. After the phone moves from Wi-Fi to mobile data, its Nebula tunnel to the Mac
+    /// counts. After the phone moves from Wi-Fi to mobile data, its Nebula tunnel to the hub
     /// can stay stale for more than 15 s; each try sends fresh packets, so Nebula notices
     /// sooner and goes through the lighthouse's relay. It starts when the phone rings. Each
     /// try waits longer, 3 s, then 6, then 12: a try takes two round trips, and on Very Bad
@@ -108,17 +109,16 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
         RTCAudioSession.sharedInstance().isAudioEnabled = false
     }
 
-    /// Offers audio to the voice server and applies its answer. The Mac's server doesn't
+    /// Offers audio to the hub and applies its answer. The hub doesn't
     /// take ICE candidates one by one, so the offer waits until they're all gathered. The
     /// offer also carries your interruption sensitivity and background filter, and whether the
     /// phone still rings (`ringing` as the offer goes). Returns whether it did. On the main
     /// actor, as `stop` is, so once the link is stopped no offer goes and no answer is applied.
     /// `back` calls back the call `callID`, `now` calls it while it waits, held outside your
     /// work hours, and `contact` calls that session, from Sessions, as a new call `callID`. The
-    /// voice server answers each at once, and throws `RefusedCall`, with its reason, if it
-    /// doesn't know the call, it no longer waits, or the session isn't listening. A contact
-    /// offer is marked `back` too, so a voice server from before the Sessions tab refuses it as a call
-    /// back it doesn't know ("unknown call").
+    /// hub answers each at once, as the call's agent says, and throws `RefusedCall`, with its
+    /// reason, if the agent doesn't know the call, it no longer waits, or the session isn't
+    /// listening. A contact offer is marked `back` too.
     @MainActor
     func start(
         voiceURL: URL, callID: String, back: Bool = false, now: Bool = false, contact: String? = nil
@@ -206,8 +206,8 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
         description.sdp.components(separatedBy: "a=candidate:").count - 1
     }
 
-    /// Tells the voice server you answered a call whose offer went while the phone rang, so
-    /// it starts talking. Tries four times within about 15 s. A 404 means the voice server
+    /// Tells the hub you answered a call whose offer went while the phone rang, so
+    /// it starts talking. Tries four times within about 15 s. A 404 means the hub
     /// wasn't offered the call, so that isn't retried.
     static func answered(_ voiceURL: URL, callID: String) async throws {
         var request = URLRequest(url: voiceURL.appending(path: "answered"), timeoutInterval: 3)
@@ -249,7 +249,7 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     }
 
     /// Stops the link once it has read the call's audio stats (`stats`), and gives them to
-    /// `done` on the main queue, for the call's report to the switchboard. Without an answer
+    /// `done` on the main queue, for the call's report to the hub. Without an answer
     /// from WebRTC within 2 s, it stops anyway, and `done` gets none.
     func stop(reporting done: @escaping ([String: String]) -> Void) {
         guard let peer, !stopped else {
@@ -303,7 +303,7 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
         {
             fields["concealed_pct"] = String(format: "%.1f", 100 * concealed.doubleValue / total.doubleValue)
         }
-        // The Mac's reports give the round trip; failing that, the connection's own checks.
+        // The hub's reports give the round trip; failing that, the connection's own checks.
         add("rtt_ms", far["roundTripTime"], scale: 1000)
         if fields["rtt_ms"] == nil {
             let pair = all.first { $0.type == "candidate-pair" && ($0.values["nominated"] as? NSNumber)?.boolValue == true }
@@ -344,7 +344,7 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     func peerConnection(_ peer: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
 }
 
-/// The voice server answered `answered` with 404: it wasn't offered this call.
+/// The hub answered `answered` with 404: it wasn't offered this call.
 private struct UnknownCall: LocalizedError {
     var errorDescription: String? { "Ringback doesn't know this call" }
 }
@@ -355,10 +355,10 @@ struct NoSpeech: LocalizedError {
     var errorDescription: String? { "The speech computer is offline" }
 }
 
-/// The voice server refused an offer (403): it didn't place the call, or for a call back, no
-/// longer remembers it (a day after it ended, or after a restart without its state), or for a
-/// call from Sessions, the session isn't listening. `reason` is what it said: "unknown call",
-/// or "not listening".
+/// The hub refused an offer (403), as the call's agent said: the agent didn't place the call,
+/// or for a call back, no longer remembers it (a day after it ended, or after a restart without
+/// its state), or for a call from Sessions, the session isn't listening. `reason` is what it
+/// said: "unknown call", or "not listening".
 struct RefusedCall: LocalizedError {
     var reason: String?
     var errorDescription: String? {

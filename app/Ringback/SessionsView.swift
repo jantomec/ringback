@@ -3,8 +3,8 @@ import SwiftUI
 /// The sessions you can call: every session with ringback on, on any of your Macs, by
 /// project. There are a handful, not hundreds as in the Phone app's Contacts, so each is a
 /// card: what its latest briefing was about and when, and whether a call of its waits.
-/// Tapping one calls it; holding it offers its details. Fetched from the switchboard every
-/// 3 s while it shows, and on pull to refresh; a voice server tells the switchboard within a
+/// Tapping one calls it; holding it offers its details. Fetched from the hub every
+/// 3 s while it shows, and on pull to refresh; an agent tells the hub within a
 /// second of a session starting or stopping to listen, and every 30 s.
 struct SessionsView: View {
     let state: AppState

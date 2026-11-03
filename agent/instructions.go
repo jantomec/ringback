@@ -12,7 +12,7 @@ import (
 // called, and whether they didn't answer then or talked (calledBack); if the session isn't
 // listening any more, the voice is told it can't act on it. A waiting call the developer
 // calls from the app gets a lead too (calledNowBriefing), and so does a session they call
-// from the app's Contacts, with its latest briefing if it has one (calledContactBriefing).
+// from the app's Sessions tab, with its latest briefing if it has one (calledContactBriefing).
 func instructions(report string, session, listening bool) string {
 	text := noSession
 	if session && listening {
@@ -71,7 +71,7 @@ func calledNowBriefing(briefing string) string {
 	return calledNow + "\n\nThe call's briefing:\n" + strings.TrimSpace(briefing)
 }
 
-// calledContactBriefing is the briefing of a call to a session from the app's Contacts: its
+// calledContactBriefing is the briefing of a call to a session from the app's Sessions tab: its
 // latest briefing, written ago seconds before, if it has one, with a lead. heard is how long
 // ago the developer last talked on a call with that briefing, if they did.
 func calledContactBriefing(briefing string, ago float64, heard *float64) string {

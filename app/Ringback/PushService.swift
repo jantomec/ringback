@@ -7,9 +7,9 @@ final class PushService: NSObject, PKPushRegistryDelegate {
     private let registry = PKPushRegistry(queue: .main)
     private let calls: CallService
     private let state: AppState
-    /// The notification token the switchboard last confirmed.
+    /// The notification token the hub last confirmed.
     private var sentNotificationToken: String?
-    /// The work hours the switchboard last confirmed, On-device voice then, and its address.
+    /// The work hours the hub last confirmed, On-device voice then, and its address.
     private var sentHours: [String: String]?
     private var sentOnDevice: Bool?
     private var sentURL: URL?
@@ -22,7 +22,7 @@ final class PushService: NSObject, PKPushRegistryDelegate {
         registry.desiredPushTypes = [.voIP]
     }
 
-    /// Sends the token, the work hours and On-device voice to the switchboard, which is also how
+    /// Sends the token, the work hours and On-device voice to the hub, which is also how
     /// the app checks that calls can reach it, then fetches the calls that wait. On the main
     /// actor, because it updates what the app shows. Automatic checks (app opened, token
     /// arrived, settings changed) skip a check that just succeeded with the same address,
@@ -31,7 +31,7 @@ final class PushService: NSObject, PKPushRegistryDelegate {
     @MainActor
     func connect(force: Bool = false) async {
         #if DEBUG
-        if Seed.isOn { return }  // screenshots, with sample calls and no switchboard
+        if Seed.isOn { return }  // screenshots, with sample calls and no hub
         #endif
         guard Switchboard.url != nil else { state.connection = .notSetUp; return }
         guard let token = state.token else { state.connection = .waitingForToken; return }
@@ -73,8 +73,8 @@ final class PushService: NSObject, PKPushRegistryDelegate {
     }
 
     /// A setting changed: in the Settings app, which the app hears when it next runs, or by
-    /// the app itself. If it's the switchboard's address, the work hours or On-device voice, the
-    /// switchboard gets them now, so they apply from the next call. (Turned on, On-device voice
+    /// the app itself. If it's the hub's address, the work hours or On-device voice, the
+    /// hub gets them now, so they apply from the next call. (Turned on, On-device voice
     /// also lets the calls that wait for the speech computer ring now.)
     @MainActor
     func settingsChanged() async {

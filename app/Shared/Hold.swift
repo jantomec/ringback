@@ -20,8 +20,8 @@ struct HoldState: Codable, Equatable {
     }
 }
 
-/// What the app shares with its Control Center extension: the switchboard's address and the
-/// push token that names this phone to it, which the app writes once the switchboard has taken
+/// What the app shares with its Control Center extension: the hub's address and the
+/// push token that names this phone to it, which the app writes once the hub has taken
 /// its registration, and the switch as last heard. In a keychain group the two share, rather
 /// than an App Group: the team's provisioning profiles allow any keychain group of the team,
 /// while an App Group needs a capability added to each App ID. Readable once the phone has been
@@ -76,10 +76,10 @@ enum Shared {
     }
 }
 
-/// Reads and sets the switch at the switchboard (`/hold`), and on taking calls tells each Mac
-/// that holds calls to ask the switchboard again now (`/reask` on its voice server, with the
-/// waiting calls' IDs), so they ring at once rather than within the 10 min a held call waits
-/// at most before asking again.
+/// Reads and sets the switch at the hub (`/hold`), and on taking calls has each Mac's agent
+/// that holds calls ask the hub again now (`/reask` at the address each waiting call names,
+/// the hub's, with the waiting calls' IDs), so they ring at once rather than within the 10 min
+/// a held call waits at most before asking again.
 enum HoldSwitch {
     /// The Control Center control's kind, which the app reloads when the switch changes.
     static let controlKind = "hold"
@@ -87,7 +87,7 @@ enum HoldSwitch {
     /// calls change.
     static let widgetKind = "hold-status"
 
-    /// The switch at the switchboard; throws if it can't be reached, or the phone hasn't
+    /// The switch at the hub; throws if it can't be reached, or the phone hasn't
     /// registered there yet.
     static func fetch() async throws -> HoldState {
         try await remember(state(post("hold", ["token": try token()], timeout: 4)))
@@ -103,12 +103,12 @@ enum HoldSwitch {
         return set
     }
 
-    /// The switch as last heard, as it is now, without asking the switchboard.
+    /// The switch as last heard, as it is now, without asking the hub.
     static var cached: HoldState? {
         Shared.hold?.at(.now)
     }
 
-    /// The switch and how many calls wait, from the switchboard (`/waiting`), or as last heard
+    /// The switch and how many calls wait, from the hub (`/waiting`), or as last heard
     /// if it can't be reached. For the Lock Screen widget, which mustn't reload itself.
     static func status() async -> (hold: HoldState?, waiting: Int) {
         if let token = Shared.token, let data = try? await post("waiting", ["token": token], timeout: 5),
@@ -149,7 +149,7 @@ enum HoldSwitch {
         return token
     }
 
-    /// The switch as the switchboard last gave it, also with the waiting calls: kept for the
+    /// The switch as the hub last gave it, also with the waiting calls: kept for the
     /// Control Center control, which reloads when it changes.
     @discardableResult
     static func remember(_ state: HoldState, reload: Bool = true) -> HoldState {
@@ -161,7 +161,7 @@ enum HoldSwitch {
         return state
     }
 
-    /// The switchboard's answer: `{"hold": Bool, "until": ISO 8601}`.
+    /// The hub's answer: `{"hold": Bool, "until": ISO 8601}`.
     private static func state(_ data: Data) throws -> HoldState {
         guard let answer = try JSONSerialization.jsonObject(with: data) as? [String: Any], let state = state(from: answer)
         else { throw URLError(.cannotParseResponse) }

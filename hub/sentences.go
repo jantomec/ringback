@@ -7,9 +7,9 @@ import (
 
 // Where a sentence of the reply ends, for cutting it into spoken pieces: the first sentence
 // is spoken on its own, so the voice starts fast, and later pieces end at the last finished
-// sentence (see "Speaking a reply" in docs/design.md). Pipecat used a sentence tokenizer for
-// this; the voice's replies are plain spoken English, so punctuation, abbreviations and
-// numbers are enough.
+// sentence (see "Speaking a reply" in docs/design.md). No sentence tokenizer is needed: the
+// voice's replies are plain spoken English, so punctuation, abbreviations and numbers are
+// enough.
 
 // abbreviations end in a period without ending a sentence.
 var abbreviations = map[string]bool{

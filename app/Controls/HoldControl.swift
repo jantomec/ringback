@@ -13,7 +13,7 @@ struct RingbackControls: WidgetBundle {
 
 /// The hold switch in Control Center, which you can also put on the Lock Screen or the Action
 /// button. On (indigo) holds every call; the symbol is what pressing does, as in the app:
-/// pause while taking calls, play while on hold. It shows the switch as the switchboard has it,
+/// pause while taking calls, play while on hold. It shows the switch as the hub has it,
 /// or as last heard if it can't be reached.
 struct HoldControl: ControlWidget {
     var body: some ControlWidgetConfiguration {

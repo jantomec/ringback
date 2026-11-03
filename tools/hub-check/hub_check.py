@@ -216,7 +216,7 @@ async def main() -> int:
         agent.handle = agent_handle
         node.handle = lambda m: asyncio.create_task(node_handle(m)) if m["type"] == "speak" else node_handle(m)
 
-        # A call the agent doesn't know is refused, as the voice server refused it.
+        # A call the agent doesn't know is refused.
         stranger = stand_in_phone.Phone()
         status = await stranger.offer("unknown-" + secrets.token_hex(12), ringing=False)
         await stranger.hang_up()

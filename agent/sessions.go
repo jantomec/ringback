@@ -42,7 +42,7 @@ package main
 // A held call can be called from the app too, where it shows as waiting: it's released at
 // once, without ringing, and its voice picks up as a call back's does.
 //
-// The sessions that listen (ringback on) are the phone's Contacts: the hub hears which they
+// The sessions that listen (ringback on) are the app's Sessions tab: the hub hears which they
 // are, with each one's project and latest briefing, whenever that changes and every
 // publishEvery. You can call one from the app at any time: a new call under the ID the phone
 // made, answered at once, whose voice has the session's latest briefing, if it has one, with
@@ -100,7 +100,7 @@ var (
 	// listening: ringback is off in it, or it has ended. While it's on, the mod collects once
 	// a second. RINGBACK_LISTENING overrides it, for checks.
 	listeningFor = envSeconds("RINGBACK_LISTENING", 30)
-	// publishEvery is how often the hub hears which sessions listen, for the phone's Contacts,
+	// publishEvery is how often the hub hears which sessions listen, for the app's Sessions tab,
 	// when nothing changed. A change goes at once, or changedRetry after a try that failed.
 	// RINGBACK_PUBLISH overrides it.
 	publishEvery = envSeconds("RINGBACK_PUBLISH", 30)
@@ -539,7 +539,7 @@ type Call struct {
 	Asked []string
 	// On a call you made: the call you called, as it was placed. A call back calls back an
 	// earlier call; with Now, you called a held call from the app while it waited; with
-	// Contact, you called the session from the app's Contacts, and it's the session's latest
+	// Contact, you called the session from the app's Sessions tab, and it's the session's latest
 	// briefing, as the call will be remembered.
 	Back    *Call
 	Now     bool
@@ -597,7 +597,7 @@ type Calls struct {
 	past ordered[pastCall]  // forgotten calls, and when, for a day
 	seen ordered[time.Time] // when each session's mod last collected
 	// Since when each session listens (Unix seconds), and its project and folder, as its mod
-	// says them when it collects: the phone's Contacts.
+	// says them when it collects: the app's Sessions tab.
 	since   map[string]float64
 	named   map[string][2]string
 	asking  sync.Mutex
@@ -673,7 +673,7 @@ func (c *Calls) newLink(call *Call) *Link {
 // app); onHold if it holds it with no time. An error if it can't be reached or refuses. It
 // hears whether the call has a question, so it can tell the phone of a held one, and the
 // session's ID, which the push takes to the phone, so the app can call the session from
-// Contacts once the agent has forgotten the call.
+// Sessions once the agent has forgotten the call.
 func (c *Calls) askHub(call *Call, question bool) (string, error) {
 	c.mu.Lock()
 	message := map[string]any{
@@ -942,7 +942,7 @@ func (c *Calls) now(id string) *Call {
 	return &call
 }
 
-// contact is the call you make by calling a session from the phone's Contacts, which it
+// contact is the call you make by calling a session from the app's Sessions tab, which it
 // answers at once, under the ID the phone made for it. Its voice has the session's latest
 // briefing, if it has one, with a lead that says you called; it talks with the session as an
 // answered call does. Nil if the session isn't listening: the phone lists only sessions that
@@ -1004,7 +1004,7 @@ func or(a, b string) string {
 }
 
 // latest is the call with a session's latest briefing: placed, held or remembered. A call you
-// made counts as the call it calls; a call from Contacts has no briefing of its own.
+// made counts as the call it calls; a call from the Sessions tab has no briefing of its own.
 func (c *Calls) latest(session string) *Call {
 	var mine []*Call
 	for _, call := range c.calls.list() {
@@ -1030,10 +1030,10 @@ func (c *Calls) latest(session string) *Call {
 	return best
 }
 
-// contacts are the sessions that listen now, as the phone's Contacts list them: each one's ID,
-// project, since when it listens here, and the subject of its latest briefing and when the
-// session wrote it, if it has one. A session whose mod didn't say its project (a mod from
-// before Contacts) goes by its latest call's, or isn't listed.
+// contacts are the sessions that listen now, as the app's Sessions tab lists them: each one's
+// ID, project, since when it listens here, and the subject of its latest briefing and when the
+// session wrote it, if it has one. A session whose mod didn't say its project goes by its
+// latest call's, or isn't listed.
 func (c *Calls) contacts() []map[string]any {
 	listed := []map[string]any{}
 	for _, session := range c.seen.keys {
@@ -1068,7 +1068,7 @@ func (c *Calls) contacts() []map[string]any {
 	return listed
 }
 
-// publish tells the hub which of this Mac's sessions listen, for the phone's Contacts: when
+// publish tells the hub which of this Mac's sessions listen, for the app's Sessions tab: when
 // that changes, and every publishEvery, so the hub can drop a Mac's sessions once it stops
 // hearing from it. Runs as long as the agent does; resend makes it tell the hub again at
 // once, as when its link has come back.
@@ -1250,7 +1250,7 @@ func (c *Calls) sendLocked(session, text string, transcript *string, kind string
 }
 
 // collect is what waits for a session, which its mod collects while ringback is on in it: so
-// it listens. The mod says its project and folder, for the phone's Contacts.
+// it listens. The mod says its project and folder, for the app's Sessions tab.
 func (c *Calls) collect(session, project, cwd string) []Message {
 	c.mu.Lock()
 	defer c.mu.Unlock()

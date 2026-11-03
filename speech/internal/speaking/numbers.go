@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Numbers become words before they become phonemes, the way the Python voice's G2P (misaki)
+// Numbers become words before they become phonemes, the way misaki, Kokoro's own G2P,
 // reads them: no "and" in "one hundred forty two", four digits as a year.
 
 var (

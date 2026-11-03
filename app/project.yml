@@ -39,7 +39,7 @@ targets:
       path: Ringback/Ringback.entitlements
       properties:
         aps-environment: development
-        # Shared with the Control Center extension: the switchboard, the token, the hold switch.
+        # Shared with the Control Center extension: the hub's address, the token, the hold switch.
         keychain-access-groups: [$(AppIdentifierPrefix)$(RINGBACK_BUNDLE_ID).shared]
     info:
       path: Ringback/Info.plist

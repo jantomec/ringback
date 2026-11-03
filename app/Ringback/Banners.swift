@@ -26,9 +26,9 @@ struct Banners: View {
         if state.connection == .notSetUp && Switchboard.url == nil {
             found.append(.notSetUp)
         } else if lastConnectionWarning > 0 || state.connection.failed || isRetrying {
-            // A connection check in the background warned you, or the switchboard can't be
+            // A connection check in the background warned you, or the hub can't be
             // reached now. It repeats the warning, which is gone once you tap it, and goes
-            // away by itself once the switchboard is reachable again.
+            // away by itself once the hub is reachable again.
             found.append(.unreachable)
         } else if let status = state.status {
             // Only while the hub answers: otherwise what it said last may be stale.
@@ -134,7 +134,7 @@ struct Banners: View {
         }
     }
 
-    /// The warning, with when the switchboard last confirmed this phone.
+    /// The warning, with when the hub last confirmed this phone.
     private var message: String {
         let last = state.lastConnected.map {
             " Last connected \(Calendar.current.isDateInToday($0) ? $0.formatted(date: .omitted, time: .shortened) : $0.recentsLabel)."

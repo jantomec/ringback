@@ -165,8 +165,8 @@ func portal(w http.ResponseWriter, r *http.Request) {
 // holdForm sets the hub's hold, which is every registered phone's hold switch: "on", and no
 // call rings, whatever speech there is, until you take calls or, as the app's switch, work
 // hours next start; "off", and the calls held ask again, and ring. The app shows it the next
-// time it asks the hub, as it does on opening. A call held by a voice server of the earlier
-// stack asks again by itself within 10 min.
+// time it asks the hub, as it does on opening. A held call placed over /call isn't told: it
+// rings when whoever placed it asks again.
 func holdForm(w http.ResponseWriter, r *http.Request, s *portalSession) {
 	value := r.PostFormValue("hold")
 	if value != "on" && value != "off" {

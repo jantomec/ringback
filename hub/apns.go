@@ -39,8 +39,7 @@ const (
 var apnsHTTP = &http.Client{Timeout: 10 * time.Second}
 
 // tokenTTL is how long a provider token is used. APNs refuses a new one more often than
-// every 20 minutes on a connection, and an hour-old one has expired. (The Swift switchboard
-// made a new token for every push.)
+// every 20 minutes on a connection, and an hour-old one has expired.
 const tokenTTL = 50 * time.Minute
 
 type apnsToken struct {
@@ -260,8 +259,8 @@ func outcome(status int, reason string, err error) string {
 	return strings.TrimSpace(fmt.Sprintf("APNs %d %s", status, reason))
 }
 
-// ring rings every registered phone once, as call callID, or a new call, from session if a
-// voice server named it. One line per phone.
+// ring rings every registered phone once, as call callID, or a new call, from session if the
+// call names it. One line per phone.
 func ring(ctx context.Context, project, subject, voice, callID, session string) []string {
 	config := loadConfig()
 	if callID == "" {
@@ -345,7 +344,7 @@ func notifyWaiting(ctx context.Context, callID, what, title, body string, until 
 
 // askPhonesToCheck asks every phone that gave a notification token to check, with a
 // background push. The app wakes for a moment and calls /check over Nebula, the way a call
-// reaches the Mac. If it can't, it warns you itself, so nothing here needs to hear back. One
+// reaches the hub. If it can't, it warns you itself, so nothing here needs to hear back. One
 // line per phone.
 func askPhonesToCheck(ctx context.Context) []string {
 	config := loadConfig()

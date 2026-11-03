@@ -25,8 +25,8 @@ var (
 
 func nextStream() uint32 { return streams.Add(1) }
 
-// hubURL is how the phone reaches the hub, which the pushes and the Sessions tab give as the
-// call's voice server: `url` in the config, or the address it listens on.
+// hubURL is how the phone reaches the hub, which the pushes and the Sessions tab give as where
+// the phone sends the call's audio: `url` in the config, or the address it listens on.
 func hubURL() string {
 	config := loadConfig()
 	if url := config["url"]; url != "" {
@@ -35,7 +35,8 @@ func hubURL() string {
 	return "http://" + config["listen"]
 }
 
-// agentKey is how an agent's sessions are kept among the voice servers' in contacts.json.
+// agentKey is how an agent's sessions are kept in contacts.json, apart from those given over
+// /sessions.
 func agentKey(l *link) string { return "agent:" + l.name }
 
 func agentOpened(l *link) {

@@ -30,8 +30,8 @@ func expand(path string) string {
 	return path
 }
 
-// findConfig is the hub's config: hub.toml, or the switchboard's, switchboard.toml, which the
-// hub took over, while there's no hub.toml.
+// findConfig is the hub's config: hub.toml, or, while there's none, switchboard.toml, which is
+// read the same way.
 func findConfig() string {
 	path := expand("~/.config/ringback/hub.toml")
 	if _, err := os.Stat(path); err != nil {
@@ -104,7 +104,7 @@ var now = time.Now
 
 func timeOfDay(t time.Time) string { return t.Format("15:04:05") }
 
-// isoNow is the time now as the Swift switchboard wrote it: UTC, to the second.
+// isoNow is the time now as the state files keep it: UTC, to the second.
 func isoNow() string { return now().UTC().Format("2006-01-02T15:04:05Z") }
 
 func parseISO8601(text string) (time.Time, bool) {

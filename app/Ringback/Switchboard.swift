@@ -1,9 +1,9 @@
 import Foundation
 import UIKit
 
-/// Talks to the switchboard over Nebula: registers this phone's push tokens, reports what
-/// happened to each call, answers connection checks, and fetches the calls that wait and the
-/// sessions you can call.
+/// Talks to the hub, over Nebula or another VPN: registers this phone's push tokens, reports
+/// what happened to each call, answers connection checks, and fetches the calls that wait and
+/// the sessions you can call.
 enum Switchboard {
     /// Its address, as you typed it in the Settings app ("10.0.0.1"); before that, the app
     /// kept the whole URL here, which reads the same.
@@ -21,7 +21,7 @@ enum Switchboard {
         return "\(host):\(port)"
     }
 
-    /// Turns what you type ("10.0.0.1", "10.0.0.1:9000" or a full URL) into the switchboard's
+    /// Turns what you type ("10.0.0.1", "10.0.0.1:9000" or a full URL) into the hub's
     /// URL, adding http:// and the default port. Nil if there's no host.
     static func normalize(_ input: String) -> URL? {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -34,7 +34,7 @@ enum Switchboard {
     }
 
     /// Waits between attempts to report an event. After the phone changes network, Nebula can
-    /// take a while to reach the Mac again (16 s in one test), so a report keeps trying for
+    /// take a while to reach the hub again (16 s in one test), so a report keeps trying for
     /// about a minute.
     private static let retryDelays: [Double] = [0, 2, 4, 8, 15, 30]
 
@@ -49,7 +49,7 @@ enum Switchboard {
         try await post("register", body)
     }
 
-    /// Reaches the switchboard on a connection check. The VoIP token, if it has arrived yet,
+    /// Reaches the hub on a connection check. The VoIP token, if it has arrived yet,
     /// tells it which phone checked in. The work hours come along, so a new time zone reaches
     /// it within the half hour between checks when you travel.
     static func check(token: String?) async throws {
@@ -59,10 +59,9 @@ enum Switchboard {
     }
 
     /// The calls that wait to ring, held while your phone holds calls, soonest first, with
-    /// whether each has a question (a switchboard from before doesn't say) and why it waits; the
-    /// hold switch (nil from a switchboard before it); and what the hub says about what calls
-    /// need (nil from a switchboard before the hub). The switchboard gives them only to a phone that
-    /// registered, by its VoIP token: a call's ID lets whoever has it take the call.
+    /// whether each has a question and why it waits; the hold switch; and what the hub says
+    /// about what calls need (each nil if the answer leaves it out). The hub gives them only to a
+    /// phone that registered, by its VoIP token: a call's ID lets whoever has it take the call.
     static func waiting(token: String) async throws -> (calls: [WaitingCall], hold: HoldState?, status: HubStatus?) {
         let data = try await post("waiting", ["token": token], timeout: 5)
         guard let answer = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -92,10 +91,9 @@ enum Switchboard {
         return (waiting, hold, status)
     }
 
-    /// The sessions you can call, with ringback on, on every Mac, by project, each with its
-    /// voice server. As for the waiting calls, only a phone that registered gets them: a
-    /// session's ID lets whoever has it call the session. A switchboard from before the Sessions tab
-    /// answers 404, which throws.
+    /// The sessions you can call, with ringback on, on every Mac, by project, each with where
+    /// its call's audio goes (the hub). As for the waiting calls, only a phone that registered
+    /// gets them: a session's ID lets whoever has it call the session.
     static func contacts(token: String) async throws -> [Contact] {
         let data = try await post("contacts", ["token": token], timeout: 5)
         guard let listed = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["contacts"] as? [[String: Any]]
@@ -114,7 +112,7 @@ enum Switchboard {
     }
 
     /// Reports a call event, stamped with when it happened here, and retries until the
-    /// switchboard confirms it. Asks iOS for background time so a report from a locked phone
+    /// hub confirms it. Asks iOS for background time so a report from a locked phone
     /// can finish.
     static func report(callID: String, event: String, extra: [String: String] = [:], at: Date = .now) {
         var body = extra
@@ -154,10 +152,10 @@ enum Switchboard {
     }
 }
 
-/// The hours Claude may call you, set in the Settings app. Outside them the switchboard doesn't
+/// The hours Claude may call you, set in the Settings app. Outside them the hub doesn't
 /// ring the phone: a call waits until they start. From later than To wraps past midnight, and
 /// equal ones mean any time. Kept as "HH:MM", in 15-minute steps (the Settings app has lists,
-/// not time pickers), so they stay the same hours when you travel; the switchboard reads them
+/// not time pickers), so they stay the same hours when you travel; the hub reads them
 /// in the phone's time zone.
 enum WorkHours {
     static let onKey = "workHours"
@@ -166,7 +164,7 @@ enum WorkHours {
     static let defaultFrom = "08:00"
     static let defaultTo = "20:00"
 
-    /// What the switchboard gets with /register and /check: empty hours while they're off,
+    /// What the hub gets with /register and /check: empty hours while they're off,
     /// which means any time.
     static var fields: [String: String] {
         let defaults = UserDefaults.standard

@@ -14,9 +14,9 @@ enum ClaudeApp {
         "no question": "This call has no question any more.",
     ]
 
-    /// Sends it. Taken, the call leaves the list, here and at the switchboard ("claude app").
-    /// Otherwise an alert says why, and the list is fetched again. It first reaches the voice
-    /// server, as a call does, for a Nebula tunnel that's gone stale.
+    /// Sends it. Taken, the call leaves the list, here and at the hub ("claude app").
+    /// Otherwise an alert says why, and the list is fetched again. It first reaches the hub,
+    /// as a call does, for a Nebula tunnel that's gone stale.
     @MainActor
     static func send(_ call: WaitingCall, state: AppState) async {
         let task = UIApplication.shared.beginBackgroundTask(withName: "to the Claude app")

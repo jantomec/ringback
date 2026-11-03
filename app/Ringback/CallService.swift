@@ -3,13 +3,13 @@ import CallKit
 import Foundation
 import UIKit
 
-/// Rings through CallKit for each call the switchboard places, and reports back what happened.
+/// Rings through CallKit for each call the hub rings, and reports back what happened.
 /// Any call in the history can be called back, calls that wait for your work hours called now,
 /// and sessions called from the Sessions tab, as outgoing calls.
 final class CallService: NSObject, CXProviderDelegate {
     /// How long the phone rings before the call counts as missed.
     static let ringTimeout: TimeInterval = 30
-    /// How long after you answer the app keeps trying to reach the voice server before the
+    /// How long after you answer the app keeps trying to reach the hub before the
     /// call's audio fails. Nebula took more than 15 s once after the phone left Wi-Fi.
     static let reachTimeout: TimeInterval = 45
     /// While you're on a call, the app notes every few seconds that it still is, so a call
@@ -22,9 +22,9 @@ final class CallService: NSObject, CXProviderDelegate {
     private let controller = CXCallController()
     private let observer = CXCallObserver()
     private let state: AppState
-    /// CallKit's UUID for each live call → the switchboard's call ID.
+    /// CallKit's UUID for each live call → the call's ID.
     private var callIDs: [UUID: String] = [:]
-    /// Where each call's audio comes from: the calling Mac's voice server.
+    /// Where each call's audio comes from: the hub's address, as the call names it.
     private var voiceURLs: [UUID: URL] = [:]
     /// Each call's audio, one link at a time: a new offer goes only after the last one has
     /// failed and its link is closed. WebRTC to the hub, or, while the hub has no speech
@@ -32,8 +32,8 @@ final class CallService: NSObject, CXProviderDelegate {
     private var links: [UUID: any CallLink] = [:]
     /// CallKit has activated the audio session, which the phone's own speech waits for.
     private var audioSessionActive = false
-    /// Reaching each call's voice server from when the phone rings, then connecting the call's
-    /// audio while it still rings. Its value is when the voice server answered and after how
+    /// Reaching the hub from when the phone rings, then connecting the call's
+    /// audio while it still rings. Its value is when the hub answered and after how
     /// many tries; nil if it never did.
     private var connecting: [UUID: Task<(at: Date, tries: Int)?, Never>] = [:]
     /// How each call's audio fared while the phone rang, for when you answer.
@@ -45,7 +45,7 @@ final class CallService: NSObject, CXProviderDelegate {
     private var callingBack: [UUID: String] = [:]
     /// The live calls you called while they waited.
     private var callingNow: Set<UUID> = []
-    /// The live calls you made from Sessions, or that became such a call (a call back the Mac
+    /// The live calls you made from Sessions, or that became such a call (a call back the agent
     /// no longer remembered).
     private var callingContact: Set<UUID> = []
     /// Calls whose audio connected, so a call back that never did ends as not connected.
@@ -53,7 +53,7 @@ final class CallService: NSObject, CXProviderDelegate {
     private var heartbeatTimer: Timer?
 
     private struct RingingAudio {
-        /// The offer went while the phone rang, so the voice server waits to hear you answered.
+        /// The offer went while the phone rang, so the hub waits to hear you answered.
         var offered = false
         /// When the audio connected, if that was before you answered.
         var connectedAt: Date?
@@ -77,7 +77,7 @@ final class CallService: NSObject, CXProviderDelegate {
 
     /// Reports the call a VoIP push announced; Apple requires a call for every push. During
     /// another call it rings as call waiting and you choose: answering, declining and not
-    /// answering all work as usual, and the switchboard retries a "not now".
+    /// answering all work as usual.
     func reportIncoming(_ payload: [AnyHashable: Any], completion: @escaping () -> Void) {
         let callID = payload["call_id"] as? String ?? UUID().uuidString
         let project = payload["project"] as? String ?? "Claude Code"
@@ -102,7 +102,7 @@ final class CallService: NSObject, CXProviderDelegate {
         callIDs[uuid] = callID
         if let voice = voiceURL {
             voiceURLs[uuid] = voice
-            // Brings the Nebula tunnel to the Mac up while the phone rings, then connects the
+            // Brings the Nebula tunnel to the hub up while the phone rings, then connects the
             // call's audio, so the voice can start as soon as you answer.
             let deadline = Date.now + Self.ringTimeout + Self.reachTimeout
             connecting[uuid] = Task { @MainActor [self] in
@@ -121,7 +121,7 @@ final class CallService: NSObject, CXProviderDelegate {
             if let error {
                 finish(uuid, .failed, event: "failed", extra: ["error": error.localizedDescription])
             } else {
-                // Also brings up the Nebula tunnel to the Mac while the phone rings.
+                // Also brings up the Nebula tunnel to the hub while the phone rings.
                 Switchboard.report(
                     callID: callID, event: "ringing", extra: onAnotherCall ? ["on_another_call": "yes"] : [:])
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.ringTimeout) { [self] in
@@ -134,8 +134,8 @@ final class CallService: NSObject, CXProviderDelegate {
     }
 
     /// Calls a call in the history, as the Phone app does: answered or not, it calls its
-    /// session back, through the voice server that has the call. A call from before calling
-    /// back, which doesn't say its voice server, calls its session from the Sessions tab, if it's there.
+    /// session back, through the hub, to the agent that has the call. A call without an address
+    /// for its audio calls its session from the Sessions tab, if it's there.
     func call(_ call: CallRecord) {
         if call.voice != nil {
             callBack(call)
@@ -145,9 +145,9 @@ final class CallService: NSObject, CXProviderDelegate {
     }
 
     /// Calls back a call in the history, straight away, as an outgoing call without ringing:
-    /// its audio goes to the voice server that has it, with that call's ID, and the voice
+    /// its audio goes to the hub, for the agent that has it, with that call's ID, and the voice
     /// picks up. It's a new record of its own, which keeps the ID of the call it calls back. If
-    /// the voice server no longer remembers the call, it calls the session from the Sessions tab.
+    /// the agent no longer remembers the call, it calls the session from the Sessions tab.
     func callBack(_ call: CallRecord) {
         guard let voice = call.voice, state.activeCall == nil, startingCallBacks.isEmpty else { return }
         let uuid = UUID()
@@ -158,7 +158,7 @@ final class CallService: NSObject, CXProviderDelegate {
     }
 
     /// Calls a session from the Sessions tab, straight away, as an outgoing call without ringing: its
-    /// audio goes to that session's voice server, which answers at once with a new call, under
+    /// audio goes to the hub, and that session's agent answers at once with a new call, under
     /// an ID made here, and the voice picks up with the session's latest briefing.
     func callContact(_ contact: Contact) {
         guard state.activeCall == nil, startingCallBacks.isEmpty else { return }
@@ -169,8 +169,8 @@ final class CallService: NSObject, CXProviderDelegate {
     }
 
     /// Calls a call that waits for your work hours now, straight away, as a call back does: its
-    /// audio goes to the voice server that placed it, with its ID, and the voice picks up. It's
-    /// recorded under that ID, as the call itself.
+    /// audio goes to the hub, for the agent that placed it, with its ID, and the voice picks
+    /// up. It's recorded under that ID, as the call itself.
     func callNow(_ call: WaitingCall) {
         guard state.activeCall == nil, startingCallBacks.isEmpty else { return }
         let record = CallRecord(
@@ -229,7 +229,7 @@ final class CallService: NSObject, CXProviderDelegate {
 
     // MARK: Ending calls
 
-    /// Ends our record of a call and tells the switchboard, with what its audio did.
+    /// Ends our record of a call and tells the hub, with what its audio did.
     private func finish(_ uuid: UUID, _ outcome: CallRecord.Outcome, event: String, extra: [String: String] = [:]) {
         let link = links.removeValue(forKey: uuid)
         connecting.removeValue(forKey: uuid)?.cancel()
@@ -257,7 +257,7 @@ final class CallService: NSObject, CXProviderDelegate {
     }
 
     /// Calls left open because the app was closed (killed, crashed, or iOS ran out of
-    /// memory) are recorded as ended at the last heartbeat, and the switchboard is told.
+    /// memory) are recorded as ended at the last heartbeat, and the hub is told.
     private func recoverInterruptedCalls() {
         let defaults = UserDefaults.standard
         let liveID = defaults.string(forKey: Self.liveCallKey)
@@ -357,9 +357,9 @@ final class CallService: NSObject, CXProviderDelegate {
         ringingAudio[uuid] = RingingAudio(failure: reason)
     }
 
-    /// Once you've answered: tells the voice server, if the offer went while the phone rang,
+    /// Once you've answered: tells the hub, if the offer went while the phone rang,
     /// so it starts talking. Otherwise connects the call's audio as a new offer. It first waits
-    /// for reaching the voice server and for an offer still on its way. (The phone's own speech
+    /// for reaching the hub and for an offer still on its way. (The phone's own speech
     /// tells the hub itself, over its link.)
     private func startAudio(_ uuid: UUID, _ callID: String, _ voiceURL: URL) {
         let answeredAt = Date.now
@@ -370,7 +370,7 @@ final class CallService: NSObject, CXProviderDelegate {
                 if ringingAudio[uuid]?.offered == true, link is AudioLink { await tellAnswered(uuid, callID, voiceURL) }
                 return
             }
-            // The offer goes once the voice server has answered, so a retry can't start a
+            // The offer goes once the hub has answered, so a retry can't start a
             // second conversation.
             guard let reached, reached.at.timeIntervalSince(answeredAt) < Self.reachTimeout else {
                 return audioFailed(uuid, callID, ReachError().localizedDescription, note: nil)
@@ -384,11 +384,10 @@ final class CallService: NSObject, CXProviderDelegate {
         }
     }
 
-    /// A call back's audio: reaches the voice server, then offers with the ID of the call it
-    /// calls back. If the voice server no longer knows that call (a day after it ended, after a
-    /// restart without its state, or from before calling back answered calls), the call goes
-    /// on as a call to its session from the Sessions tab, if the session is there now; otherwise it
-    /// ends and the app says why.
+    /// A call back's audio: reaches the hub, then offers with the ID of the call it
+    /// calls back. If the agent no longer knows that call (a day after it ended, or after a
+    /// restart without its state), the call goes on as a call to its session from the Sessions
+    /// tab, if the session is there now; otherwise it ends and the app says why.
     private func callBackAudio(_ uuid: UUID, _ callID: String, _ original: String, _ voiceURL: URL) {
         let deadline = Date.now + Self.reachTimeout
         connecting[uuid] = Task { @MainActor [self] in
@@ -427,7 +426,7 @@ final class CallService: NSObject, CXProviderDelegate {
         }
     }
 
-    /// A call back the voice server no longer remembers goes on as a call to its session from
+    /// A call back the agent no longer remembers goes on as a call to its session from
     /// Sessions, under the call back's own ID.
     @MainActor
     private func callInstead(_ uuid: UUID, _ callID: String, _ contact: Contact) async {
@@ -447,9 +446,9 @@ final class CallService: NSObject, CXProviderDelegate {
         await offerContact(uuid, callID, contact)
     }
 
-    /// A call from Sessions: reaches the session's voice server, then offers with the call's ID,
-    /// made here, and the session's. If the session isn't listening any more, or the voice
-    /// server is from before the Sessions tab, the call ends, the app says why, and the sessions
+    /// A call from Sessions: reaches the hub, then offers with the call's ID,
+    /// made here, and the session's. If the session isn't listening any more, or its agent
+    /// refuses the call for another reason, the call ends, the app says why, and the sessions
     /// are fetched again.
     private func contactAudio(_ uuid: UUID, _ callID: String, _ contact: Contact) {
         let deadline = Date.now + Self.reachTimeout
@@ -483,15 +482,15 @@ final class CallService: NSObject, CXProviderDelegate {
             audioFailed(uuid, callID, refused.localizedDescription, note: offerNote(uuid))
             state.callBackProblem = refused.reason == "not listening"
                 ? "\(contact.project) isn't listening any more: ringback is off in that session, or it has ended."
-                : "\(contact.project)'s Mac can't take calls from Sessions yet: its ringback is from before them."
+                : "\(contact.project)'s Mac didn't take the call."
             end(uuid)
             await state.refreshContacts()
         }
     }
 
-    /// The audio of a waiting call you called now: reaches the voice server, then offers with
-    /// the call's ID, marked `now`. If the voice server can't be reached, or no longer has the
-    /// call waiting (it rang meanwhile and was forgotten, or it's gone), the call ends, the app
+    /// The audio of a waiting call you called now: reaches the hub, then offers with
+    /// the call's ID, marked `now`. If the hub can't be reached, or the call no longer
+    /// waits (it rang meanwhile and was forgotten, or it's gone), the call ends, the app
     /// says why, and the waiting calls are fetched again.
     private func callNowAudio(_ uuid: UUID, _ callID: String, _ voiceURL: URL) {
         let deadline = Date.now + Self.reachTimeout
@@ -527,7 +526,7 @@ final class CallService: NSObject, CXProviderDelegate {
         Task { await state.refreshWaiting() }
     }
 
-    /// A new link for the call, which tells the in-call screen and the switchboard when its
+    /// A new link for the call, which tells the in-call screen and the hub when its
     /// audio connects or fails. While the phone rings, a failure only drops it.
     private func makeLink(_ uuid: UUID, _ callID: String) -> AudioLink {
         let link = AudioLink()
@@ -552,7 +551,7 @@ final class CallService: NSObject, CXProviderDelegate {
         return link
     }
 
-    /// The phone's own speech for the call, which tells the in-call screen and the switchboard
+    /// The phone's own speech for the call, which tells the in-call screen and the hub
     /// when it connects or fails, as a link does. While the phone rings, a failure only drops it,
     /// and answering makes a new offer. Once you've answered, its failing ends the call, as does
     /// the hub ending it (`end`): nothing more can be said on it.
@@ -587,7 +586,7 @@ final class CallService: NSObject, CXProviderDelegate {
         return speech
     }
 
-    /// Tells the voice server you answered, and the switchboard if that didn't get through.
+    /// Tells the hub you answered, and reports it as an event if that didn't get through.
     @MainActor
     private func tellAnswered(_ uuid: UUID, _ callID: String, _ voiceURL: URL) async {
         let task = UIApplication.shared.beginBackgroundTask(withName: "tell the voice you answered")
@@ -601,7 +600,7 @@ final class CallService: NSObject, CXProviderDelegate {
         }
     }
 
-    /// Tells the switchboard when the voice server answered, after the ring and after you
+    /// Tells the hub when it was reached, after the ring and after you
     /// answered, if you had.
     private func reportReached(_ callID: String, _ reached: (at: Date, tries: Int)) {
         guard let call = state.calls.first(where: { $0.id == callID }) else { return }
@@ -643,7 +642,7 @@ final class CallService: NSObject, CXProviderDelegate {
         Task { @MainActor in await state.refreshWaiting() }
     }
 
-    /// When the call's offer went, for the switchboard's log.
+    /// When the call's offer went, for the hub's log.
     private func offerNote(_ uuid: UUID) -> String {
         if let original = callingBack[uuid] { return "a call back of \(original.prefix(8))" }
         if callingNow.contains(uuid) { return "called now, while it waited" }
@@ -685,8 +684,8 @@ final class CallService: NSObject, CXProviderDelegate {
 
     /// A call back you tapped in the call history, a waiting call, or a session in the Sessions tab:
     /// it's on at once, connecting, and the voice picks up once its audio connects. A call back
-    /// or a call from Sessions is reported to the switchboard under its own ID; a waiting call
-    /// under the call's, which takes it off the switchboard's waiting calls.
+    /// or a call from Sessions is reported to the hub under its own ID; a waiting call
+    /// under the call's, which takes it off the hub's waiting calls.
     func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
         let uuid = action.callUUID
         guard var record = startingCallBacks.removeValue(forKey: uuid), let voiceURL = record.voice,
@@ -769,7 +768,7 @@ final class CallService: NSObject, CXProviderDelegate {
     }
 }
 
-/// The voice server didn't answer over Nebula in time.
+/// The hub didn't answer in time.
 private struct ReachError: LocalizedError {
     var errorDescription: String? { "Can't reach the hub" }
 }
@@ -782,7 +781,7 @@ protocol CallLink: AnyObject {
     /// Called once, on the main queue, when the call's audio is connected; with when.
     var onConnected: ((Date) -> Void)? { get set }
     var onFailed: ((String) -> Void)? { get set }
-    /// How it connected, for the switchboard's log.
+    /// How it connected, for the hub's log.
     var addresses: String { get }
     func setMuted(_ muted: Bool)
     func stop()

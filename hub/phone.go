@@ -9,9 +9,8 @@ import (
 	"unicode/utf8"
 )
 
-// The phone's side of a call, as the voice server answered it: the app's requests come to the
-// hub unchanged (/offer, /answered, /claude-app, /reask, /ping), and the hub asks the agent
-// that owns the call (docs/protocol.md).
+// The phone's side of a call: the app's requests (/offer, /answered, /claude-app, /reask,
+// /ping) come to the hub, and the hub asks the agent that owns the call (docs/protocol.md).
 
 func phoneJSON(w http.ResponseWriter, status int, body map[string]any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -172,7 +171,7 @@ func reask(w http.ResponseWriter, r *http.Request) {
 	phoneJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// phoneRoutes are the voice server's endpoints, served by the hub.
+// phoneRoutes are the phone's endpoints for its calls.
 var phoneRoutes = map[string]http.HandlerFunc{
 	"/offer": offer, "/answered": answered, "/claude-app": claudeApp, "/reask": reask,
 }

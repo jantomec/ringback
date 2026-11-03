@@ -21,10 +21,11 @@ var (
 type endpoint func(body map[string]any) (map[string]any, error)
 
 // serve answers the phone over Nebula (/register, /events, /check, /waiting, /contacts,
-// /hold) and the voice servers (/call, /sessions). Requests are small and rare, and are
-// handled one at a time (stateMu); each gets at most 5 s, so a stalled connection can't hold
-// the next one past the app's 10 s timeout. Meanwhile it asks the phones to check their
-// connection every 30 min.
+// /hold), and /call and /sessions, which place a call and list sessions over HTTP without a
+// token (the smoke test uses them; an agent does both over its link). Requests are small and
+// rare, and are handled one at a time (stateMu); each gets at most 5 s, so a stalled
+// connection can't hold the next one past the app's 10 s timeout. Meanwhile it asks the
+// phones to check their connection every 30 min.
 func serve(listen string) {
 	endpoints := map[string]endpoint{
 		"/register": register, "/events": event, "/check": checkIn, "/call": call, "/waiting": waiting,
@@ -157,19 +158,20 @@ func register(body map[string]any) (map[string]any, error) {
 	return ok, nil
 }
 
-// call: a voice server asks to ring the phone for one of its sessions. The call ID is that
-// call's secret: the voice server accepts only an offer that carries it, and only the push
-// takes it to the phone. The push goes out after the answer, so a slow APNs doesn't hold up
-// requests.
+// call: an agent (its `place`, over its link) or a request to /call asks to ring the phone
+// for one of its sessions, naming where the phone sends the call's audio (voice: the hub, for
+// an agent's call). The call ID is that call's secret: the agent accepts only an offer that
+// carries it, and only the push takes it to the phone. The push goes out after the answer, so
+// a slow APNs doesn't hold up requests.
 //
 // While every phone is on hold (Hold: outside its work hours, or you held calls in the app or
 // on the portal) nothing rings: the answer says so (held) and when the first comes off hold
-// by its hours (held_until), if one will, and the voice server asks again by then, or
-// sooner, with the same call ID. Meanwhile the call waits, and the app shows it. The voice
-// server says whether the call has a question; the first time a held call has one, the phone
+// by its hours (held_until), if one will, and the agent asks again by then, or
+// sooner, with the same call ID. Meanwhile the call waits, and the app shows it. The agent
+// says whether the call has a question; the first time a held call has one, the phone
 // gets a notification, once for that call. It also names the calling session (session_id),
 // which goes to the phone with the call, so the app can call that session from Sessions once
-// the voice server has forgotten the call.
+// the agent has forgotten the call.
 func call(body map[string]any) (map[string]any, error) {
 	project, voice, callID := str(body, "project"), str(body, "voice"), str(body, "call_id")
 	n := utf8.RuneCountInString(callID)
@@ -318,10 +320,10 @@ func registered(body map[string]any) (string, map[string]string, error) {
 }
 
 // waiting: the calls that wait, for the app to show, soonest first: {"calls": [...]}, each
-// with its call ID, project, subject, voice server, when it rings (held_until, missing if it
-// waits until you take calls), whether it has a question (question); and the phone's hold
-// switch (hold, as /hold answers). Only a phone that registered gets them, by its push
-// token: a call's ID lets whoever has it take the call.
+// with its call ID, project, subject, where the phone sends its audio (voice), when it rings
+// (held_until, missing if it waits until you take calls), whether it has a question
+// (question); and the phone's hold switch (hold, as /hold answers). Only a phone that
+// registered gets them, by its push token: a call's ID lets whoever has it take the call.
 func waiting(body map[string]any) (map[string]any, error) {
 	token, device, err := registered(body)
 	if err != nil {
@@ -369,8 +371,8 @@ func status(token string, device map[string]string, calls []map[string]any) map[
 
 // holdSwitch: the phone's hold switch. {"token", "hold": Bool} sets it, without "hold" it's
 // only read. Answers {"hold": Bool, "until": ISO 8601}, until being when its work hours next
-// change it, missing if they won't. On taking calls, the app tells the voice servers of the
-// waiting calls to ask again now (their /reask).
+// change it, missing if they won't. On taking calls, the app asks the hub to have the waiting
+// calls ask again now (/reask).
 func holdSwitch(body map[string]any) (map[string]any, error) {
 	token, device, err := registered(body)
 	if err != nil {
@@ -393,11 +395,11 @@ func holdSwitch(body map[string]any) (map[string]any, error) {
 	return newHold(device, now()).answer(device), nil
 }
 
-// sessions: a voice server says which of its sessions listen (ringback on), for the phone's
-// Sessions tab: {"voice": URL, "sessions": [...]}, each with its session_id and project, and
-// when it can, since when it listens (since) and its latest briefing's subject and
-// briefed_at. The list replaces the one it gave before. It says so when it changes and every
-// 30 s; a voice server not heard from in 90 s is dropped.
+// sessions: which sessions listen (ringback on), given over HTTP without a token, for the
+// phone's Sessions tab: {"voice": URL, "sessions": [...]}, each with its session_id and
+// project, and when it can, since when it listens (since) and its latest briefing's subject
+// and briefed_at. The list replaces the one given before under that URL; one not given again
+// within 90 s is dropped. An agent gives its sessions over its link instead (agents.go).
 func sessions(body map[string]any) (map[string]any, error) {
 	voice := str(body, "voice")
 	given, isList := body["sessions"].([]any)
@@ -449,9 +451,9 @@ func keepSessions(key, voice string, given []any) ([]map[string]string, error) {
 }
 
 // contacts: the sessions that listen on every Mac, for the app's Sessions tab:
-// {"contacts": [...]}, by project, each with its voice server (voice). Only a phone that
-// registered gets them, by its push token, as for /waiting: a session's ID lets whoever has
-// it call the session.
+// {"contacts": [...]}, by project, each with the URL the phone calls it at (voice). Only a
+// phone that registered gets them, by its push token, as for /waiting: a session's ID lets
+// whoever has it call the session.
 func contacts(body map[string]any) (map[string]any, error) {
 	if _, _, err := registered(body); err != nil {
 		return nil, err

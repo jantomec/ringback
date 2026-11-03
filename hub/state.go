@@ -13,8 +13,7 @@ import (
 )
 
 // stateMu serialises everything that reads and writes the state files: requests, and the
-// pushes that run after their answer. The Swift switchboard handled requests one at a time;
-// this keeps that.
+// pushes that run after their answer, so requests are handled one at a time.
 var stateMu sync.Mutex
 
 func readJSON(path string, into any) {
@@ -184,11 +183,11 @@ func forgetDevice(token string) error {
 
 // The calls that wait: held while every phone is on hold, until they ring. Kept in
 // waiting.json in the state folder, keyed by call ID, so they survive a restart, with their
-// project, subject, voice server, when they ring ("held_until", missing until you take
-// calls) and when their voice server last asked about them ("refreshed"); "question" ("yes"
-// or missing) as the voice server last said, and when the phone was told of its question
-// ("notified"). The app lists them (/waiting), and can call one now, or send its question to
-// the Claude app. A voice server asks again about each held call every 10 min, which
+// project, subject, where the phone sends their audio ("voice"), when they ring ("held_until",
+// missing until you take calls) and when their agent last asked about them ("refreshed");
+// "question" ("yes" or missing) as the agent last said, and when the phone was told of its
+// question ("notified"). The app lists them (/waiting), and can call one now, or send its
+// question to the Claude app. An agent asks again about each held call every 10 min, which
 // refreshes it; one not refreshed for 25 min is dropped, so a call from a Mac that's gone
 // doesn't wait forever.
 var waitingPath = filepath.Join(stateDir, "waiting.json")
@@ -228,7 +227,7 @@ func freshWaiting() map[string]map[string]string {
 }
 
 // holdCall keeps a call held until heldUntil (empty: until you take calls), new or asked
-// about again, with whether it has a question, as its voice server last said, and why it
+// about again, with whether it has a question, as its agent last said, and why it
 // waits when it isn't your hours or the hold switch (reason: "no speech"). True the first time
 // it has a question or a reason, when the phone is to be told: "notified" keeps when, so a
 // restart or asking again doesn't tell it twice.
@@ -316,13 +315,13 @@ func listWaiting() ([]map[string]any, error) {
 }
 
 // The sessions that listen on each Mac, for the app's Sessions tab: contacts.json in the
-// state folder, keyed by voice server, with when it last said ("refreshed") and its sessions,
-// each with its session ID, project, and when it can, since when it listens and its latest
-// briefing's subject and time. A voice server says every 30 s; one not heard from for 90 s is
-// dropped, as when its Mac sleeps or the voice server stops.
+// state folder, keyed by the agent that gave them (or the URL, for sessions given over
+// /sessions), with when it last said ("refreshed") and its sessions, each with its session
+// ID, project, and when it can, since when it listens and its latest briefing's subject and
+// time. Each says every 30 s; one not heard from for 90 s is dropped, as when its Mac sleeps.
 var contactsPath = filepath.Join(stateDir, "contacts.json")
 
-// contactsStale is how long after a voice server last said that its sessions are dropped;
+// contactsStale is how long after an agent last said that its sessions are dropped;
 // RINGBACK_CONTACTS_STALE sets fewer seconds, for the smoke test.
 var contactsStale = envSeconds("RINGBACK_CONTACTS_STALE", 90)
 
@@ -340,8 +339,8 @@ func loadContacts() map[string]contactsEntry {
 	return all
 }
 
-// freshContacts are the voice servers heard from within contactsStale; the log says which
-// are dropped.
+// freshContacts are the agents (and /sessions callers) heard from within contactsStale; the
+// log says which are dropped.
 func freshContacts() map[string]contactsEntry {
 	all := loadContacts()
 	for voice, entry := range all {
@@ -355,8 +354,8 @@ func freshContacts() map[string]contactsEntry {
 	return all
 }
 
-// updateContacts keeps a voice server's or an agent's sessions now (key), replacing those it
-// gave before, called at voice; true if they changed.
+// updateContacts keeps an agent's sessions now (key), or those given over /sessions,
+// replacing those it gave before, called at voice; true if they changed.
 func updateContacts(key, voice string, sessions []map[string]string) (bool, error) {
 	all := freshContacts()
 	before, had := all[key]
@@ -376,8 +375,8 @@ func updateContacts(key, voice string, sessions []map[string]string) (bool, erro
 	return !bytes.Equal(a, b), nil
 }
 
-// listContacts are every fresh voice server's sessions, by project, then since when they
-// listen, each with its voice server; stale ones are dropped.
+// listContacts are every fresh agent's sessions, by project, then since when they listen,
+// each with the URL the phone calls it at; stale ones are dropped.
 func listContacts() ([]map[string]string, error) {
 	all := freshContacts()
 	if len(all) != len(loadContacts()) {

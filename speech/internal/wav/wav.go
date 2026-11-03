@@ -65,7 +65,7 @@ func Write(path string, samples []int16, rate int) error {
 	return os.WriteFile(path, b, 0o644)
 }
 
-// FromFloat turns float samples in -1…1 into 16-bit ones, as the Python voice does.
+// FromFloat turns float samples in -1…1 into 16-bit ones, clipped and scaled by 32767.
 func FromFloat(samples []float32) []int16 {
 	out := make([]int16, len(samples))
 	for i, s := range samples {

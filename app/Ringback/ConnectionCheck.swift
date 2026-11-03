@@ -1,9 +1,9 @@
 import Foundation
 import UserNotifications
 
-/// Whether this phone can still reach the switchboard over Nebula, checked in the background.
-/// Every 30 min the switchboard wakes the app with a background push, and the app calls it
-/// back over Nebula, the way a call reaches the Mac. If it can't, Nebula is most likely off
+/// Whether this phone can still reach the hub over Nebula, checked in the background.
+/// Every 30 min the hub wakes the app with a background push, and the app calls it
+/// back over Nebula, the way a call reaches it. If it can't, Nebula is most likely off
 /// and calls can't connect, so it warns you with a notification.
 enum ConnectionCheck {
     private static let warningID = "connection"
@@ -19,7 +19,7 @@ enum ConnectionCheck {
         _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
     }
 
-    /// Runs one check: tries to reach the switchboard a few times, within the half minute
+    /// Runs one check: tries to reach the hub a few times, within the half minute
     /// iOS gives a background push, and warns you if it can't. A network change can keep
     /// Nebula from getting through for a few seconds.
     static func run(token: String?) async -> Bool {
@@ -34,7 +34,7 @@ enum ConnectionCheck {
         return false
     }
 
-    /// Takes the warning away once the switchboard is reachable again.
+    /// Takes the warning away once the hub is reachable again.
     static func clear() {
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [warningID])
         UserDefaults.standard.removeObject(forKey: lastWarnedKey)
