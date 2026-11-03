@@ -199,7 +199,7 @@ kill $server
 wait $server 2> /dev/null || true
 check "a waiting call that rings is logged" yes "$(yes_if grep -qF 'call wait0001: no longer waiting, it rings' "$home/log")"
 check "one called from the app is logged" yes "$(yes_if grep -qF 'call wait0002: no longer waiting, called from the app' "$home/log")"
-check "a dropped one is logged" yes "$(yes_if grep -qE 'call wait0003: no longer waiting, its voice server hasn.t asked about it since [0-9:]{8}' "$home/log")"
+check "a dropped one is logged" yes "$(yes_if grep -qE 'call wait0003: no longer waiting, nothing has asked about it since [0-9:]{8}' "$home/log")"
 check "a held call's question is logged" yes "$(yes_if grep -qF "call wait0004: held until ${today}T13:15:00$offset, every phone on hold, with a question" "$home/log")"
 check "one whose question went to the Claude app is logged" yes "$(yes_if grep -qF 'call wait0004: no longer waiting, its question went to the Claude app' "$home/log")"
 

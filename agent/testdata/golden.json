@@ -53,7 +53,7 @@
    "back": false,
    "now": false,
    "transcript": ".ringback/calls/y.md",
-   "text": "The developer called the session from the app's Contacts and it lasted 1 min 1 s. Its transcript: .ringback/calls/y.md"
+   "text": "The developer called the session from the app's Sessions tab and it lasted 1 min 1 s. Its transcript: .ringback/calls/y.md"
   },
   {
    "name": "contact, no audio",
@@ -64,7 +64,7 @@
    "back": false,
    "now": false,
    "transcript": null,
-   "text": "The developer called the session from the app's Contacts, but the call didn't connect."
+   "text": "The developer called the session from the app's Sessions tab, but the call didn't connect."
   },
   {
    "name": "back",
@@ -131,7 +131,7 @@
    "back": false,
    "now": false,
    "transcript": null,
-   "text": "The call about \"Parser fix\" ended when the voice server restarted, before it was answered."
+   "text": "The call about \"Parser fix\" ended when the ringback agent restarted, before it was answered."
   },
   {
    "name": "ringing, no subject",
@@ -141,7 +141,7 @@
    "back": false,
    "now": false,
    "transcript": null,
-   "text": "The call ended when the voice server restarted, before it was answered."
+   "text": "The call ended when the ringback agent restarted, before it was answered."
   },
   {
    "name": "answered",
@@ -151,7 +151,7 @@
    "back": false,
    "now": false,
    "transcript": ".ringback/calls/a.md",
-   "text": "The call about \"Parser fix\" was answered, and ended when the voice server restarted. Its transcript: .ringback/calls/a.md"
+   "text": "The call about \"Parser fix\" was answered, and ended when the ringback agent restarted. Its transcript: .ringback/calls/a.md"
   },
   {
    "name": "answered, no transcript",
@@ -161,7 +161,7 @@
    "back": false,
    "now": false,
    "transcript": null,
-   "text": "The call about \"Parser fix\" was answered, and ended when the voice server restarted."
+   "text": "The call about \"Parser fix\" was answered, and ended when the ringback agent restarted."
   },
   {
    "name": "contact",
@@ -171,7 +171,7 @@
    "back": false,
    "now": false,
    "transcript": ".ringback/calls/b.md",
-   "text": "The developer called the session from the app's Contacts, and the call ended when the voice server restarted. Its transcript: .ringback/calls/b.md"
+   "text": "The developer called the session from the app's Sessions tab, and the call ended when the ringback agent restarted. Its transcript: .ringback/calls/b.md"
   },
   {
    "name": "back",
@@ -181,7 +181,7 @@
    "back": true,
    "now": false,
    "transcript": null,
-   "text": "The developer called back about \"Parser fix\", and the call ended when the voice server restarted."
+   "text": "The developer called back about \"Parser fix\", and the call ended when the ringback agent restarted."
   },
   {
    "name": "now",
@@ -191,7 +191,7 @@
    "back": true,
    "now": true,
    "transcript": ".ringback/calls/c.md",
-   "text": "The developer called about \"Parser fix\" from the app while it waited, and the call ended when the voice server restarted. Its transcript: .ringback/calls/c.md"
+   "text": "The developer called about \"Parser fix\" from the app while it waited, and the call ended when the ringback agent restarted. Its transcript: .ringback/calls/c.md"
   }
  ],
  "durations": [

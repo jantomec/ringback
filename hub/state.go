@@ -220,7 +220,7 @@ func freshWaiting() map[string]map[string]string {
 		if !ok {
 			refreshed = time.Time{}
 		}
-		log("call " + prefix(id, 8) + ": no longer waiting, its voice server hasn't asked about it since " + timeOfDay(refreshed.Local()))
+		log("call " + prefix(id, 8) + ": no longer waiting, nothing has asked about it since " + timeOfDay(refreshed.Local()))
 		delete(calls, id)
 	}
 	return calls

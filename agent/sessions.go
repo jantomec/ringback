@@ -991,7 +991,7 @@ func (c *Calls) contact(session, id string) *Call {
 	if latest != nil {
 		about = "its latest briefing " + pyrepr(latest.Subject)
 	}
-	c.logCall(&call, fmt.Sprintf("called from Contacts, %s (%s), with %s", call.Project, prefix(session, 8), about))
+	c.logCall(&call, fmt.Sprintf("called from Sessions, %s (%s), with %s", call.Project, prefix(session, 8), about))
 	c.pickUp(&call)
 	return &call
 }
@@ -1583,9 +1583,9 @@ func outcome(call *Call, transcript *string) string {
 	}
 	if call.Contact {
 		if !call.answered() || call.Lasted == nil {
-			return "The developer called the session from the app's Contacts, but the call didn't connect."
+			return "The developer called the session from the app's Sessions tab, but the call didn't connect."
 		}
-		return withTranscript("The developer called the session from the app's Contacts and it lasted " + duration(*call.Lasted) + ".")
+		return withTranscript("The developer called the session from the app's Sessions tab and it lasted " + duration(*call.Lasted) + ".")
 	}
 	if call.Back != nil {
 		what := "an earlier call"
@@ -1614,13 +1614,13 @@ func outcome(call *Call, transcript *string) string {
 
 // restarted is the outcome of a call that was ringing or on when the agent restarted.
 func restarted(call *Call) string {
-	ended := "ended when the voice server restarted"
+	ended := "ended when the ringback agent restarted"
 	transcript := ""
 	if call.Link != nil && call.Link.transcriptPath != "" {
 		transcript = " Its transcript: " + call.Link.transcriptPath
 	}
 	if call.Contact {
-		return "The developer called the session from the app's Contacts, and the call " + ended + "." + transcript
+		return "The developer called the session from the app's Sessions tab, and the call " + ended + "." + transcript
 	}
 	if call.Back != nil {
 		what := "an earlier call"

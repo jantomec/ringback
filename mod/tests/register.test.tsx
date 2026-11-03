@@ -937,7 +937,7 @@ test("a long poll that can't reach the agent is asked again every 5 s, and carri
   // The first poll answers pending at 25 s; the next can't connect, nor those every 5 s after.
   await clock.advance(25_000)
   await settle()
-  expect(asked.logs.at(-1)).toBe("Can't reach the voice server: asking again every 5 s.")
+  expect(asked.logs.at(-1)).toBe("Can't reach the ringback agent: asking again every 5 s.")
   expect(await line()).toBe('? for shortcuts · ☎ waiting for the ringback agent…')
   await clock.advance(20_000)
   expect(answers(asked.debug)).toEqual([])
@@ -991,7 +991,7 @@ test("when the agent doesn't come back in 15 min, the terminal asks", { timeoutM
   await ran
   await settle()
   expect(answers(asked.debug)).toEqual([{}])
-  expect(asked.logs.at(-1)).toBe("Couldn't reach the voice server in 15 min, so it's asked here.")
+  expect(asked.logs.at(-1)).toBe("Couldn't reach the ringback agent in 15 min, so it's asked here.")
 })
 
 test('a long poll answered 404 still ends the wait: the permission is gone', above(observing), async ($, on) => {

@@ -379,7 +379,7 @@ func (a *agent) offer(m map[string]any) (int, string) {
 			call = a.calls.contact(session, id)
 		}
 		if call == nil {
-			a.logCall(id, fmt.Sprintf("called session %s from Contacts, refused: it isn't listening", prefix(session, 8)))
+			a.logCall(id, fmt.Sprintf("called session %s from Sessions, refused: it isn't listening", prefix(session, 8)))
 			return 403, "not listening"
 		}
 	case "back":
@@ -443,7 +443,7 @@ func (a *agent) offer(m map[string]any) (int, string) {
 	if !ringing {
 		a.markAnswered(id)
 	}
-	how := map[string]string{"ring": "", "back": ", called back", "now": ", called now", "contact": ", from Contacts"}[kind]
+	how := map[string]string{"ring": "", "back": ", called back", "now": ", called now", "contact": ", from Sessions"}[kind]
 	if ringing {
 		how = ", ringing"
 	}

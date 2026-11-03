@@ -436,7 +436,7 @@ async function hold(
     }
   })
   const timeUp = () =>
-    stop(unreached.has(stop) ? "Couldn't reach the voice server in 15 min" : 'No answer from the phone in 15 min')
+    stop(unreached.has(stop) ? "Couldn't reach the ringback agent in 15 min" : 'No answer from the phone in 15 min')
   let timer = $.clock.after(HOLD_MS, timeUp)
   const restart = () => {
     timer.cancel()
@@ -455,7 +455,7 @@ async function hold(
   // While the agent can't be reached: says so once, and waits 5 s before asking again;
   // false if the hold was stopped meanwhile.
   const unreachable = async (): Promise<boolean> => {
-    if (!unreached.size && !retry) $.ui.log("Can't reach the voice server: asking again every 5 s.")
+    if (!unreached.size && !retry) $.ui.log("Can't reach the ringback agent: asking again every 5 s.")
     unreached.add(stop)
     $.ui.invalidate('ui.render')
     return pause($, REACH_MS, stopped)

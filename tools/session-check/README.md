@@ -93,29 +93,24 @@ that tool, even when `--tools` names it (checked again with 2.1.317: named with 
 session's tools had Bash and not AskUserQuestion). The agent's side of questions is in its
 tests (`agent/sessions_test.go`), the mod's in `mod/tests`.
 
-## What the old check did that this one doesn't
+## What it doesn't check
 
-This check was first written for the Python voice server and the Swift switchboard, which
-the agent and the hub replaced. Dropped:
-- that the call names this voice server: the agent places calls over its link to the hub,
-  and the hub fills in its own address, so there's nothing of the agent's to check;
-- that an offer (`/offer`) for a call the voice server didn't place is refused: with no
-  speech node linked, the hub answers an offer 503 before asking any agent. The same refusal
-  is checked through the phone's own speech, which does ask the agent;
-- stopping your own voice server first: the check's agent has its own socket.
+- An offer (`/offer`) for a call the agent didn't place: with no speech node linked, the hub
+  answers an offer 503 before asking any agent. The same refusal is checked through the
+  phone's own speech, which does ask the agent.
+- Which address the phone is sent for the call's audio: the hub fills in its own.
 
-Changed: the `--asks` check waited for the next turn to end after each prompt, which could be
-the briefing the mod has the session write after the turn before; it now waits for the
-session's own answer. In the first `--asks` run of 2026-11-03 that briefing ended first, so
-the refused file was checked, and the session's words read, before the session had answered.
+The `--asks` check waits for the session's own answer after each prompt, not for the next turn
+to end: that can be the briefing the mod has the session write after the turn before, as in
+the first `--asks` run of 2026-11-03, which then checked the refused file too early.
 
 ## Results
 
 On 2026-11-03, Claude Code 2.1.317, Haiku (`claude-haiku-5-5`) as the session's model and the
-agent's, with the hub and the agent from this checkout. Earlier results, with the Python voice
-server and the Swift switchboard, are in this file's git history.
+agent's, with the hub and the agent from this checkout. Results from an earlier implementation
+of the parts are in this file's git history.
 
-Three runs: all 15 checks passed each time, in 43–45 s each, the builds included. The first
+Four runs: all 15 checks passed each time, in 42–45 s each, the builds included. The first
 call was placed 5–6 s after the session's first prompt, with a subject of 4–7 words, and the
 second 4–5 s after the message was left. Both outcomes were shown in the session 10.0–10.5 s
 after the second call was placed, each when its own call's 10 s were up, and set off nothing

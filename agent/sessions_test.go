@@ -270,7 +270,7 @@ func TestCallBackAndContacts(t *testing.T) {
 	check(t, "an ID too short to be a secret: 403", reply["status"] == float64(403), reply)
 	reply = hub.request(map[string]any{"type": "offer", "call_id": contactID, "kind": "contact", "session_id": "s8-session"})
 	check(t, "a session from the Sessions tab", reply["ok"] == true, reply)
-	a.waitLog("call "+contactID[:8]+": called from Contacts, demo (s8-sessi), with its latest briefing 'Parser fix'", time.Second)
+	a.waitLog("call "+contactID[:8]+": called from Sessions, demo (s8-sessi), with its latest briefing 'Parser fix'", time.Second)
 	a.waitTurn(3, 5*time.Second)
 	starts = a.starts()
 	system = starts[len(starts)-1]["system"].(string)
@@ -279,7 +279,7 @@ func TestCallBackAndContacts(t *testing.T) {
 	hub.reply(contactID, 1, 5*time.Second)
 	hub.send(map[string]any{"type": "ended", "call_id": contactID, "lasted": 10.0})
 	outcome = a.waitMessage("s8-session", "outcome", 3*time.Second)
-	check(t, "the session hears you called it", strings.HasPrefix(outcome["text"].(string), "The developer called the session from the app's Contacts and it lasted 10 s. Its transcript: "), outcome)
+	check(t, "the session hears you called it", strings.HasPrefix(outcome["text"].(string), "The developer called the session from the app's Sessions tab and it lasted 10 s. Its transcript: "), outcome)
 }
 
 // A restart keeps what matters: held calls are held again, a ringing call has ended and its
@@ -316,7 +316,7 @@ func TestRestart(t *testing.T) {
 	second.waitLog("call "+heldID[:8]+": still held until "+heldUntil+" after a restart: Held work", time.Second)
 	second.waitLog("call "+ringingID[:8]+": ended by the restart: Ringing", time.Second)
 	outcome := second.waitMessage("s10-session", "outcome", time.Second)
-	check(t, "the ringing call's session is told", outcome["text"] == `The call about "Ringing" ended when the voice server restarted, before it was answered.`, outcome)
+	check(t, "the ringing call's session is told", outcome["text"] == `The call about "Ringing" ended when the ringback agent restarted, before it was answered.`, outcome)
 	_, got = second.mod("GET", "/sessions/s9-session/permissions/"+permissionID, nil)
 	check(t, "what was asked keeps its id", got["verdict"] == "pending" && got["held"] == true, got)
 	from := hub.mark()
