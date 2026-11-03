@@ -546,7 +546,7 @@ with a certificate, or a private certificate authority installed on each device 
   took about 5 s to answer; at 1 s little room is left over the pauses in free speech (up to
   0.74 s on your recordings).
 - **A level gate for other people's voices,** not a model. A model trained on a sample of
-  your voice (VoxLock, parked on the branch `voxlock`) kept a voice 6 dB below yours out
+  your voice (VoxLock, kept as the tag `voxlock`) kept a voice 6 dB below yours out
   entirely, but slowed every interruption by about 0.1 s, raised Parakeet's errors from 5.9% to
   7.0%, and could mute you for a whole call. With AirPods, other people arrive quiet enough
   for a gate.
