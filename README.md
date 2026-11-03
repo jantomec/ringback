@@ -129,16 +129,17 @@ Ringback is a working prototype: everything below is built and passes its offlin
 - with no speech node, the phone hears and speaks a call itself (On-device Voice): you talk,
   interrupt, and it answers, on mobile data;
 - a Claude Code session calling when it finishes, its answers coming back to the call, and a
-  permission and a question with options it asked, answered by voice;
+  permission and a question with options it asked, answered by voice, a short "yes" or "no"
+  included;
+- the session calling again with an answer you hung up on;
 - calling back from Recents, calling a session from the Sessions tab, and Opus taking over a
   call;
 - pairing the phone from the portal, from the app's banner;
 - a call that can't reach the hub ending by itself, with the app saying why;
 - the hub's portal, from the phone.
 
-**Not yet tried on the phone:** short answers since they're heard better, and a permission
-refused by voice; the session calling again with an answer you hung up before hearing; work
-hours, the hold switch, its breathing light and the Lock Screen
+**Not yet tried on the phone:** no call again after a "bye" said over the session's answer;
+work hours, the hold switch, its breathing light and the Lock Screen
 widget; calling a waiting call now; weak signal; calls and asks surviving a restart of the
 agent or the hub.
 

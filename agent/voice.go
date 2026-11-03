@@ -143,6 +143,11 @@ type voice struct {
 	unheard   []string
 	newsGiven int
 	newsReply int
+	// You spoke once the voice had started on that news: a turn with words, or cutting it off
+	// (until that turn says whether you said anything). Then hanging up was your choice, as
+	// after a "bye", and the session doesn't call again (see unheardNews).
+	youSpoke   bool
+	talkedOver bool
 }
 
 func newVoice(calls *Calls, call *Call, haiku *Haiku, out func(map[string]any)) *voice {
@@ -465,6 +470,9 @@ func (v *voice) onHeard(text string) {
 // Haiku yet is dropped, and your words go with your next turn.
 func (v *voice) onInterrupted(reply int, heard string) {
 	v.idle = false
+	if v.newsGiven > 0 && reply >= v.newsReply {
+		v.talkedOver = true
+	}
 	switch {
 	case reply == v.pending && reply != 0:
 		v.pending = 0
@@ -488,6 +496,10 @@ func (v *voice) onInterrupted(reply int, heard string) {
 // (maxRecoveries); otherwise it goes unanswered, and its reply is just its end.
 func (v *voice) onTurn(text string, interrupted bool) {
 	empty := strings.TrimSpace(text) == ""
+	v.talkedOver = false
+	if v.newsGiven > 0 && !empty {
+		v.youSpoke = true
+	}
 	if empty && (!interrupted || v.recoveries >= maxRecoveries) {
 		v.log("a stop with no words, left unanswered")
 		if v.pending == 0 {
@@ -635,6 +647,7 @@ func (v *voice) heardNews() {
 	}
 	v.unheard = v.unheard[v.newsGiven:]
 	v.newsGiven = 0
+	v.youSpoke, v.talkedOver = false, false
 }
 
 // send sends a turn to Haiku, as reply number reply.
@@ -846,6 +859,11 @@ func (v *voice) needed(h *held) int {
 func (v *voice) pass(goes func(*held) bool, dropped string) string {
 	note := ""
 	for _, h := range append([]*held{}, v.held...) {
+		if v.quiet && goes(h) {
+			// The rest of the reply isn't spoken, so it's complete: in the transcript before
+			// what it gives, and what the session says next, though Haiku is still writing.
+			v.writeReply()
+		}
 		message := h.kind == "message"
 		text := h.text
 		if message {
@@ -961,8 +979,13 @@ func (v *voice) close() {
 
 // end ends the voice and waits until it has passed on what you'd heard.
 // unheardNews is the session's news you didn't hear told to the end, with any kept for a voice
-// that never started talking. Asked once the voice has ended.
+// that never started talking. None if you spoke once the voice had started on it, as when you
+// say "bye" over it and hang up. Asked once the voice has ended.
 func (v *voice) unheardNews() []string {
+	if v.youSpoke || v.talkedOver {
+		v.log("you spoke once the voice had started on the session's news, then hung up: it doesn't call again")
+		return nil
+	}
 	news := v.unheard
 	v.calls.mu.Lock()
 	defer v.calls.mu.Unlock()

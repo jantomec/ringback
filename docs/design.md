@@ -19,7 +19,8 @@ no server of anyone else's in between, apart from Apple's push service.
    included.
 3. **One session per call.** The voice opens with what's new, then what needs you. What you
    want done goes to that session, and its answer comes back to the call. If you've hung up
-   by then, or before you've heard it, the session calls again.
+   by then, or hung up without a word before you'd heard it, the session calls again; not
+   after a "bye".
 4. **You approve by voice.** A permission prompt or a question the session asks you comes to
    the call. A clear yes or no settles a permission; a question takes one of its options or
    your own words. The terminal shows the prompt at the same time, and whichever you answer
@@ -129,7 +130,10 @@ built or run on Linux. The agent runs where the sessions run, on a Mac.
    mod collects it once a second and submits it to the session as a prompt; the session's
    answer comes back to the call as a note, and the voice tells you once it has finished
    speaking and you aren't. If you hang up before you've heard a reply that came after it to
-   its end, the session calls again, with its answer as the briefing; once.
+   its end, the session calls again, with its answer as the briefing; once. Not if you spoke
+   once the voice had started on it: a "bye", or anything else you said over it, makes hanging
+   up your choice. Noise that cut the voice off doesn't count, once its turn comes back with
+   no words.
 8. **The end.** Either side hangs up. The agent finishes the transcript and leaves the
    session a note on how the call went: answered and for how long, with the transcript's path;
    not answered within 90 s; or answered but the audio never connected. The note is added to
@@ -645,9 +649,9 @@ with a certificate, or a private certificate authority installed on each device 
 - **Short words can go unheard or misheard.** On calls, "wait" said while the voice talked
   wasn't heard (Silero needs 0.2 s of speech), and short "yes" answers to a permission weren't:
   the background filter's volume lagged behind a short word, and Parakeet wrote nothing for a
-  short "Yes." with audio before it. Both are fixed offline (`tools/short-answers`: of 168
-  short answers at -25 to -35 LUFS, 134 were heard before and 167 after), not yet on the phone,
-  and with Kokoro's voices, not yours. Parakeet still writes "No." as "Noble." now and then,
+  short "Yes." with audio before it. Both are fixed (`tools/short-answers`: of 168 short
+  answers in Kokoro's voices at -25 to -35 LUFS, 134 were heard before and 167 after), and on
+  the phone your short "Yes.", "No." and "Bye." were each heard the first time, three of three. Parakeet still writes "No." as "Noble." now and then,
   and "Okay." as "Locate."; the voice reads them in context. The voice asks again after 8 s of
   silence, and the speech node logs each stretch Silero took for speech that started no turn,
   and why ("not taken for speech", `journalctl --user -u ringback-speech`).
@@ -712,8 +716,16 @@ current code, and what has only been checked offline.
   with the question and its options; your choice went to the session, which carried on. When
   your "yes" to its next permission went unheard, the voice asked again 8 s after it had
   finished. That "yes" wasn't taken for speech, and the next was taken but written down as
-  nothing (both since fixed offline, above); "It's a yes." was heard. You hung up 0.3 s into
-  the voice telling the session's answer, and nothing called back (since fixed offline).
+  nothing (both since fixed, below); "It's a yes." was heard. You hung up 0.3 s into the
+  voice telling the session's answer, and nothing called back (since fixed, below).
+- Short answers, a permission refused, and calling again with an answer you didn't hear
+  (2026-11-03, two calls of 43 s and 19 s): the session's permission came outside your work
+  hours and was held; when you set the phone to take calls, it rang 4 s later. A short
+  "Yes." (0.4 s) and "No." (0.3 s) were each heard the first time and written down right in
+  0.07–0.09 s, and the voice answered 1.7–1.8 s after each; refused, the session didn't run
+  that command. You hung up 2.1 s into the voice telling the session's answer, and the
+  session called again at once, with "The answer you didn't hear": the phone rang within a
+  second, and the voice opened with the answer. Your "Bye." (0.2 s) was heard too.
 - Calling back a call from Recents: connected 1.5 s after the tap, the voice opening with
   "Nothing new since our last call" and what had happened since. On that call, Opus on the
   line: Haiku said so, the handover took 0.37 s once you'd heard it, Opus spoke about 6 s
@@ -741,10 +753,9 @@ how things look):
   widget;
 - the connection check's push, and the app checking in with the hub;
 - calling a waiting call now;
-- a permission refused on a call, and a held call's question sent to the Claude app;
+- a held call's question sent to the Claude app;
 - the voice leaving out a sentence that names a tool;
-- short answers heard with the background filter's new measure and Parakeet's second try;
-- the session calling again with an answer you hung up before hearing;
+- no call again when you said "bye" over the session's answer, or anything else;
 - the weak-signal settings in the hub;
 - Interruption Sensitivity and Ignore Background Noise, with real noise or someone talking
   near you;
@@ -759,9 +770,8 @@ of them installs only the iPhone app and the Mac client: a hub on the internet n
 phones and other parts paired, several users on one hub need that too, and they'd want the
 host unable to read their calls.
 
-- [ ] **Try on the phone what's only been checked offline** (Status): short answers and a
-  refused permission on a call, calling again with an answer you didn't hear, held calls and
-  the hold switch, weak signal, and restarts.
+- [ ] **Try on the phone what's only been checked offline** (Status): a "bye" over the
+  session's answer, held calls and the hold switch, weak signal, and restarts.
 - [x] **A call that can't reach the hub ends and says why** (tried on the phone). A call you're
   on whose audio can't connect, or is lost, ends through CallKit, with a notification and the
   app's banner saying why: that the hub can't be reached, as the connection check says, or the

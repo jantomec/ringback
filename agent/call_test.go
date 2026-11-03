@@ -161,11 +161,13 @@ func TestNotesAndAsksOnACall(t *testing.T) {
 	text, _ = hub.reply(callID, 3, 5*time.Second)
 	a.played(callID, text)
 
+	// Haiku writes on after the tool, unspoken, until the session has asked its next thing.
+	writing := filepath.Join(t.TempDir(), "writing")
 	a.setReplies(fakeReply{Match: "go ahead", Steps: []fakeStep{
 		say("Okay, I'll let it run that."), tool("answer_permission", map[string]any{"permission": id, "allow": true, "said": "Yes, go ahead."}),
+		{Wait: writing}, say("Anything else?"),
 	}})
 	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "Yes, go ahead."})
-	hub.reply(callID, 4, 5*time.Second)
 	a.waitLog("Haiku answers the session, held until heard: permission "+id+": allow ('Yes, go ahead.')", 2*time.Second)
 	_, verdict := a.mod("GET", "/sessions/s2-session/permissions/"+id+"?wait=0", nil)
 	check(t, "pending until you've heard the answer", verdict["verdict"] == "pending" && verdict["said"] == nil, verdict)
@@ -187,7 +189,6 @@ func TestNotesAndAsksOnACall(t *testing.T) {
 	}
 	status, again := a.mod("POST", "/sessions/s2-session/permissions/"+id, map[string]any{"verdict": "deny"})
 	check(t, "an answer is final", status == 409 && again["error"] == "answered already: allow", status, again)
-	hub.send(map[string]any{"type": "idle", "call_id": callID})
 
 	// Questions, answered with an option's label.
 	status, asked = a.mod("POST", "/sessions/s2-session/questions", map[string]any{
@@ -197,6 +198,20 @@ func TestNotesAndAsksOnACall(t *testing.T) {
 	})
 	qid, _ := asked["question"].(string)
 	check(t, "questions go to the call too", status == 200 && asked["call"] == "live", asked)
+	os.WriteFile(writing, nil, 0o644)
+	text, _ = hub.reply(callID, 4, 5*time.Second)
+	check(t, "what Haiku wrote after the answer isn't spoken", text == "Okay, I'll let it run that.", text)
+	paths, _ := filepath.Glob(filepath.Join(a.project(), ".ringback", "calls", "*.md"))
+	written := ""
+	if len(paths) == 1 {
+		b, _ := os.ReadFile(paths[0])
+		written = string(b)
+	}
+	said, gave, asks := strings.Index(written, "**Voice:** Okay, I'll let it run that.\n"),
+		strings.Index(written, "**Answered the session:** permission "+id+": allow"), strings.Index(written, "**The session asks:** Question "+qid)
+	check(t, "the transcript has what the voice said before the answer it gave, and that before the next ask",
+		said >= 0 && said < gave && gave < asks, said, gave, asks, written)
+	hub.send(map[string]any{"type": "idle", "call_id": callID})
 	note = a.waitTurn(5, 5*time.Second)
 	check(t, "as a note", strings.HasPrefix(note, "[The session asks, and waits for the answer.\nQuestion "+qid+", with 1 question(s)"), note)
 	text, _ = hub.reply(callID, 5, 5*time.Second)
@@ -300,6 +315,66 @@ func TestUnheardNews(t *testing.T) {
 	system := a.starts()[2]["system"].(string)
 	check(t, "with the news you didn't hear as its briefing, and not the news you did",
 		strings.HasSuffix(system, unheardBriefing+"\n\nMerged.\n") && !strings.Contains(system, "Tests pass."), system)
+}
+
+// Speaking once the voice has started on the session's news, as with a "bye" over it, makes
+// hanging up your choice: the session doesn't call again. Noise that cuts the voice off
+// doesn't count.
+func TestSpokeOverNews(t *testing.T) {
+	hub := newFakeHub(t)
+	a := startAgent(t, hub, "")
+	a.collect("s3-session")
+	a.setReplies(
+		fakeReply{Match: "[The session: Tests pass.]", Steps: []fakeStep{say("It says the tests pass.")}},
+		fakeReply{Match: "Okay, bye.", Steps: []fakeStep{say("Bye.")}},
+		fakeReply{Match: noise, Steps: []fakeStep{say("It says the tests pass.")}},
+	)
+	places := func() int { return hub.count(is("place")) }
+	// A call the voice is telling the news on, when you've heard its first words.
+	telling := func() string {
+		callID, _ := a.placeCall("s3-session", "Pushed", "Pushed the branch.")
+		a.played(callID, a.answer(callID))
+		a.mod("POST", "/sessions/s3-session/news", map[string]any{"text": "Tests pass."})
+		hub.reply(callID, 2, 5*time.Second)
+		hub.send(map[string]any{"type": "speaking", "call_id": callID})
+		hub.send(map[string]any{"type": "heard", "call_id": callID, "text": "It says"})
+		return callID
+	}
+	spokeOver := "you spoke once the voice had started on the session's news, then hung up: it doesn't call again"
+
+	// "Okay, bye." over it, and hung up before that turn came.
+	before := places()
+	callID := telling()
+	hub.send(map[string]any{"type": "interrupted", "call_id": callID, "reply": 2, "heard": "It says"})
+	hub.send(map[string]any{"type": "ended", "call_id": callID, "lasted": 20.0})
+	a.waitLog("call "+callID[:8]+": "+spokeOver, time.Second)
+	time.Sleep(300 * time.Millisecond)
+	check(t, "cut the news off and hung up: no call again", places()-before == 1, places()-before)
+
+	// "Okay, bye.", and hung up while the voice said "Bye.".
+	before = places()
+	callID = telling()
+	hub.send(map[string]any{"type": "interrupted", "call_id": callID, "reply": 2, "heard": "It says"})
+	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "Okay, bye.", "interrupted": true})
+	text, _ := hub.reply(callID, 3, 5*time.Second)
+	check(t, "the voice says bye", text == "Bye.", text)
+	hub.send(map[string]any{"type": "speaking", "call_id": callID})
+	hub.send(map[string]any{"type": "ended", "call_id": callID, "lasted": 20.0})
+	a.waitLog("call "+callID[:8]+": "+spokeOver, time.Second)
+	time.Sleep(300 * time.Millisecond)
+	check(t, "said bye over the news and hung up: no call again", places()-before == 1, places()-before)
+
+	// Noise cut it off, the voice carried on, and you hung up without a word: it calls again.
+	callID = telling()
+	hub.send(map[string]any{"type": "interrupted", "call_id": callID, "reply": 2, "heard": "It says"})
+	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "", "interrupted": true})
+	hub.reply(callID, 3, 5*time.Second)
+	hub.send(map[string]any{"type": "speaking", "call_id": callID})
+	hub.send(map[string]any{"type": "heard", "call_id": callID, "text": "It says"})
+	from := hub.mark()
+	hub.send(map[string]any{"type": "ended", "call_id": callID, "lasted": 20.0})
+	again, _ := hub.wait(from, 5*time.Second, is("place"))
+	check(t, "noise isn't you speaking: the session calls again", again != nil && again["subject"] == unheardSubject, again)
 }
 
 // The phone can offer a call again: one that ended unanswered stays placed, a new offer
