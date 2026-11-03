@@ -26,14 +26,9 @@ parts talk to each other.
 
 ## Status
 
-All of the above is built. On the phone with the current code, so far: a call placed by hand
-through the agent (rang, connected while ringing, talked through with an interruption, a
-message passed on once heard), a call waiting for a missing speech node and ringing when it
-linked, and the portal from the phone. Not yet tried on the phone: a real session calling
-through the mod, held calls and work hours, the hold set from the pill or Control Center,
-call backs, Sessions, asks, Opus, weak signal, the interruption settings in real noise,
-On-device Voice in a real call, and restarts. The full list is under "Status" in
-`docs/design.md`; known problems left until testers report them are under "Limits and risks".
+All of the above is built. What's been tried on the phone with the current code, and what's
+only been checked offline, is under "Status" in `docs/design.md`, the one place it's kept;
+known problems left until testers report them are under "Limits and risks".
 
 Before calling the phone, try a change offline: `tools/hub-check` for the hub's side of a
 call, `tools/session-check` for a real Claude Code session placing its calls through the mod,
