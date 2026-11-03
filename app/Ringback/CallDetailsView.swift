@@ -24,7 +24,7 @@ struct CallDetailsView: View {
                             .frame(minWidth: 52, alignment: .leading)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(Self.kind(of: call)).foregroundStyle(call.isMissed ? .red : .primary)
-                            if call.onAnotherCall == true {
+                            if call.onAnotherCall {
                                 Text("While on another call").font(.subheadline).foregroundStyle(.secondary)
                             }
                         }
@@ -56,8 +56,8 @@ struct CallDetailsView: View {
         if call.isOutgoing {
             if call.outcome == .onCall || call.outcome == .ringing { return "On Call" }
             if call.outcome == .failed { return "Didn't Connect" }
-            if call.contact == true { return "Called from Sessions" }
-            return call.calledNow == true ? "Called While Waiting" : "Called Back"
+            if call.contact { return "Called from Sessions" }
+            return call.calledNow ? "Called While Waiting" : "Called Back"
         }
         return switch call.outcome {
         case .ringing: "Ringing…"

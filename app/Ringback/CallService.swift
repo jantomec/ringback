@@ -607,7 +607,7 @@ final class CallService: NSObject, CXProviderDelegate {
         let answered = call.answeredAt.map {
             String(format: "%.1f s after answering", max(0, reached.at.timeIntervalSince($0)))
         }
-        let calling = call.contact == true ? "calling from Sessions" : call.calledNow == true ? "calling it now" : "calling back"
+        let calling = call.contact ? "calling from Sessions" : call.calledNow ? "calling it now" : "calling back"
         let note = call.isOutgoing
             ? String(format: "%.1f s after \(calling), \(reached.tries) tries", reached.at.timeIntervalSince(call.ringAt))
             : String(format: "%.1f s after ringing, ", reached.at.timeIntervalSince(call.ringAt))
@@ -623,8 +623,8 @@ final class CallService: NSObject, CXProviderDelegate {
         if isOutgoing(uuid) { provider.reportOutgoingCall(with: uuid, connectedAt: at) }
         guard let call = state.calls.first(where: { $0.id == callID }), let answeredAt = call.answeredAt else { return }
         let start =
-            call.callsBack != nil ? "calling back" : call.calledNow == true ? "calling it now"
-            : call.contact == true ? "calling from Sessions" : "ringing"
+            call.callsBack != nil ? "calling back" : call.calledNow ? "calling it now"
+            : call.contact ? "calling from Sessions" : "ringing"
         var note = offerNote(uuid) + String(format: ", connected %.1f s after \(start)", at.timeIntervalSince(call.ringAt))
         if let link = links[uuid] { note += ", addresses: \(link.addresses)" }
         if at < answeredAt { note += String(format: ", %.1f s before answering", answeredAt.timeIntervalSince(at)) }
@@ -689,7 +689,7 @@ final class CallService: NSObject, CXProviderDelegate {
     func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
         let uuid = action.callUUID
         guard var record = startingCallBacks.removeValue(forKey: uuid), let voiceURL = record.voice,
-            record.callsBack != nil || record.calledNow == true || record.contact == true
+            record.callsBack != nil || record.calledNow || record.contact
         else { return action.fail() }
         AudioLink.prepareAudioSession()
         record.answeredAt = .now
@@ -707,7 +707,7 @@ final class CallService: NSObject, CXProviderDelegate {
         if let original = record.callsBack {
             callingBack[uuid] = original
             Switchboard.report(callID: record.id, event: "called back", extra: ["note": "calls back \(original.prefix(8))"])
-        } else if record.contact == true {
+        } else if record.contact {
             callingContact.insert(uuid)
             let session = record.session.map { " \($0.prefix(8))" } ?? ""
             Switchboard.report(callID: record.id, event: "called contact", extra: ["note": "calls session\(session)"])
@@ -730,7 +730,7 @@ final class CallService: NSObject, CXProviderDelegate {
         provider.reportCall(with: uuid, updated: update)
         if let original = record.callsBack {
             callBackAudio(uuid, record.id, original, voiceURL)
-        } else if record.contact == true, let session = record.session {
+        } else if record.contact, let session = record.session {
             let contact = Contact(
                 session: session, project: record.project, voice: voiceURL, subject: record.subject, briefedAt: nil,
                 since: nil)

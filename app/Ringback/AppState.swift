@@ -20,26 +20,26 @@ struct CallRecord: Codable, Identifiable {
     var endedAt: Date?
     var outcome: Outcome
     /// It rang as call waiting during another call (phone, WhatsApp, FaceTime…).
-    var onAnotherCall: Bool?
+    var onAnotherCall = false
     /// Where the call's audio goes, as the push named it (the hub), which a call back goes to.
-    /// Older calls in the history may have none, so they can't be called back.
+    /// A call rung by hand (`ringback-hub ring`) has none, so it can't be called back.
     var voice: URL?
     /// On a call you made by calling one back: the ID of the call it calls back, which its
     /// offer carries.
     var callsBack: String?
     /// You called it from the waiting calls, while it was held outside your work hours. It
     /// keeps the call's own ID.
-    var calledNow: Bool?
+    var calledNow = false
     /// You called its session from Sessions. Its ID is the phone's own, which its offer carries.
-    var contact: Bool?
+    var contact = false
     /// The session that called, or that you called: its ID, from the push, the waiting calls or
-    /// Sessions. Older calls in the history may have none.
+    /// Sessions. A call rung by hand has none.
     var session: String?
 
     var callerName: String { project }
 
     /// A call you made: a call back, a waiting call you called now, or a call from Sessions.
-    var isOutgoing: Bool { callsBack != nil || calledNow == true || contact == true }
+    var isOutgoing: Bool { callsBack != nil || calledNow || contact }
 
     /// Whether it's red in the history: declined, missed, couldn't ring, or a call you made
     /// that didn't connect.
@@ -136,8 +136,6 @@ enum Connection: Equatable {
 final class AppState {
     /// The whole call history, kept on the phone. (Moving it to iCloud comes later.)
     private static let historyFile = URL.applicationSupportDirectory.appending(path: "calls.json")
-    /// Where the first version kept its last 20 calls; imported once.
-    private static let oldDefaultsKey = "recentCalls"
     private static let lastConnectedKey = "lastConnected"
 
     var token: String?
@@ -225,15 +223,7 @@ final class AppState {
     }
 
     private static func loadHistory() -> [CallRecord] {
-        if let data = try? Data(contentsOf: historyFile) {
-            return (try? JSONDecoder().decode([CallRecord].self, from: data)) ?? []
-        }
-        guard let old = UserDefaults.standard.data(forKey: oldDefaultsKey) else { return [] }
-        let calls = (try? JSONDecoder().decode([CallRecord].self, from: old)) ?? []
-        try? FileManager.default.createDirectory(at: .applicationSupportDirectory, withIntermediateDirectories: true)
-        if (try? JSONEncoder().encode(calls).write(to: historyFile, options: .atomic)) != nil {
-            UserDefaults.standard.removeObject(forKey: oldDefaultsKey)
-        }
-        return calls
+        guard let data = try? Data(contentsOf: historyFile) else { return [] }
+        return (try? JSONDecoder().decode([CallRecord].self, from: data)) ?? []
     }
 }

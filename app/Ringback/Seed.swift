@@ -24,7 +24,7 @@ enum Seed {
         let mac = URL(string: "http://10.0.0.2:8788")!
         func call(
             _ id: String, _ project: String, _ subject: String?, _ ringAt: Date, _ outcome: CallRecord.Outcome,
-            minutes: Double = 0, back: String? = nil, now: Bool? = nil, contact: Bool? = nil, other: Bool? = nil
+            minutes: Double = 0, back: String? = nil, now: Bool = false, contact: Bool = false, other: Bool = false
         ) -> CallRecord {
             let answered = minutes > 0 ? ringAt : nil
             return CallRecord(
