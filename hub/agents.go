@@ -35,8 +35,7 @@ func hubURL() string {
 	return "http://" + config["listen"]
 }
 
-// agentKey is how an agent's sessions are kept in contacts.json, apart from those given over
-// /sessions.
+// agentKey is how an agent's sessions are kept in contacts.json.
 func agentKey(l *link) string { return "agent:" + l.name }
 
 func agentOpened(l *link) {
@@ -78,7 +77,7 @@ func fromAgent(l *link, message map[string]any) {
 	case "sessions":
 		given, _ := message["sessions"].([]any)
 		stateMu.Lock()
-		listed, err := keepSessions(agentKey(l), hubURL(), given)
+		listed, err := keepSessions(agentKey(l), given)
 		stateMu.Unlock()
 		if err != nil {
 			log("agent " + l.name + ": sessions refused: " + err.Error())
@@ -88,9 +87,8 @@ func fromAgent(l *link, message map[string]any) {
 		agents[l] = listed
 		registryMu.Unlock()
 	case "place":
-		message["voice"] = hubURL()
 		stateMu.Lock()
-		answer, err := call(message)
+		answer, err := placeCall(l.name, message)
 		stateMu.Unlock()
 		if err != nil {
 			reply(l, message, map[string]any{"ok": false, "status": 400, "error": err.Error()})
@@ -104,7 +102,6 @@ func fromAgent(l *link, message map[string]any) {
 			// The phone rings: the speech nodes load their models now, while it rings.
 			warmNodes()
 		}
-		delete(answer, "type")
 		reply(l, message, answer)
 	case "say", "said", "hang_up":
 		c := liveCall(str(message, "call_id"))

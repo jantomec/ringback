@@ -1,8 +1,10 @@
 #!/bin/sh
-# Checks the built hub without a phone: its endpoints on localhost, with config and state in a
-# throwaway HOME. With --apns it also pushes to a made-up device token through the APNs
-# sandbox, signed with your real config and key. Apple answers 400 BadDeviceToken only when
-# the signature is valid (a bad one gets 403), and nothing rings.
+# Checks the built hub without a phone: the phone's endpoints on localhost, with config and
+# state in a throwaway HOME, and calls and sessions as the agents give them, over their link.
+# Stand-ins (cmd/standin, built here) link to the hub as agents and as a speech node, and take
+# plain HTTP, so curl drives them too. With --apns it also pushes to a made-up device token
+# through the APNs sandbox, signed with your real config and key. Apple answers 400
+# BadDeviceToken only when the signature is valid (a bad one gets 403), and nothing rings.
 #
 #   hub/smoke-test.sh [--apns]     after: go build -o build/ringback-hub .
 set -eu
@@ -10,12 +12,18 @@ cd "$(dirname "$0")"
 # RINGBACK_HUB runs the same checks against another build of the hub.
 bin="${RINGBACK_HUB:-$PWD/build/ringback-hub}"
 home=$(mktemp -d)
-server=
-trap 'kill $server 2> /dev/null || true; rm -rf "$home"' EXIT
+server= standin=
+trap 'kill $server $standin 2> /dev/null || true; rm -rf "$home"' EXIT
 mkdir -p "$home/.config/ringback"
 port=18787
 url=http://127.0.0.1:$port
-printf 'listen = "127.0.0.1:%s"  # smoke test\n' $port > "$home/.config/ringback/hub.toml"
+agent=http://127.0.0.1:18788  # the stand-ins
+printf 'listen = "127.0.0.1:%s"  # smoke test\n[tokens]\nagent = "smoke-agent-token-0001"\nspeech = "smoke-speech-token-001"\n' \
+    $port > "$home/.config/ringback/hub.toml"
+go build -o "$home/standin" ./cmd/standin
+"$home/standin" -hub 127.0.0.1:$port -listen 127.0.0.1:18788 \
+    -agent-token smoke-agent-token-0001 -speech-token smoke-speech-token-001 2> "$home/standin.log" &
+standin=$!
 
 fails=0
 check() {  # name, expected, actual
@@ -31,6 +39,8 @@ HOME="$home" "$bin" serve > "$home/log" 2>&1 &
 server=$!
 check "GET /register is refused" 405 "$(status "$url/register")"
 check "unknown path" 404 "$(status -d '{}' "$url/nope")"
+check "no calls over plain HTTP: /call is 404" 404 "$(status -d '{"project": "demo", "call_id": "0123456789abcdef0123"}' "$url/call")"
+check "no sessions over plain HTTP: /sessions is 404" 404 "$(status -d '{"sessions": []}' "$url/sessions")"
 check "register" 200 "$(status -d '{"token": "aaaa1111bbbb2222", "environment": "sandbox", "device": "Test phone", "notification_token": "cccc3333"}' "$url/register")"
 check "register without a token" 400 "$(status -d '{"device": "Test phone"}' "$url/register")"
 check "register again, before the notification token arrived" 200 "$(status -d '{"token": "aaaa1111bbbb2222", "environment": "sandbox", "device": "Test phone"}' "$url/register")"
@@ -38,9 +48,10 @@ check "event" 200 "$(status -d '{"call_id": "12345678-abcd", "event": "ended", "
 check "event that isn't JSON" 400 "$(status -d 'not json' "$url/events")"
 check "connection check" 200 "$(status -d '{"token": "aaaa1111bbbb2222"}' "$url/check")"
 check "connection check before the token arrived" 200 "$(status -d '{}' "$url/check")"
-check "call" 200 "$(status -d '{"project": "demo", "subject": "Tests pass", "voice": "http://127.0.0.1:1", "call_id": "0123456789abcdef0123"}' "$url/call")"
-check "call without a call ID" 400 "$(status -d '{"project": "demo", "voice": "http://127.0.0.1:1"}' "$url/call")"
-check "call with a voice that isn't a URL" 400 "$(status -d '{"project": "demo", "voice": "nope", "call_id": "0123456789abcdef0123"}' "$url/call")"
+check "an agent's link with a wrong token: 401" 401 "$(status -H 'Authorization: Bearer wrong' "$url/agent")"
+check "an agent places a call" 200 "$(status -d '{"project": "demo", "subject": "Tests pass", "call_id": "0123456789abcdef0123"}' "$agent/place")"
+check "a call without a call ID: 400" 400 "$(status -d '{"project": "demo"}' "$agent/place")"
+check "a call without a project: 400" 400 "$(status -d '{"call_id": "0123456789abcdef0123"}' "$agent/place")"
 
 # Work hours, in a time zone where it's between 12:00 and 13:00 now, so the hours below hold
 # or ring a call whenever this runs. Etc/GMT-N is N hours ahead of UTC.
@@ -68,7 +79,7 @@ check_in() {  # from, to, time zone: a connection check that brings work hours
 with_zone="{$phone, \"hours_from\": \"08:00\", \"hours_to\": \"20:00\", \"time_zone\": \"$zone\"}"
 no_zone="{$phone, \"hours_from\": \"14:00\", \"hours_to\": \"16:00\"}"
 only_from="{$phone, \"hours_from\": \"14:00\", \"time_zone\": \"$zone\"}"
-call_as() { body -d "{\"project\": \"demo\", \"voice\": \"http://127.0.0.1:1\", \"call_id\": \"$1\"}" "$url/call"; }
+call_as() { body -d "{\"project\": \"demo\", \"call_id\": \"$1\"}" "$agent/place"; }
 held_until() { echo "{\"held\":true,\"held_until\":\"${today}T$1:00$offset\",\"ok\":true}"; }
 rings='{"ok":true}'
 echo "      work hours in $zone, where it's $(TZ=$zone date +%H:%M)"
@@ -109,7 +120,7 @@ check "check without APNs keys says so" yes "$(yes_if has "$(HOME="$home" "$bin"
 check "registration logged with checks" yes "$(yes_if grep -qE 'registered Test phone \(sandbox\), token …bbbb2222, with connection checks' "$home/log")"
 check "event stored with a time" yes "$(yes_if grep -qE '"event":"ended".*"time":"20[0-9-]+T[0-9:]+"' "$state/events.jsonl")"
 check "event logged" yes "$(yes_if grep -qE 'call 12345678: ended, duration_s 21.1 \(on the phone at [0-9:]{8}\)' "$home/log")"
-check "call logged" yes "$(yes_if grep -qF 'call 01234567: asked by http://127.0.0.1:1 for demo: Tests pass' "$home/log")"
+check "call logged, with its Mac" yes "$(yes_if grep -qF 'call 01234567: asked by stand-in for demo: Tests pass' "$home/log")"
 check "call rings with its ID" yes "$(yes_if grep -qF 'call 01234567 → Test phone: no [apns.sandbox] key in the config' "$home/log")"
 check "registration logged with work hours" yes "$(yes_if grep -qF "registered Test phone (sandbox), token …bbbb2222, work hours 14:00–16:00 $zone" "$home/log")"
 check "a held call logged" yes "$(yes_if grep -qF "call held0001: held until ${today}T14:00:00$offset, every phone on hold" "$home/log")"
@@ -123,7 +134,7 @@ out=$(HOME="$home" "$bin" ring --project smoke-test)
 check "ring ignores work hours: it pushes to both phones" 2 "$(printf '%s\n' "$out" | grep -c 'no \[apns.sandbox\] key')"
 
 # Waiting calls: held ones are kept in waiting.json and listed for the app, soonest first,
-# until they ring, the app calls one now, or whoever placed them stops asking about them (after
+# until they ring, the app calls one now, or their agent stops asking about them (after
 # RINGBACK_WAITING_STALE s here instead of 25 min). Both phones are outside their hours now.
 rm -f "$state/waiting.json"
 serve_waiting() {
@@ -132,7 +143,7 @@ serve_waiting() {
 }
 listed() { body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting" | grep -oE 'wait[0-9]{4}' | tr '\n' ' ' | sed 's/ $//'; }
 call_about() {  # call ID, subject
-    body -d "{\"project\": \"demo\", \"subject\": \"$2\", \"voice\": \"http://127.0.0.1:1\", \"call_id\": \"$1\"}" "$url/call"
+    body -d "{\"project\": \"demo\", \"subject\": \"$2\", \"call_id\": \"$1\"}" "$agent/place"
 }
 called_now='{"call_id": "wait0002-000000000000", "event": "called now", "at": "2026-10-30T09:00:00Z"}'
 serve_waiting
@@ -165,7 +176,7 @@ check "not asked about again in time, it's dropped" "" "$(listed)"
 # notification for it (without an APNs key, the log says so instead), however often the call
 # is asked about, and after a restart. The list says whether a call has a question.
 ask_held() {  # call ID, subject, question
-    body -d "{\"project\": \"demo\", \"subject\": \"$2\", \"voice\": \"http://127.0.0.1:1\", \"call_id\": \"$1\", \"question\": $3}" "$url/call"
+    body -d "{\"project\": \"demo\", \"subject\": \"$2\", \"call_id\": \"$1\", \"question\": $3}" "$agent/place"
 }
 fields() {  # call ID: its question, as listed
     body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting" | grep -oE "\"call_id\":\"$1[^}]*" \
@@ -203,52 +214,49 @@ check "a dropped one is logged" yes "$(yes_if grep -qE 'call wait0003: no longer
 check "a held call's question is logged" yes "$(yes_if grep -qF "call wait0004: held until ${today}T13:15:00$offset, every phone on hold, with a question" "$home/log")"
 check "one whose question went to the Claude app is logged" yes "$(yes_if grep -qF 'call wait0004: no longer waiting, its question went to the Claude app' "$home/log")"
 
-# Sessions: each /sessions caller says which of its sessions listen, and the app lists them
-# all, by project, each with its voice URL. A caller's list replaces the one before, and
-# one not heard from for RINGBACK_CONTACTS_STALE s (here 5, instead of 90) is dropped. A held
-# call keeps the session that placed it.
+# Sessions: each agent says which of its sessions listen, and the app lists them all, by
+# project, each with the URL it calls them at (the hub's). An agent's list replaces the one
+# before, and one not heard from for RINGBACK_CONTACTS_STALE s (here 5, instead of 90) is
+# dropped. A held call keeps the session that placed it.
 serve_contacts() {
     HOME="$home" RINGBACK_CONTACTS_STALE=5 "$bin" serve >> "$home/log" 2>&1 &
     server=$!
 }
 contact_ids() { body -d '{"token": "aaaa1111bbbb2222"}' "$url/contacts" | grep -oE 'sess[0-9]{4}' | tr '\n' ' ' | sed 's/ $//'; }
-mac_a='"voice": "http://127.0.0.1:2"'
-mac_b='"voice": "http://127.0.0.1:3"'
-two="{$mac_a, \"sessions\": [{\"session_id\": \"sess0001-aaaa\", \"project\": \"zeta\", \"since\": \"2026-10-30T09:00:00+01:00\"}, {\"session_id\": \"sess0002-aaaa\", \"project\": \"Alpha\", \"since\": \"2026-10-30T10:00:00+01:00\", \"subject\": \"Parser fixed\", \"briefed_at\": \"2026-10-30T10:30:00+01:00\"}]}"
-one_b="{$mac_b, \"sessions\": [{\"session_id\": \"sess0003-bbbb\", \"project\": \"alpha\", \"since\": \"2026-10-30T08:00:00+01:00\"}]}"
-one_a="{$mac_a, \"sessions\": [{\"session_id\": \"sess0002-aaaa\", \"project\": \"Alpha\", \"since\": \"2026-10-30T10:00:00+01:00\"}]}"
-no_voice='{"sessions": []}'
-no_project="{$mac_a, \"sessions\": [{\"session_id\": \"sess0009-aaaa\"}]}"
-held_with_session='{"project": "demo", "subject": "Docs", "voice": "http://127.0.0.1:1", "call_id": "wait0006-000000000000", "session_id": "sess0004-cccc"}'
+two="{\"sessions\": [{\"session_id\": \"sess0001-aaaa\", \"project\": \"zeta\", \"since\": \"2026-10-30T09:00:00+01:00\"}, {\"session_id\": \"sess0002-aaaa\", \"project\": \"Alpha\", \"since\": \"2026-10-30T10:00:00+01:00\", \"subject\": \"Parser fixed\", \"briefed_at\": \"2026-10-30T10:30:00+01:00\"}]}"
+one_b="{\"sessions\": [{\"session_id\": \"sess0003-bbbb\", \"project\": \"alpha\", \"since\": \"2026-10-30T08:00:00+01:00\"}]}"
+one_a="{\"sessions\": [{\"session_id\": \"sess0002-aaaa\", \"project\": \"Alpha\", \"since\": \"2026-10-30T10:00:00+01:00\"}]}"
+no_project="{\"sessions\": [{\"session_id\": \"sess0009-aaaa\"}]}"
+held_with_session='{"project": "demo", "subject": "Docs", "call_id": "wait0006-000000000000", "session_id": "sess0004-cccc"}'
 serve_contacts
 check "contacts for a token that isn't registered: 403" 403 "$(status -d '{"token": "ffff9999"}' "$url/contacts")"
 check "contacts without a token: 403" 403 "$(status -d '{}' "$url/contacts")"
 check "no contacts yet" '{"contacts":[]}' "$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/contacts")"
-check "sessions without a voice URL: 400" 400 "$(status -d "$no_voice" "$url/sessions")"
-check "a session without a project: 400" 400 "$(status -d "$no_project" "$url/sessions")"
-check "a caller says two sessions listen" 200 "$(status -d "$two" "$url/sessions")"
-check "another caller, one" 200 "$(status -d "$one_b" "$url/sessions")"
+check "a session without a project is refused" yes "$(status -d "$no_project" "$agent/sessions?agent=mac-a" > /dev/null; yes_if grep -qF 'agent mac-a: sessions refused: bad request' "$home/log")"
+check "nothing is listed for it" '{"contacts":[]}' "$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/contacts")"
+check "an agent says two sessions listen" 200 "$(status -d "$two" "$agent/sessions?agent=mac-a")"
+check "another agent, one" 200 "$(status -d "$one_b" "$agent/sessions?agent=mac-b")"
 check "all three are listed, by project, then since when" "sess0003 sess0002 sess0001" "$(contact_ids)"
 listed=$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/contacts")
-check "with project, latest subject and when, since when, and voice URL" yes "$(yes_if has_text "$listed" \
+check "with project, latest subject and when, since when, and the hub's URL" yes "$(yes_if has_text "$listed" \
     '{"briefed_at":"2026-10-30T10:30:00+01:00","project":"Alpha","session_id":"sess0002-aaaa","since":"2026-10-30T10:00:00+01:00","subject":"Parser fixed","voice":"http:')"
-check "the first caller again, now with one: it replaces its two" 200 "$(status -d "$one_a" "$url/sessions")"
-check "listed: that one and the other server's" "sess0003 sess0002" "$(contact_ids)"
+check "the first agent again, now with one: it replaces its two" 200 "$(status -d "$one_a" "$agent/sessions?agent=mac-a")"
+check "listed: that one and the other agent's" "sess0003 sess0002" "$(contact_ids)"
 kill $server
 wait $server 2> /dev/null || true
 serve_contacts
 check "after a restart, both still listed" "sess0003 sess0002" "$(contact_ids)"
 sleep 3
-check "the second caller says again" 200 "$(status -d "$one_b" "$url/sessions")"
+check "the second agent says again" 200 "$(status -d "$one_b" "$agent/sessions?agent=mac-b")"
 sleep 3
 check "the first, not heard from in time, is dropped" "sess0003" "$(contact_ids)"
-check "a held call names its session" "$(held_until 13:15)" "$(body -d "$held_with_session" "$url/call")"
+check "a held call names its session" "$(held_until 13:15)" "$(body -d "$held_with_session" "$agent/place")"
 check "listed as waiting with it" yes "$(yes_if has_text "$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting")" '"session_id":"sess0004-cccc"')"
 kill $server
 wait $server 2> /dev/null || true
-check "a caller's sessions are logged" yes "$(yes_if grep -qF 'sessions listening on http://127.0.0.1:2: zeta (sess0001), Alpha (sess0002)' "$home/log")"
-check "said again unchanged, they aren't logged again" 1 "$(grep -cF 'sessions listening on http://127.0.0.1:3: alpha (sess0003)' "$home/log")"
-check "a dropped caller is logged" yes "$(yes_if grep -qE 'sessions listening on http://127.0.0.1:2: dropped, not heard from since [0-9:]{8}' "$home/log")"
+check "an agent's sessions are logged" yes "$(yes_if grep -qF 'sessions listening on agent:mac-a: zeta (sess0001), Alpha (sess0002)' "$home/log")"
+check "said again unchanged, they aren't logged again" 1 "$(grep -cF 'sessions listening on agent:mac-b: alpha (sess0003)' "$home/log")"
+check "a dropped agent is logged" yes "$(yes_if grep -qE 'sessions listening on agent:mac-a: dropped, not heard from since [0-9:]{8}' "$home/log")"
 
 # The hold switch: work hours set it at their edges, on hold when they end and taking calls
 # when they start, and the phone sets it in between (/hold). A call is held while every phone
@@ -316,5 +324,7 @@ fi
 if [ $fails -gt 0 ]; then
     echo "--- hub log"
     cat "$home/log"
+    echo "--- stand-ins"
+    cat "$home/standin.log"
     exit 1
 fi

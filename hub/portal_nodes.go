@@ -139,8 +139,7 @@ var (
 	callNotes   = map[string]callNote{}
 )
 
-// noteCall keeps what a call is about, as an agent places it (or a request to /call), or the
-// phone calls a session.
+// noteCall keeps what a call is about, as an agent places it, or the phone calls a session.
 func noteCall(callID, project, subject string) {
 	if project != "" {
 		keepNote(callID, func(n *callNote) { n.project, n.subject = project, subject })

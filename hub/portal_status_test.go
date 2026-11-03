@@ -77,7 +77,7 @@ func TestHoldEveryPhone(t *testing.T) {
 	stateMu.Lock()
 	devices := loadDevices()
 	answer, _ := holdSwitch(map[string]any{"token": "phone-token-2"})
-	placed, _ := call(map[string]any{"project": "infra", "voice": "http://127.0.0.1:1", "call_id": "rings-not-0000000001"})
+	placed, _ := placeCall("test-mac", map[string]any{"project": "infra", "call_id": "rings-not-0000000001"})
 	stateMu.Unlock()
 	for token, d := range devices {
 		if d["hold"] != "yes" || d["hold_set"] == "" {
@@ -276,6 +276,54 @@ func TestTakingCallsAsksAgain(t *testing.T) {
 			}
 			return
 		}
+	}
+}
+
+// An agent's call that rings gets a reply of its own: the shared ok, which the phone's
+// endpoints answer with, isn't written into.
+func TestPlaceRepliesWithItsOwnMap(t *testing.T) {
+	os.Remove(waitingPath)
+	defer os.Remove(waitingPath)
+	registerPhone(t, "place-1", "iPhone", "yes") // it speaks itself, so the call rings
+	defer os.Remove(devicesPath)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		acceptLink(w, r, "agent", agentOpened, fromAgent, func(*link, []byte) {}, agentClosed)
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	ws, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/agent",
+		&websocket.DialOptions{HTTPHeader: http.Header{"Authorization": {"Bearer agent-secret-5678"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.CloseNow()
+	for _, message := range []map[string]any{
+		{"type": "hello", "version": 1, "name": "studio"},
+		{"type": "place", "id": 1, "call_id": "place-own-map-000001", "project": "demo"},
+	} {
+		data, _ := json.Marshal(message)
+		if err := ws.Write(ctx, websocket.MessageText, data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for {
+		_, data, err := ws.Read(ctx)
+		if err != nil {
+			t.Fatalf("no reply to the place: %v", err)
+		}
+		if strings.Contains(string(data), `"reply"`) {
+			if !strings.Contains(string(data), `"ok":true`) || strings.Contains(string(data), "held") {
+				t.Errorf("the reply: %s", data)
+			}
+			break
+		}
+	}
+	stateMu.Lock()
+	shared, _ := json.Marshal(ok)
+	stateMu.Unlock()
+	if string(shared) != `{"ok":true}` {
+		t.Errorf("the phone's endpoints would answer %s", shared)
 	}
 }
 

@@ -21,15 +21,14 @@ var (
 type endpoint func(body map[string]any) (map[string]any, error)
 
 // serve answers the phone over Nebula (/register, /events, /check, /waiting, /contacts,
-// /hold), and /call and /sessions, which place a call and list sessions over HTTP without a
-// token (the smoke test uses them; an agent does both over its link). Requests are small and
-// rare, and are handled one at a time (stateMu); each gets at most 5 s, so a stalled
+// /hold), and the links the agents and the speech nodes open. The phone's requests are small
+// and rare, and are handled one at a time (stateMu); each gets at most 5 s, so a stalled
 // connection can't hold the next one past the app's 10 s timeout. Meanwhile it asks the
 // phones to check their connection every 30 min.
 func serve(listen string) {
 	endpoints := map[string]endpoint{
-		"/register": register, "/events": event, "/check": checkIn, "/call": call, "/waiting": waiting,
-		"/sessions": sessions, "/contacts": contacts, "/hold": holdSwitch,
+		"/register": register, "/events": event, "/check": checkIn, "/waiting": waiting,
+		"/contacts": contacts, "/hold": holdSwitch,
 	}
 	listener, err := net.Listen("tcp4", listen)
 	if err != nil {
@@ -158,11 +157,11 @@ func register(body map[string]any) (map[string]any, error) {
 	return ok, nil
 }
 
-// call: an agent (its `place`, over its link) or a request to /call asks to ring the phone
-// for one of its sessions, naming where the phone sends the call's audio (voice: the hub, for
-// an agent's call). The call ID is that call's secret: the agent accepts only an offer that
-// carries it, and only the push takes it to the phone. The push goes out after the answer, so
-// a slow APNs doesn't hold up requests.
+// placeCall: an agent (its `place`, over its link) asks to ring the phone for one of its
+// sessions, on the Mac it names (mac). The phone sends the call's audio to the hub. The call ID
+// is that call's secret: the agent accepts only an offer that carries it, and only the push
+// takes it to the phone. The push goes out after the answer, so a slow APNs doesn't hold up
+// the agent.
 //
 // While every phone is on hold (Hold: outside its work hours, or you held calls in the app or
 // on the portal) nothing rings: the answer says so (held) and when the first comes off hold
@@ -172,18 +171,17 @@ func register(body map[string]any) (map[string]any, error) {
 // gets a notification, once for that call. It also names the calling session (session_id),
 // which goes to the phone with the call, so the app can call that session from Sessions once
 // the agent has forgotten the call.
-func call(body map[string]any) (map[string]any, error) {
-	project, voice, callID := str(body, "project"), str(body, "voice"), str(body, "call_id")
-	n := utf8.RuneCountInString(callID)
-	if project == "" || !(strings.HasPrefix(voice, "http://") || strings.HasPrefix(voice, "https://")) || n < 16 || n > 128 {
+func placeCall(mac string, body map[string]any) (map[string]any, error) {
+	project, callID := str(body, "project"), str(body, "call_id")
+	if n := utf8.RuneCountInString(callID); project == "" || n < 16 || n > 128 {
 		return nil, errBadRequest
 	}
-	subject, session := str(body, "subject"), str(body, "session_id")
+	voice, subject, session := hubURL(), str(body, "subject"), str(body, "session_id")
 	about := ""
 	if subject != "" {
 		about = ": " + subject
 	}
-	log("call " + prefix(callID, 8) + ": asked by " + voice + " for " + project + about)
+	log("call " + prefix(callID, 8) + ": asked by " + mac + " for " + project + about)
 	noteCall(callID, project, subject)
 	if held, until := heldUntil(now()); held {
 		question, _ := body["question"].(bool)
@@ -214,9 +212,9 @@ func call(body map[string]any) (map[string]any, error) {
 		}
 		return answer, nil
 	}
-	// A call the hub carries (an agent's) needs a speech node: without one it can't be
-	// talked through, so it waits instead of ringing, and asks again once a node links.
-	if voice == hubURL() && !speechLinked() && !phoneSpeaks() {
+	// A call needs a speech node, or a phone that speaks itself: without one it can't be talked
+	// through, so it waits instead of ringing, and asks again once there's one.
+	if !speechLinked() && !phoneSpeaks() {
 		question, _ := body["question"].(bool)
 		log("call " + prefix(callID, 8) + ": waits, no speech node is linked")
 		notify, err := holdCall(callID, project, subject, voice, "", question, session, "no speech")
@@ -246,7 +244,8 @@ func call(body map[string]any) (map[string]any, error) {
 			log(line)
 		}
 	}()
-	return ok, nil
+	// Its own map, not the shared ok: the agent's reply is written into it.
+	return map[string]any{"ok": true}, nil
 }
 
 // checkIn: the phone reached the hub on a connection check. Without a known token it still
@@ -395,27 +394,12 @@ func holdSwitch(body map[string]any) (map[string]any, error) {
 	return newHold(device, now()).answer(device), nil
 }
 
-// sessions: which sessions listen (ringback on), given over HTTP without a token, for the
-// phone's Sessions tab: {"voice": URL, "sessions": [...]}, each with its session_id and
-// project, and when it can, since when it listens (since) and its latest briefing's subject
-// and briefed_at. The list replaces the one given before under that URL; one not given again
-// within 90 s is dropped. An agent gives its sessions over its link instead (agents.go).
-func sessions(body map[string]any) (map[string]any, error) {
-	voice := str(body, "voice")
-	given, isList := body["sessions"].([]any)
-	if !(strings.HasPrefix(voice, "http://") || strings.HasPrefix(voice, "https://")) || !isList {
-		return nil, errBadRequest
-	}
-	_, err := keepSessions(voice, voice, given)
-	if err != nil {
-		return nil, err
-	}
-	return ok, nil
-}
-
-// keepSessions checks a list of sessions as /sessions takes it and keeps it under key, called
-// at voice, logging it when it changes.
-func keepSessions(key, voice string, given []any) ([]map[string]string, error) {
+// keepSessions checks the sessions an agent says listen (ringback on), for the phone's Sessions
+// tab: each with its session_id and project, and when it can, since when it listens (since)
+// and its latest briefing's subject and briefed_at. The list replaces the one the agent gave
+// before, kept under key; one not given again within 90 s is dropped. It's logged when it
+// changes.
+func keepSessions(key string, given []any) ([]map[string]string, error) {
 	listed := []map[string]string{}
 	var names []string
 	for _, item := range given {
@@ -436,7 +420,7 @@ func keepSessions(key, voice string, given []any) ([]map[string]string, error) {
 		listed = append(listed, kept)
 		names = append(names, project+" ("+prefix(id, 8)+")")
 	}
-	changed, err := updateContacts(key, voice, listed)
+	changed, err := updateContacts(key, listed)
 	if err != nil {
 		return nil, err
 	}

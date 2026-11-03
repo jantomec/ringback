@@ -28,9 +28,8 @@ without proof ("Security" in `docs/design.md`). Each request gets at most 5 s, o
 | `/ping` | `GET`: whether the hub can be reached, checked while the phone rings |
 | `/phone-speech` | a WebSocket, for a call the phone hears and speaks itself (the last section) |
 
-The hub also serves its portal (`/portal/`), and two endpoints that place a call and list
-sessions over plain HTTP, without a token: `/call` and `/sessions`. The hub's smoke test uses
-them.
+The hub also serves its portal (`/portal/`). Calls and sessions come only from the agents,
+over their links.
 
 ## The WebSocket links
 

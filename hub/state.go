@@ -315,10 +315,10 @@ func listWaiting() ([]map[string]any, error) {
 }
 
 // The sessions that listen on each Mac, for the app's Sessions tab: contacts.json in the
-// state folder, keyed by the agent that gave them (or the URL, for sessions given over
-// /sessions), with when it last said ("refreshed") and its sessions, each with its session
-// ID, project, and when it can, since when it listens and its latest briefing's subject and
-// time. Each says every 30 s; one not heard from for 90 s is dropped, as when its Mac sleeps.
+// state folder, keyed by the agent that gave them, with when it last said ("refreshed") and its
+// sessions, each with its session ID, project, and when it can, since when it listens and its
+// latest briefing's subject and time. Each says every 30 s; one not heard from for 90 s is
+// dropped, as when its Mac sleeps.
 var contactsPath = filepath.Join(stateDir, "contacts.json")
 
 // contactsStale is how long after an agent last said that its sessions are dropped;
@@ -328,9 +328,6 @@ var contactsStale = envSeconds("RINGBACK_CONTACTS_STALE", 90)
 type contactsEntry struct {
 	Refreshed string              `json:"refreshed"`
 	Sessions  []map[string]string `json:"sessions"`
-	// Voice is the URL the phone calls these sessions at, when it isn't the key: an agent's
-	// sessions are kept under the agent, and called at the hub.
-	Voice string `json:"voice,omitempty"`
 }
 
 func loadContacts() map[string]contactsEntry {
@@ -339,31 +336,27 @@ func loadContacts() map[string]contactsEntry {
 	return all
 }
 
-// freshContacts are the agents (and /sessions callers) heard from within contactsStale; the
-// log says which are dropped.
+// freshContacts are the agents heard from within contactsStale; the log says which are
+// dropped.
 func freshContacts() map[string]contactsEntry {
 	all := loadContacts()
-	for voice, entry := range all {
+	for key, entry := range all {
 		refreshed, ok := parseISO8601(entry.Refreshed)
 		if ok && now().Sub(refreshed) <= contactsStale {
 			continue
 		}
-		log("sessions listening on " + voice + ": dropped, not heard from since " + timeOfDay(refreshed.Local()))
-		delete(all, voice)
+		log("sessions listening on " + key + ": dropped, not heard from since " + timeOfDay(refreshed.Local()))
+		delete(all, key)
 	}
 	return all
 }
 
-// updateContacts keeps an agent's sessions now (key), or those given over /sessions,
-// replacing those it gave before, called at voice; true if they changed.
-func updateContacts(key, voice string, sessions []map[string]string) (bool, error) {
+// updateContacts keeps an agent's sessions now (key), replacing those it gave before; true if
+// they changed.
+func updateContacts(key string, sessions []map[string]string) (bool, error) {
 	all := freshContacts()
 	before, had := all[key]
-	entry := contactsEntry{Refreshed: isoNow(), Sessions: sessions}
-	if voice != key {
-		entry.Voice = voice
-	}
-	all[key] = entry
+	all[key] = contactsEntry{Refreshed: isoNow(), Sessions: sessions}
 	if err := writeJSON(contactsPath, all); err != nil {
 		return false, err
 	}
@@ -376,7 +369,7 @@ func updateContacts(key, voice string, sessions []map[string]string) (bool, erro
 }
 
 // listContacts are every fresh agent's sessions, by project, then since when they listen,
-// each with the URL the phone calls it at; stale ones are dropped.
+// each with the URL the phone calls it at, the hub's; stale ones are dropped.
 func listContacts() ([]map[string]string, error) {
 	all := freshContacts()
 	if len(all) != len(loadContacts()) {
@@ -385,8 +378,8 @@ func listContacts() ([]map[string]string, error) {
 		}
 	}
 	listed := []map[string]string{}
-	for key, entry := range all {
-		voice := orDefault(entry.Voice, key)
+	voice := hubURL()
+	for _, entry := range all {
 		for _, session := range entry.Sessions {
 			item := map[string]string{"voice": voice}
 			for k, v := range session {

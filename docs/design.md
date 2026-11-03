@@ -449,12 +449,11 @@ The private network is the outer wall: anything on it can reach the hub. Inside 
   characters, and it reaches the phone through Apple's push. The hub accepts an offer only
   for a call the agent that owns it knows. A session's ID is a secret of the same kind: with
   it, a call to that session can pass it messages, which it takes as prompts.
-- **Three endpoints let anything on the private network in without a token.** The hub lists
-  the IDs of waiting calls and sessions (`/waiting`, `/contacts`) only for a registered phone,
-  named by its push token, but `/register` takes any token without proof, so anything can
-  register one and read them. `/call` rings every phone for any project, with the call's
-  audio sent to whatever URL the request names, and `/sessions` adds sessions to the app's
-  list (Limits and risks).
+- **Calls and sessions come only from agents,** over their links, with the agent token.
+- **A phone registers without proof.** The hub lists the IDs of waiting calls and sessions
+  (`/waiting`, `/contacts`) only for a registered phone, named by its push token, but
+  `/register` takes any token, so anything on the private network can register one and read
+  them (Limits and risks).
 - **The portal** has one account, made on the hub's machine (`ringback-hub portal-user NAME`):
   a password of at least 10 characters, hashed with PBKDF2-SHA256 at 600,000 iterations and
   a random salt, then a one-time passcode from an authenticator app (TOTP, RFC 6238: 6 digits,
@@ -595,11 +594,10 @@ with a certificate, or a private certificate authority installed on each device 
 
 ## Limits and risks
 
-- **Anything on the private network can ring you** (to be fixed, Next), through the hub's
-  `/call`, which takes no token and names where the call's audio goes; add to the app's
-  Sessions through `/sessions`; and, by registering a made-up push token, read the IDs of the
-  waiting calls and the sessions, and with a session's ID call it and pass it prompts
-  (Security). The private network is the only wall: keep it to your own devices.
+- **Anything on the private network can read your calls' and sessions' IDs** (to be fixed,
+  Next): by registering a made-up push token, it can read the IDs of the waiting calls and the
+  sessions, and with a session's ID call it and pass it prompts (Security). The private network
+  is the only wall: keep it to your own devices.
 - **Calls don't queue or retry.** Two sessions calling at once both ring, and a call you
   don't answer is forgotten after 90 s with only a note to its session (Next).
 - **The phone's tunnel can stop receiving.** On one Wi-Fi network (2026-11-03), for over two
@@ -669,10 +667,11 @@ current code, and what has only been checked offline.
   ringing as call waiting during another call, a call recorded as ended when the app is
   closed mid-call, the call screens.
 
-**Built, checked offline only** (Go tests in each part, `hub/smoke-test.sh`, `tools/hub-check`
-with a stand-in phone, agent and node, `tools/session-check` with a real session, agent and
-hub, `tools/line-check` with the real hub, agent and node and a stand-in phone, `claude plugin test mod`, `tools/app-screens` and `tools/portal-screens`
-for how things look):
+**Built, checked offline only** (Go tests in each part, `hub/smoke-test.sh` with stand-in
+agents and node, `tools/hub-check` with a stand-in phone, agent and node, `tools/session-check`
+with a real session, agent and hub, `tools/line-check` with the real hub, agent and node and a
+stand-in phone, `claude plugin test mod`, `tools/app-screens` and `tools/portal-screens` for
+how things look):
 - a real Claude Code session calling through the mod and the agent, and its answer coming
   back to the call;
 - held calls, work hours, and the hold set from the app's pill or Control Center, or put on
@@ -691,10 +690,10 @@ for how things look):
 ## Next
 
 The to-do list, roughly in order; the README lists it too, one line an item. The four from
-closing the hub's open endpoints go together, toward a hub someone hosts for others, so that each of them installs
-only the iPhone app and the Mac client: a hub on the internet needs its open endpoints closed
-and its parts paired, several users on one hub need both, and they'd want the host unable to
-read their calls.
+a phone proving it's yours go together, toward a hub someone hosts for others, so that each
+of them installs only the iPhone app and the Mac client: a hub on the internet needs its
+phones and other parts paired, several users on one hub need that too, and they'd want the
+host unable to read their calls.
 
 - [ ] **Try on the phone what's only been checked offline** (Status): a session calling and
   its answer coming back, asks, held calls and the hold switch, call backs and Sessions, Opus,
@@ -706,11 +705,10 @@ read their calls.
   can't be reached, as the connection check says, or the error.
 - [ ] **Find why the phone's tunnel stops receiving the hub's packets on some Wi-Fi** (Limits
   and risks).
-- [ ] **Close the hub's open endpoints** (to be fixed; Limits and risks). Take out `/call` and
-  `/sessions` (only the smoke test uses them, and a call held there isn't asked about again
-  when you take calls), placing the smoke test's calls through a stand-in agent instead, and make a
-  phone prove it's yours before `/register` takes its token, so the IDs of waiting calls and
-  sessions go only to your phones.
+- [ ] **A phone proves it's yours before the hub takes its push token** (to be fixed; Limits
+  and risks). `/register` takes any token, so anything on the private network can register one
+  and read the IDs of the waiting calls and the sessions; a phone should pair with the hub
+  first, so they go only to your phones.
 - [ ] **A public hub,** so no private network is needed: HTTPS and WSS with a certificate for a
   domain name; the phone, the Macs and the speech nodes paired with the hub (a one-time code
   from the portal) instead of trusting the network; the call's audio on the public address
