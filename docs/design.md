@@ -660,8 +660,8 @@ current code, and what has only been checked offline.
   closed mid-call, the call screens.
 
 **Built, checked offline only** (Go tests in each part, `hub/smoke-test.sh`, `tools/hub-check`
-with a stand-in phone, agent and node, `tools/line-check` with the real hub, agent and node
-and a stand-in phone, `claude plugin test mod`, `tools/app-screens` and `tools/portal-screens`
+with a stand-in phone, agent and node, `tools/session-check` with a real session, agent and
+hub, `tools/line-check` with the real hub, agent and node and a stand-in phone, `claude plugin test mod`, `tools/app-screens` and `tools/portal-screens`
 for how things look):
 - a real Claude Code session calling through the mod and the agent, and its answer coming
   back to the call;

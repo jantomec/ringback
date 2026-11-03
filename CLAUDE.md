@@ -36,8 +36,9 @@ On-device Voice in a real call, and restarts. The full list is under "Status" in
 `docs/design.md`; known problems left until testers report them are under "Limits and risks".
 
 Before calling the phone, try a change offline: `tools/hub-check` for the hub's side of a
-call, `tools/line-check` for a whole call through the real hub, agent and speech node with a
-stand-in phone.
+call, `tools/session-check` for a real Claude Code session placing its calls through the mod,
+agent and hub, and `tools/line-check` for a whole call through the real hub, agent and speech
+node with a stand-in phone.
 
 ## Checks
 
