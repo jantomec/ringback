@@ -7,7 +7,7 @@ the app on your phone:
 | Part | Runs on | Does |
 |---|---|---|
 | **hub** | one always-on Mac, Intel or Apple silicon | rings the phone (APNs), keeps the calls that wait, and carries each call's audio |
-| **speech node** | a Linux machine with an NVIDIA GPU | hears you (Silero, Smart Turn, Parakeet) and speaks (Kokoro), for the hub |
+| **speech node** (optional) | a Linux machine with an NVIDIA GPU | hears you (Silero, Smart Turn, Parakeet) and speaks (Kokoro), for the hub; without one, the phone can hear and speak calls itself |
 | **agent** | each Mac that runs Claude Code sessions | the sessions' side: their briefings and questions, and the call's Haiku and Opus through Claude Code |
 | **mod** | each Claude Code session | adds `/ringback`, and hands the agent the session's briefings |
 | **app** | your iPhone | rings like a phone call, and lists your calls and sessions |
@@ -26,12 +26,12 @@ say where else. Replace the example addresses (`10.0.0.1` for the hub) with your
 - **An iPhone** on iOS 26 or later.
 - **An always-on Mac** for the hub, Intel or Apple silicon, on macOS 13 or later. It needs
   nothing installed.
-- **A Linux machine with an NVIDIA GPU** for the speech node: x86-64, a GPU from the Turing
-  generation (2018) or later, and a driver of the 580 series or later, for CUDA 13 (it's
-  tried on 610). A call takes 3–3.5 GB of its GPU memory and 3 GB of RAM; between calls it
-  takes 16 MB and no GPU memory. Its install takes 4 GB of disk. While it runs, it also holds
-  its downloads (2.7 GB) and their unpacked files until each part is in place, so keep about
-  10 GB free (the peak isn't measured).
+- **A Linux machine with an NVIDIA GPU** for the speech node, if you want one (step 4):
+  x86-64, a GPU from the Turing generation (2018) or later, and a driver of the 580 series or
+  later, for CUDA 13 (it's tried on 610). A call takes 3–3.5 GB of its GPU memory and 3 GB of
+  RAM; between calls it takes 16 MB and no GPU memory. Its install takes 4 GB of disk. While
+  it runs, it also holds its downloads (2.7 GB) and their unpacked files until each part is in
+  place, so keep about 10 GB free (the peak isn't measured).
 - **Claude Code** on each Mac that runs sessions, version 2.1.287 or later, signed in to a
   Claude subscription that includes Opus: the voice is Haiku through `claude`, and Opus when
   you ask for a better model on the line.
@@ -39,7 +39,7 @@ say where else. Replace the example addresses (`10.0.0.1` for the hub) with your
   phone also on mobile data. Ringback is tested on **Nebula** (Mobile Nebula on the phone):
   - the lighthouse is a relay (`relay.am_relay: true`), and each machine lists it in
     `relay.relays`: on mobile data, the phone reaches the hub only through that relay (see
-    `docs/design.md`, Stage 0);
+    "The network" in `docs/design.md`);
   - the hub's Nebula firewall lets in the phone, on the hub's port (8787 in the examples, and
     the app's default) and on any UDP port, for the call's audio, and the speech node and the
     Macs on its port.
@@ -67,7 +67,8 @@ scp AuthKey_XYZ9876543.p8 always-on-mac:.config/ringback/   # your APNs key, fro
 
 On the always-on Mac, fill in `~/.config/ringback/hub.toml`:
 - `listen` is the hub's address on your private network, such as its Nebula address, and its
-  port, which it needs: 8787 is the app's default. It listens only there. The call's audio uses the same address, on UDP ports it picks.
+  port, which it needs: 8787 is the app's default. It listens only there. The call's audio
+  uses the same address, on UDP ports it picks.
 - `[tokens]` are what the speech node and the agents link with: make each a long random
   string, such as `openssl rand -hex 32` prints.
 - `[apns]` is your team ID, the app's bundle ID, and the key.
@@ -127,7 +128,29 @@ login, nothing starts after a reboot until someone logs in, not even Nebula.
 ## 3. The hub's portal
 
 The hub serves a few pages, for setting up and for the rare times something's wrong, at
-`http://10.0.0.1:8787/portal/` (its `listen` address). **Status** starts with a map of the
+`http://10.0.0.1:8787/portal/` (its `listen` address). Signing in takes a user name and
+password, then a passcode from an authenticator app (6 digits, a new one every 30 s), such as
+the Passwords app on the iPhone. Make the account on the always-on Mac, in its own terminal:
+
+```sh
+~/.local/bin/ringback-hub portal-user yourname
+```
+
+It asks for a password twice (at least 10 characters), without showing it, and prints an
+`otpauth://` link and a setup key: add either to your authenticator app, then type the passcode
+the app shows. It keeps the account only once a passcode matches. Running it again replaces the
+account and signs everyone out. The account is kept in `portal-user.json` in the state folder,
+readable only by you: the password hashed (PBKDF2-SHA256, 600,000 iterations) and the
+passcodes' secret. Until there's an account, the portal shows only how to make one.
+- A sign-in lasts until it's gone unused for 12 h (the pages' own refreshes don't count) or the
+  hub restarts.
+- After five failed sign-ins from an address, the portal refuses that address for a minute;
+  the log shows each failure.
+- Each passcode works once.
+- Like the rest of the hub, the portal is plain HTTP inside your private network, so anything
+  on that network can reach it, which is why it asks for a passcode too.
+
+**Status** starts with a map of the
 system: your Macs, the hub, the speech nodes, Apple push and the phones, and the links between
 them, each working, a problem, gone or not set up. A part you haven't set up yet is drawn
 dashed, with a link to its place on Setup; a Mac that's asleep is drawn faint, which is
@@ -153,13 +176,22 @@ every page's bar shows it: hold calls and nothing rings, not through a speech no
 the phone's own voice; they wait until you take calls. It's the app's hold switch, set on every
 phone at once, so the app shows it too; and as in the app, your work hours set it at their
 edges, so with work hours a hold lasts until they next start, and the page says so. A phone
-that registers while you've held every other (in the app or here) starts on hold too. A speech node or Mac that's
-gone for good can be **forgotten** on Status: the hub remembers the ones it has seen in
-`seen.json` in the state folder, with whether each is linked, to tell one that's gone from one
-never set up; one linked when the hub stopped counts as gone since the hub started again.
+that registers while you've held every other (in the app or here) starts on hold too. A speech
+node or Mac that's gone for good can be **forgotten** on Status: the hub remembers the ones it
+has seen in `seen.json` in the state folder, with whether each is linked, to tell one that's
+gone from one never set up; one linked when the hub stopped counts as gone since the hub
+started again.
 Tokens and addresses stay in `hub.toml`, which the portal never changes.
 
 ## 4. The speech node (the Linux machine with the GPU)
+
+This step is optional. Without a speech node, turn on **On-device Voice** in the app's
+settings (step 7): the phone then hears and speaks calls itself, with Apple's speech
+recognition and voices, and only text goes between it and the hub. It gets more of your words
+wrong than the speech node (about 10% against 6% on the recordings in `tools/stt-eval`; see
+`tools/speech-trial`), and it's built but not yet tried on a real call. With neither, calls
+wait until there's one, then ring. A speech node, once linked, is used before the phone's own
+voice.
 
 With a copy of this repository on that machine:
 
@@ -341,6 +373,10 @@ The same page has the rest:
 - **Ignore Background Noise** (on by default) keeps quieter voices and sounds than yours,
   such as people nearby, from stopping it; its slider is gentle to the left and strong to the
   right. These two apply from the next call.
+- **On-device Voice** (off by default): when no speech node is linked, the phone hears and
+  speaks calls itself (step 4). It speaks with the best English voice on the phone; better
+  ones can be downloaded in Accessibility settings. It reaches the hub when the app next
+  opens.
 
 During your first call, turn on Voice Isolation in Control Center (Mic Mode), so background
 noise doesn't stop it.
@@ -355,9 +391,10 @@ Remote Control on in the session); the call then never rings.
 
 When something calls need is down, a banner at the top of Recents says what, most serious
 first, with the others a tap away: the hub can't be reached, Apple refused the hub's push,
-the speech node isn't linked (the app calls it the speech computer; calls then wait instead of
-ringing, and ring once it's back), or the microphone is off. Notifications are for a warning when the phone can't reach the hub,
-for a waiting call's question, and for a call waiting for the speech node.
+the speech node isn't linked (the app calls it the speech computer; unless On-device Voice
+is on, calls then wait instead of ringing, and ring once it's back), or the microphone is off.
+Notifications are for a warning when the phone can't reach the hub, for a waiting call's
+question, and for a call waiting for the speech node.
 
 The pill beside the tabs is the **hold switch**. Press pause and every call waits, listed under
 Waiting; press play and they ring. With work hours on, it goes on hold when they end and
@@ -388,30 +425,17 @@ agent's log shows Haiku's side.
 
 ## 9. Checking without the phone
 
-These need uv (`brew install uv`); they run in the earlier stack's Python environment, which
-uv sets up the first time (about 1.7 GB).
+These need uv (`brew install uv`); they run in the tools' Python environment
+(`tools/pyproject.toml`), which uv sets up the first time (about 1.3 GB).
 - **A whole call:** a hub and an agent started on this Mac, your speech node started over ssh
   and linked to them, and a stand-in phone, which answers, says something and hangs up; it
   checks that you're heard and answered (about 45 s, one Haiku session). `--listen` is this
   Mac's address that the node reaches, with a free port, and `--node` the node's ssh host:
 
-      uv run --project voice tools/line-check/line_check.py --listen 10.0.0.2:18840 --node speech-host
+      uv run --project tools tools/line-check/line_check.py --listen 10.0.0.2:18840 --node speech-host
 
 - **The hub's side of calls,** with stand-ins for everything around it (about 10 s):
 
-      (cd hub && go build -o build/ringback-hub .) && uv run --project voice tools/hub-check/hub_check.py
+      (cd hub && go build -o build/ringback-hub .) && uv run --project tools tools/hub-check/hub_check.py
 
 - **The speech node,** on the node (step 4): `speech/check.sh` (about 2.5 min).
-
-## Coming from the earlier stack
-
-Before the hub, a Python voice server on each Mac did the speech and the sessions' side, and a
-Swift switchboard rang the phone. To move:
-- **The hub replaces the switchboard,** with its state as it is. Stop the switchboard first:
-  both listen on the same address. The hub reads `~/.config/ringback/switchboard.toml` while
-  there's no `hub.toml`; add `[tokens]` to it.
-- **The agent replaces each Mac's voice server,** on the same socket, and reads the voice
-  server's `voice-state.json`. Stop the voice server first (`launchctl bootout
-  gui/$(id -u)/ringback.voice` if it runs as a launchd agent).
-- **The mod and the app stay as they are.** An app from before calls the hub's address
-  "Switchboard" in its settings, and shows no banner for the speech node.

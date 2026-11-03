@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-WORK = "Say in one sentence that the session check works."  # as in tools/session-check
+WORK = "Say in one sentence that the session check works."
 SOCKET = "socketPath: `${await $.env.get('HOME')}/.local/state/ringback/voice.sock`"
 ABOUT_THE_CALL = re.compile(r"\b(phone|reach\w*|ring\w*|calls?)\b", re.IGNORECASE)
 

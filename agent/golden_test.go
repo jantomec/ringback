@@ -10,7 +10,7 @@ import (
 	"unicode/utf8"
 )
 
-// The voice server's answers for sample inputs, made by testdata/golden.py.
+// The expected answers for sample inputs (testdata/golden.json).
 type goldenData struct {
 	Outcomes []struct {
 		Name, Subject, Text          string
@@ -223,10 +223,9 @@ func TestGoldenTexts(t *testing.T) {
 	}
 }
 
-// TestGoldenReplies runs Haiku's replies through the voice as the voice server's language-model
-// service ran them (testdata/golden.py, REPLIES): what's spoken, what the tools answer, how
-// many words of the reply you must hear before what's held goes, and the notes when you cut
-// the voice off after each word.
+// TestGoldenReplies runs sample replies from Haiku through the voice (testdata/golden.json):
+// what's spoken, what the tools answer, how many words of the reply you must hear before
+// what's held goes, and the notes when you cut the voice off after each word.
 func TestGoldenReplies(t *testing.T) {
 	g := loadGolden(t)
 	var data struct {

@@ -68,7 +68,7 @@ every frame. It prints each one's range and period, and how far the background l
 their correlation and its share of the pill's swing (the wash should beat with the pill, at the
 same period and phase, faintly). Needs the voice project's Python:
 
-    uv run --project voice tools/app-screens/breath_check.py [SECONDS] [--keep VIDEO]
+    uv run --project tools tools/app-screens/breath_check.py [SECONDS] [--keep VIDEO]
 
 Result on 2026-11-02 (iPhone 17 Pro simulator, 12 s, 20 s in all): above the pill, blue 0–76,
 period 4.47 s; mid-screen 2–31, 4.50 s, 0.00 s behind, correlation 0.99, 37% of the swing; the

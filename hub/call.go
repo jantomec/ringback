@@ -102,7 +102,7 @@ func newCall(id string, offer string, ringing bool, sensitivity, gate float64, a
 	}
 	settings.SetNetworkTypes([]webrtc.NetworkType{webrtc.NetworkTypeUDP4})
 	// Patient with a slow network: a call on 3G or worse lost its consent checks with
-	// shorter limits (tools/ice-check).
+	// shorter limits.
 	settings.SetICETimeouts(15*time.Second, 30*time.Second, 2*time.Second)
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(engine), webrtc.WithSettingEngine(settings))
 	pc, err := api.NewPeerConnection(webrtc.Configuration{})

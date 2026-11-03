@@ -24,7 +24,7 @@ answer. It uses your Claude subscription (one Haiku session).
 
 Run from the repo root, with Go installed here and the node set up as in `speech/README.md`:
 
-    uv run --project voice tools/line-check/line_check.py --listen ADDR --node HOST \
+    uv run --project tools tools/line-check/line_check.py --listen ADDR --node HOST \
         [--node-dir DIR] [--ring S] [--keep DIR]
 
 - `--listen` is where the hub listens: this Mac's address on the network the node reaches

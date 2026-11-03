@@ -28,7 +28,7 @@ func placesFor(hub *fakeHub, callID string) int {
 }
 
 // What a session asks with no call: it places one, asks share it, a call you don't answer
-// leaves them pending, and the next call you answer asks them (as tools/ask-check does).
+// leaves them pending, and the next call you answer asks them.
 func TestAsksWithoutACall(t *testing.T) {
 	withTimes(t, 1500*time.Millisecond, time.Minute)
 	hub := newFakeHub(t)

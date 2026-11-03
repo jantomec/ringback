@@ -1,16 +1,16 @@
 # ringback-speech
 
-The speech node of the Go port ("Moving to one hub, in Go" in `docs/design.md`): it dials
-out to the hub over a WebSocket (`docs/protocol.md`, "The speech node") and does all the
-hearing and speaking for calls, natively on a machine with a GPU (or a CPU):
+Ringback's speech node ("The parts" in `docs/design.md`): it dials out to the hub over a
+WebSocket (`docs/protocol.md`, "The speech node") and does all the hearing and speaking for
+calls, natively on a machine with a GPU (or a CPU):
 
 - **Hearing**, per stream: Silero VAD v5 and Smart Turn v3.2 through ONNX Runtime's C API,
   Parakeet TDT 0.6B v2 through sherpa-onnx. It decides "speech started", "speech stopped"
-  and "turn" as the Python voice does with Pipecat: the same thresholds from the app's
-  sensitivity and background filter (`voice/ringback_voice/hearing.py`), the same volume gate
-  (BS.1770 loudness of the last 400 ms), the same state machine and model resets, Smart Turn
-  on the same Whisper features, and the turn wait (1.5 s). One transcription per stretch of
-  speech, with 1 s before it and 0.5 s of silence after, as Pipecat's segmented STT.
+  and "turn" as Pipecat 1.14.0 does: the same thresholds from the app's sensitivity and
+  background filter (`internal/hearing/params.go`), the same volume gate (BS.1770 loudness of
+  the last 400 ms), the same state machine and model resets, Smart Turn on the same Whisper
+  features, and the turn wait (1.5 s). One transcription per stretch of speech, with 1 s
+  before it and 0.5 s of silence after, as Pipecat's segmented STT.
 - **Speaking**: Kokoro v1.0 `af_heart` through sherpa-onnx, a chunk (about a sentence) at a
   time, each sent as soon as it's made.
 - One GPU worker: your words go before speech, and speech goes a chunk at a time, so your
@@ -49,8 +49,8 @@ the same lexicon, numbers read out ("142" one hundred forty two, "2026" twenty t
 "3.14", "1st", "42%", "$5", "12:30", "2.0.1", "500ms" five hundred milliseconds),
 identifiers split ("voice_server.py" voice server dot pie, "camelCase", "macOS"), short
 acronyms spelled ("GPU"), word forms by misaki's rules ("milliseconds"), "the", "a" and "to"
-by context, and any other word through espeak-ng, mapped to Kokoro's phonemes as the Python
-voice's misaki does. Without espeak-ng such words are split into known words or spelled.
+by context, and any other word through espeak-ng, mapped to Kokoro's phonemes as misaki
+(Kokoro's own front end) does. Without espeak-ng such words are split into known words or spelled.
 
 ## Install
 
@@ -94,7 +94,7 @@ Everything lives in that one folder, nothing outside it:
 | `models/smart-turn-v3.2-cpu.onnx` | 8 MB | Smart Turn v3.2, the file Pipecat 1.14.0 ships, from its wheel (Hugging Face `pipecat-ai/smart-turn-v3`) |
 | `models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-fp16/` | 1.2 GB | Parakeet, from sherpa-onnx's asr-models release (fp16 for a GPU; on a CPU the int8 one is faster, which `install.sh` doesn't fetch) |
 | `models/kokoro-multi-lang-v1_0/` | 384 MB | Kokoro, from sherpa-onnx's tts-models release |
-| `espeak-ng/` | 3 MB | `lib/libespeak-ng.so.1` and `espeak-ng-data/` (only `en_dict`, `phon*`, `intonations`, `lang/`, `voices/`), from the `espeakng-loader` 0.2.4 wheel, as the Python voice uses; optional |
+| `espeak-ng/` | 3 MB | `lib/libespeak-ng.so.1` and `espeak-ng-data/` (only `en_dict`, `phon*`, `intonations`, `lang/`, `voices/`), from the `espeakng-loader` 0.2.4 wheel, as misaki uses; optional |
 | `go/` | 283 MB | Go 1.27.3, if there's no Go on PATH as recent as `go.mod` asks; `build.sh` puts Go's caches in `gopath/` and `gocache/` (read-only: `chmod -R u+w gopath` before deleting it) |
 | `env.sh` | | sets `LD_LIBRARY_PATH` to `sherpa-onnx/lib` and `lib`: source it before running |
 | `speech.toml` | | the settings, copied from `speech.example.toml` if there are none: set `hub` and `token` |
@@ -153,8 +153,8 @@ The pure Go parts have tests that run anywhere (`go test ./internal/hearing
 every word of sentences sherpa-onnx dropped words from gets sounds.
 `internal/hearing/parity_test.go` (build tag `parity`, on the speech node) compares the
 voice-activity states, frame by frame, and Smart Turn's verdict with Pipecat's own, from
-reference values made with the Python voice's environment (`RINGBACK_HEARING_REF`; the
-script that makes them isn't in the repo).
+reference values made with Pipecat 1.14.0 (`RINGBACK_HEARING_REF`; the script that makes them
+isn't in the repo).
 
 ## Measured (2026-11-02, the speech node: one NVIDIA GPU, CUDA)
 

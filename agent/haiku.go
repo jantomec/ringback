@@ -13,11 +13,11 @@ package main
 // call for a session also pass_to_session, answer_permission and answer_question. The call's
 // voice takes the tool calls from your first words on. One made in the opening does nothing:
 // you haven't said anything yet. Once, writing its opening while the phone rang, Haiku passed
-// a message nobody had said (tools/phone-check).
+// a message nobody had said.
 //
 // A better model: the session is kept on disk under a known ID, so Opus can take the call
-// over by resuming it (`--resume`), with the whole conversation, tool calls included
-// (tools/handover-check). Claude Code keeps it under ~/.claude/projects, in a folder named
+// over by resuming it (`--resume`), with the whole conversation, tool calls included.
+// Claude Code keeps it under ~/.claude/projects, in a folder named
 // for the working directory, which is the call's own. That folder is deleted when the
 // session closes, so calls don't pile up there or show in /resume.
 

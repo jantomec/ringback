@@ -50,7 +50,7 @@ which Chrome would draw where the window's bottom was when the capture began;
 Needs Google Chrome, Go, and the voice project's Python (for `aiohttp` and the stand-in
 phone). Run from the repo root (about 2.5 min):
 
-    uv run --project voice tools/portal-screens/portal_screens.py [OUT_DIR] [--only working,on-hold]
+    uv run --project tools tools/portal-screens/portal_screens.py [OUT_DIR] [--only working,on-hold]
 
 `OUT_DIR` is a new temporary folder by default; the throwaway hubs' state and logs are in its
 `state/`. The screenshots are named `status-<state>-<desktop|phone>-<light|dark>.png`,

@@ -19,7 +19,7 @@ type VADParams struct {
 	MinVolume  float64 // how loud speech must be, 0 to 1 for -110 to -10 LUFS
 }
 
-// The app's defaults (voice/ringback_voice/hearing.py).
+// The defaults, which the app's settings start at.
 const (
 	DefaultSensitivity = 0.5
 	DefaultGate        = 0.5

@@ -182,7 +182,7 @@ onnxruntime() {
     mv "$S/x/$a" "$S/out"
 }
 
-# Silero VAD v5 and Smart Turn v3.2: the files Pipecat 1.14.0 ships, as the Python voice uses
+# Silero VAD v5 and Smart Turn v3.2: the files Pipecat 1.14.0 ships
 pipecat=$pypi/38/31/29c72ca8d3a16b59fd12580fcb99a7cef641d9ee07fe7b0321c1b65ca3cf/pipecat_ai-1.14.0-py3-none-any.whl
 pipecat_sum=0352f504b44e78bdf524e45af4bc759601c835b9b7dc195efe5e03384b974a44
 silero() {
@@ -213,7 +213,7 @@ kokoro() {
     mv "$S/x/$a" "$S/out"
 }
 
-# espeak-ng 1.52 from the espeakng-loader 0.2.4 wheel, as the Python voice's misaki: the
+# espeak-ng 1.52 from the espeakng-loader 0.2.4 wheel, as misaki uses it: the
 # library and the data English needs (en_dict, phon*, intonations, lang/, voices/)
 espeak() {
     w=$pypi/de/1e/25ec5ab07528c0fbb215a61800a38eca05c8a99445515a02d7fa5debcb32/espeakng_loader-0.2.4-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl

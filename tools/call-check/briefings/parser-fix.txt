@@ -1,8 +1,0 @@
-Subject: Parser fix ready to push
-
-The config parser crashed on files with empty lines between sections. I fixed it in
-parser.py by skipping blank lines before a section header, and added two tests for it. All
-142 tests pass, which took 38 seconds. The fix is on my local branch fix-parser, not pushed
-yet.
-
-I'm waiting on one thing: shall I push fix-parser and open a pull request?

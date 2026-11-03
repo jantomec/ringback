@@ -1,9 +1,9 @@
 """Checks the Go hub's side of a call with stand-ins for everything around it: the phone
-(phone-check's, an aiortc peer as the app makes it), an agent and a speech node, each a
-WebSocket client speaking docs/protocol.md. It runs the hub built in hub/build, on localhost,
-with its config and state in a throwaway HOME. See README.md.
+(`tools/stand-in-phone`, an aiortc peer as the app makes it), an agent and a speech node,
+each a WebSocket client speaking docs/protocol.md. It runs the hub built in hub/build, on
+localhost, with its config and state in a throwaway HOME. See README.md.
 
-    uv run --project voice tools/hub-check/hub_check.py [--keep DIR]
+    uv run --project tools tools/hub-check/hub_check.py [--keep DIR]
 """
 
 import argparse
@@ -22,8 +22,8 @@ from pathlib import Path
 import aiohttp
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "phone-check"))
-import phone_check  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "stand-in-phone"))
+import stand_in_phone  # noqa: E402
 
 PORT = 18827
 HUB = f"127.0.0.1:{PORT}"
@@ -108,7 +108,7 @@ async def main() -> int:
     )
     log = home / "hub.log"
     hub = subprocess.Popen([*os.environ.get("RINGBACK_HUB_ARCH", "").split(), str(binary), "serve"], env=os.environ | {"HOME": str(home)}, stdout=log.open("w"), stderr=subprocess.STDOUT)
-    phone_check.VOICE = HUB
+    stand_in_phone.HUB = HUB
     agent, node = Link("agent"), Link("speech")
     try:
         await until(lambda: "hub listening" in log.read_text(), 5)
@@ -217,14 +217,14 @@ async def main() -> int:
         node.handle = lambda m: asyncio.create_task(node_handle(m)) if m["type"] == "speak" else node_handle(m)
 
         # A call the agent doesn't know is refused, as the voice server refused it.
-        stranger = phone_check.Phone()
+        stranger = stand_in_phone.Phone()
         status = await stranger.offer("unknown-" + secrets.token_hex(12), ringing=False)
         await stranger.hang_up()
         check(f"an offer for a call no agent owns is refused: {status}", status == 403)
 
         # A call answered at once: the voice is heard, your audio reaches the node.
         call_id = "known-" + secrets.token_hex(12)
-        phone = phone_check.Phone()
+        phone = stand_in_phone.Phone()
         t0 = time.monotonic()
         status = await phone.offer(call_id, ringing=False)
         check(f"an offer the agent accepts is answered: {status}", status == 200)

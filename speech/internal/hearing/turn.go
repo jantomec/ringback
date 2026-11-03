@@ -9,7 +9,7 @@ type TurnModel interface {
 }
 
 // TurnWait is how long a pause ends your turn even if Smart Turn thinks you haven't finished,
-// as it sometimes does with a short "mm-hmm" (TURN_WAIT in voice/ringback_voice/__main__.py).
+// as it sometimes does with a short "mm-hmm".
 const TurnWait = 1.5
 
 const (

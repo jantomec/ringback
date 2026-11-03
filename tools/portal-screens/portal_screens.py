@@ -5,7 +5,7 @@ links, a fake phone registered, calls placed and reported, signed in through hea
 (its DevTools protocol). Nothing reaches Apple: the pushes that would are avoided, or fail on a
 key that can't be read. See README.md.
 
-    uv run --project voice tools/portal-screens/portal_screens.py [OUT] [--only NAME,...]
+    uv run --project tools tools/portal-screens/portal_screens.py [OUT] [--only NAME,...]
 """
 
 import argparse
@@ -29,8 +29,8 @@ from pathlib import Path
 import aiohttp
 
 REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO / "tools" / "phone-check"))
-import phone_check  # noqa: E402
+sys.path.insert(0, str(REPO / "tools" / "stand-in-phone"))
+import stand_in_phone  # noqa: E402
 
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 BINARY = REPO / "hub" / "build" / "ringback-hub"
@@ -227,8 +227,8 @@ class Hub:
     async def live_call(self, session):
         """A call to a session, as from the app's Sessions tab: it rings no phone, so nothing
         pushes, and it's live once the stand-in agent accepts it."""
-        phone_check.VOICE = f"127.0.0.1:{self.port}"
-        caller = phone_check.Phone()
+        stand_in_phone.HUB = f"127.0.0.1:{self.port}"
+        caller = stand_in_phone.Phone()
         call_id = str(uuid.uuid4()).upper()  # as the app makes it
         status = await caller.offer(call_id, ringing=False, contact=session)
         if status != 200:
@@ -240,8 +240,8 @@ class Hub:
     async def ringing_call(self):
         """A call whose offer came while the phone rang, as the app makes it: not answered yet.
         No push goes out for it: the stand-in agent takes any offer."""
-        phone_check.VOICE = f"127.0.0.1:{self.port}"
-        caller = phone_check.Phone()
+        stand_in_phone.HUB = f"127.0.0.1:{self.port}"
+        caller = stand_in_phone.Phone()
         status = await caller.offer(str(uuid.uuid4()).upper(), ringing=True)
         if status != 200:
             raise RuntimeError(f"the ringing call's offer: {status}")

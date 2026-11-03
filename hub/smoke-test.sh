@@ -1,21 +1,21 @@
 #!/bin/sh
-# Checks the built switchboard without a phone: its endpoints on localhost, with config and
-# state in a throwaway HOME. With --apns it also pushes to a made-up device token through
-# the APNs sandbox, signed with your real config and key. Apple answers 400 BadDeviceToken
-# only when the signature is valid (a bad one gets 403), and nothing rings.
+# Checks the built hub without a phone: its endpoints on localhost, with config and state in a
+# throwaway HOME. With --apns it also pushes to a made-up device token through the APNs
+# sandbox, signed with your real config and key. Apple answers 400 BadDeviceToken only when
+# the signature is valid (a bad one gets 403), and nothing rings.
 #
-#   switchboard/smoke-test.sh [--apns]     after: swift build -c release --arch arm64 --arch x86_64
+#   hub/smoke-test.sh [--apns]     after: go build -o build/ringback-hub .
 set -eu
 cd "$(dirname "$0")"
-# RINGBACK_HUB runs the same checks against another build, such as the Go hub (hub/).
-bin="${RINGBACK_HUB:-$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/ringback-switchboard}"
+# RINGBACK_HUB runs the same checks against another build of the hub.
+bin="${RINGBACK_HUB:-$PWD/build/ringback-hub}"
 home=$(mktemp -d)
 server=
 trap 'kill $server 2> /dev/null || true; rm -rf "$home"' EXIT
 mkdir -p "$home/.config/ringback"
 port=18787
 url=http://127.0.0.1:$port
-printf 'listen = "127.0.0.1:%s"  # smoke test\n' $port > "$home/.config/ringback/switchboard.toml"
+printf 'listen = "127.0.0.1:%s"  # smoke test\n' $port > "$home/.config/ringback/hub.toml"
 
 fails=0
 check() {  # name, expected, actual
@@ -83,7 +83,7 @@ check "inside 08:00–20:00, it rings" "$rings" "$(call_as ring0002-000000000000
 check "register with 09:00–09:00, any time" 200 "$(hours "$phone" 09:00 09:00)"
 check "with From and To equal, it rings" "$rings" "$(call_as ring0003-000000000000)"
 check "register with 08:00–20:00, from a variable" 200 "$(status -d "$with_zone" "$url/register")"
-check "work hours in a time zone the switchboard doesn't know: 400" 400 "$(hours "$phone" 14:00 16:00 Mars/Olympus)"
+check "work hours in a time zone the hub doesn't know: 400" 400 "$(hours "$phone" 14:00 16:00 Mars/Olympus)"
 check "a time that isn't HH:MM: 400" 400 "$(hours "$phone" 14:00 6:00)"
 check "a time past 23:59: 400" 400 "$(hours "$phone" 14:00 24:00)"
 check "work hours without a time zone: 400" 400 "$(status -d "$no_zone" "$url/register")"
@@ -303,7 +303,10 @@ check "held calls ring nobody" no "$(yes_if grep -qE 'call hold000[13] →' "$ho
 check "the others ring, the last once you take calls" 4 "$(grep -cE 'call hold000[2456] → Test phone' "$home/log")"
 
 if [ "${1:-}" = --apns ]; then
-    cp ~/.config/ringback/switchboard.toml ~/.config/ringback/AuthKey_*.p8 "$home/.config/ringback/"
+    config=~/.config/ringback/hub.toml
+    [ -f "$config" ] || config=~/.config/ringback/switchboard.toml  # as the hub reads it
+    cp "$config" "$home/.config/ringback/hub.toml"
+    cp ~/.config/ringback/AuthKey_*.p8 "$home/.config/ringback/"
     printf '{"%s": {"environment": "sandbox", "device": "made-up phone"}}' \
         0000000000000000000000000000000000000000000000000000000000000000 > "$state/devices.json"
     out=$(HOME="$home" "$bin" ring --project smoke-test)
@@ -313,7 +316,7 @@ if [ "${1:-}" = --apns ]; then
 fi
 
 if [ $fails -gt 0 ]; then
-    echo "--- switchboard log"
+    echo "--- hub log"
     cat "$home/log"
     exit 1
 fi

@@ -1,8 +1,8 @@
 """A call through the Go port's real parts: the hub and the agent on this Mac, the speech node
-on its machine, and phone-check's stand-in phone. The session's side is played through the
-agent's socket, as a mod does. See README.md.
+on its machine, and the stand-in phone (`tools/stand-in-phone`). The session's side is played
+through the agent's socket, as a mod does. See README.md.
 
-    uv run --project voice tools/line-check/line_check.py --listen ADDR --node HOST
+    uv run --project tools tools/line-check/line_check.py --listen ADDR --node HOST
         [--node-dir DIR] [--ring S] [--keep DIR]
 """
 
@@ -23,9 +23,9 @@ import aiohttp
 import numpy as np
 import soxr
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "phone-check"))
-import phone_check  # noqa: E402
-from phone_check import BRIEFING, KOKORO, RATE, REPLY, SUBJECT, YOUR_VOICE, Phone, wait_for  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "stand-in-phone"))
+import stand_in_phone  # noqa: E402
+from stand_in_phone import BRIEFING, KOKORO, RATE, REPLY, SUBJECT, YOUR_VOICE, Phone, wait_for  # noqa: E402
 
 SESSION = "line-check-session"
 ROOT = Path(__file__).resolve().parents[2]
@@ -56,7 +56,7 @@ async def main() -> int:
     p.add_argument("--ring", type=float, default=6.0, help="seconds from placing the call to answering it (default 6)")
     p.add_argument("--keep", type=Path, help="keep the logs and the transcript in this directory")
     args = p.parse_args()
-    if not phone_check.free(args.listen):
+    if not stand_in_phone.free(args.listen):
         sys.exit(f"{args.listen} is in use")
     hub_bin, agent_bin = build()
     tmp = Path(tempfile.mkdtemp(prefix="ringback-line-check-"))
@@ -69,7 +69,7 @@ async def main() -> int:
     project = tmp / "demo"
     project.mkdir()
     sock, hub_log, agent_log, node_log = tmp / "voice.sock", tmp / "hub.log", tmp / "agent.log", tmp / "node.log"
-    phone_check.VOICE = args.listen
+    stand_in_phone.HUB = args.listen
 
     hub = subprocess.Popen([str(hub_bin), "serve"], env=os.environ | {"HOME": str(tmp / "hub")},
                            stdout=hub_log.open("w"), stderr=subprocess.STDOUT)  # fmt: skip

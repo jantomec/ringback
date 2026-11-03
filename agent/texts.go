@@ -1,6 +1,4 @@
-// What the voice is told, and what its tools answer: the voice server's texts, word for word
-// (voice/ringback_voice: instructions.py, claude_code.py, haiku.py, __main__.py and
-// call_tools.py). Made by testdata/golden.py.
+// What the voice is told, and what its tools answer, word for word.
 
 package main
 

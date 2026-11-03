@@ -1,11 +1,15 @@
 [project]
-name = "ringback-voice"
+name = "ringback-tools"
 version = "0.1.0"
-description = "The voice side of a ringback call, on the Mac whose session is calling"
+description = "The Python the checks in tools/ run with: the stand-in phone, and Kokoro to speak your side"
 requires-python = ">=3.12"
 dependencies = [
-    "pipecat-ai[webrtc]==1.14.0",
-    "aiohttp>=3.10",
+    "aiohttp==3.14.5",
+    "aiortc==1.15.0",
+    "av==17.1.0",
+    "numpy==2.5.4",
+    "soxr==1.0.0",
+    # Kokoro on Apple silicon, which speaks your reply in tools/line-check.
     "mlx-audio==0.6.2",
     "misaki[en]==0.9.4",
     # Kokoro's text-to-phoneme step needs spaCy's English model, and would otherwise
@@ -13,12 +17,8 @@ dependencies = [
     "en-core-web-sm==3.8.0",
 ]
 
+[tool.uv]
+package = false
+
 [tool.uv.sources]
 en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
-
-[project.scripts]
-ringback-voice = "ringback_voice.__main__:main"
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"

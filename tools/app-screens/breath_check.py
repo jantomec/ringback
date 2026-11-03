@@ -7,7 +7,7 @@ the screen, and reads the blue channel of three regions in every frame: just abo
 mid-screen between rows, and the top-left corner, far from the pill. Needs the voice project's
 Python (PyAV and NumPy):
 
-    uv run --project voice tools/app-screens/breath_check.py [SECONDS] [--keep VIDEO]
+    uv run --project tools tools/app-screens/breath_check.py [SECONDS] [--keep VIDEO]
 """
 
 import argparse

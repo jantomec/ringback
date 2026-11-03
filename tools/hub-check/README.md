@@ -50,7 +50,7 @@ state in a throwaway HOME, and checks:
 Build the hub first, then run from the repo root:
 
     (cd hub && go build -o build/ringback-hub .)
-    uv run --project voice tools/hub-check/hub_check.py [--keep DIR]
+    uv run --project tools tools/hub-check/hub_check.py [--keep DIR]
 
 It prints the hub's log and one line per check. `--keep` keeps the throwaway HOME (config,
 state, log). `RINGBACK_HUB` runs another binary, such as the universal one `hub/build.sh`

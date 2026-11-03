@@ -105,12 +105,10 @@ Run before every commit; together they take about a minute and a half (90 s on 2
 ```sh
 (cd app && xcodegen generate && xcodebuild -project Ringback.xcodeproj -scheme Ringback \
   -destination 'generic/platform=iOS' -derivedDataPath build -allowProvisioningUpdates build)  # 0 Swift warnings
-(cd switchboard && swift build -c release --arch arm64 --arch x86_64 && ./smoke-test.sh)  # 1 expected warning: x86_64 deprecated
-(cd voice && uv run python -m compileall -q ringback_voice && uv run python -c 'import ringback_voice.__main__')
 claude plugin validate mod && claude plugin test mod
-(cd hub && go vet ./... && go test ./... && go build -o build/ringback-hub . && RINGBACK_HUB=$PWD/build/ringback-hub ../switchboard/smoke-test.sh)
+(cd hub && go vet ./... && go test ./... && go build -o build/ringback-hub . && ./smoke-test.sh)
 (cd agent && go vet ./... && go test ./...)
-uv run --project voice tools/hub-check/hub_check.py > /dev/null  # the hub's call with stand-ins
+uv run --project tools tools/hub-check/hub_check.py > /dev/null  # the hub's call with stand-ins
 ```
 
 They prove the code builds, not that calls work. Ringing, push and audio count only when
