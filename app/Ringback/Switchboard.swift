@@ -16,7 +16,14 @@ enum Switchboard {
 
     /// The address as you'd type it: no http://, and no port when it's the default.
     static var displayHost: String? {
-        guard let url, let host = url.host() else { return nil }
+        url.flatMap(displayHost(of:))
+    }
+
+    /// A hub's URL as you'd type it in the Settings app; a hub that isn't plain http keeps its
+    /// whole URL.
+    static func displayHost(of url: URL) -> String? {
+        guard let host = url.host() else { return nil }
+        guard url.scheme == "http" else { return url.absoluteString }
         guard let port = url.port, port != defaultPort else { return host }
         return "\(host):\(port)"
     }
@@ -42,28 +49,49 @@ enum Switchboard {
     /// given it. `hours` are the work hours as WorkHours.fields gives them. `onDevice` is On-device
     /// voice: the hub then rings calls while no speech computer is linked, and the phone talks
     /// them through itself (PhoneSpeech).
+    /// The hub takes it only from a paired phone, with its key: otherwise it throws NotPaired.
     static func register(token: String, notificationToken: String?, hours: [String: String], onDevice: Bool) async throws {
-        var body: [String: Any] = hours.merging(["token": token, "environment": environment, "device": await UIDevice.current.name]) { $1 }
-        body["notification_token"] = notificationToken
-        body["on_device"] = onDevice
+        var body = await registration(token: token, notificationToken: notificationToken, hours: hours, onDevice: onDevice)
+        body["key"] = Shared.key
         try await post("register", body)
     }
 
-    /// Reaches the hub on a connection check. The VoIP token, if it has arrived yet,
-    /// tells it which phone checked in. The work hours come along, so a new time zone reaches
-    /// it within the half hour between checks when you travel.
+    /// Pairs this phone with the hub: trades the one-time code from the portal's pairing link
+    /// for the phone's key, which it returns, registering as `register` does. Throws
+    /// PairingRefused for a code that's wrong, used or expired.
+    static func pair(code: String, token: String, notificationToken: String?, hours: [String: String], onDevice: Bool) async throws -> String {
+        var body = await registration(token: token, notificationToken: notificationToken, hours: hours, onDevice: onDevice)
+        body["code"] = code
+        let data = try await post("pair", body)
+        guard let key = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["key"] as? String, !key.isEmpty
+        else { throw URLError(.cannotParseResponse) }
+        return key
+    }
+
+    private static func registration(token: String, notificationToken: String?, hours: [String: String], onDevice: Bool) async -> [String: Any] {
+        var body: [String: Any] = hours.merging(["token": token, "environment": environment, "device": await UIDevice.current.name]) { $1 }
+        body["notification_token"] = notificationToken
+        body["on_device"] = onDevice
+        return body
+    }
+
+    /// Reaches the hub on a connection check. The VoIP token, if it has arrived yet, with the
+    /// phone's key, tells it which phone checked in. The work hours come along, so a new time
+    /// zone reaches it within the half hour between checks when you travel. NotPaired means
+    /// the hub was reached, but hasn't paired with this phone.
     static func check(token: String?) async throws {
         var body = WorkHours.fields
         body["token"] = token
+        if token != nil { body["key"] = Shared.key ?? "" }
         try await post("check", body, timeout: 5)
     }
 
     /// The calls that wait to ring, held while your phone holds calls, soonest first, with
     /// whether each has a question and why it waits; the hold switch; and what the hub says
     /// about what calls need (each nil if the answer leaves it out). The hub gives them only to a
-    /// phone that registered, by its VoIP token: a call's ID lets whoever has it take the call.
+    /// paired phone, by its VoIP token and key: a call's ID lets whoever has it take the call.
     static func waiting(token: String) async throws -> (calls: [WaitingCall], hold: HoldState?, status: HubStatus?) {
-        let data = try await post("waiting", ["token": token], timeout: 5)
+        let data = try await post("waiting", ["token": token, "key": Shared.key ?? ""], timeout: 5)
         guard let answer = try JSONSerialization.jsonObject(with: data) as? [String: Any],
             let calls = answer["calls"] as? [[String: Any]]
         else { throw URLError(.cannotParseResponse) }
@@ -92,10 +120,10 @@ enum Switchboard {
     }
 
     /// The sessions you can call, with ringback on, on every Mac, by project, each with where
-    /// its call's audio goes (the hub). As for the waiting calls, only a phone that registered
-    /// gets them: a session's ID lets whoever has it call the session.
+    /// its call's audio goes (the hub). As for the waiting calls, only a paired phone gets them:
+    /// a session's ID lets whoever has it call the session.
     static func contacts(token: String) async throws -> [Contact] {
-        let data = try await post("contacts", ["token": token], timeout: 5)
+        let data = try await post("contacts", ["token": token, "key": Shared.key ?? ""], timeout: 5)
         guard let listed = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["contacts"] as? [[String: Any]]
         else { throw URLError(.cannotParseResponse) }
         let iso = ISO8601DateFormatter()
@@ -147,9 +175,23 @@ enum Switchboard {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let error = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+        if status == 401, error == "not paired" { throw NotPaired() }
+        if status == 403, error == "pairing code not valid" { throw PairingRefused() }
         guard status == 200 else { throw URLError(.badServerResponse) }
         return data
     }
+}
+
+/// The hub was reached, but hasn't paired with this phone, or doesn't know its key: the
+/// phone pairs from the hub's portal (the banner's Pair).
+struct NotPaired: LocalizedError {
+    var errorDescription: String? { "Your hub hasn't paired with this iPhone" }
+}
+
+/// The hub refused a pairing link's code: wrong, used already, or older than 10 minutes.
+struct PairingRefused: LocalizedError {
+    var errorDescription: String? { "That pairing link doesn't work any more: each works once, for 10 minutes" }
 }
 
 /// The hours Claude may call you, set in the Settings app. Outside them the hub doesn't

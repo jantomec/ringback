@@ -10,6 +10,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import secrets
 import shutil
 import struct
@@ -124,14 +125,19 @@ async def main() -> int:
         check(f"the agent's hello is welcomed: {await agent.open()}", True)
 
         # Before any speech node links, a call the agent places waits instead of ringing, and
-        # the app's status says why. The phone registers with a notification token, so the
-        # hub tries to tell it, and with no APNs key here, that push fails, which the status
-        # says too.
+        # the app's status says why. The phone pairs, with a code from `ringback-hub pair`, and
+        # with a notification token, so the hub tries to tell it, and with no APNs key here,
+        # that push fails, which the status says too.
         phone_token = "abcd" * 8
+        printed = subprocess.run([*os.environ.get("RINGBACK_HUB_ARCH", "").split(), str(binary), "pair"],
+                                 env=os.environ | {"HOME": str(home)}, capture_output=True, text=True).stdout  # fmt: skip
+        code = re.search(r"code=([A-Za-z0-9_-]+)", printed).group(1)
         async with aiohttp.ClientSession() as http:
-            async with http.post(f"http://{HUB}/register", json={"token": phone_token, "environment": "sandbox",
+            async with http.post(f"http://{HUB}/pair", json={"code": code, "token": phone_token, "environment": "sandbox",
                                  "device": "check phone", "notification_token": "ef01" * 8}) as r:  # fmt: skip
                 registered = r.status
+                key = (await r.json()).get("key", "")
+        check(f"the phone pairs with a code from ringback-hub pair: {registered}", registered == 200 and len(key) == 64)
         early_id = "known-" + secrets.token_hex(12)
 
         async def place(call_id: str) -> dict:
@@ -143,7 +149,7 @@ async def main() -> int:
 
         async def waiting() -> dict:
             async with aiohttp.ClientSession() as http:
-                async with http.post(f"http://{HUB}/waiting", json={"token": phone_token}) as r:
+                async with http.post(f"http://{HUB}/waiting", json={"token": phone_token, "key": key}) as r:
                     return await r.json()
 
         held = await place(early_id)
@@ -160,7 +166,7 @@ async def main() -> int:
               status.get("push", {}).get("ok") is False and status["push"].get("problem") == "key")  # fmt: skip
         check(f"and the Macs linked: {status.get('macs')}", status.get("macs") == [{"name": "check-agent", "sessions": 0}])
         async with aiohttp.ClientSession() as http:
-            async with http.post(f"http://{HUB}/register", json={"token": phone_token, "environment": "sandbox",
+            async with http.post(f"http://{HUB}/register", json={"token": phone_token, "key": key, "environment": "sandbox",
                                  "device": "check phone", "notification_token": "ef01" * 8}) as r:  # fmt: skip
                 pass
         again = (await waiting()).get("status", {}).get("push", {})
@@ -340,7 +346,7 @@ async def main() -> int:
         waits = await place(waits_id)
         asked_before = len(agent.of("reask"))
         async with aiohttp.ClientSession() as http:
-            async with http.post(f"http://{HUB}/register", json={"token": phone_token, "environment": "sandbox",
+            async with http.post(f"http://{HUB}/register", json={"token": phone_token, "key": key, "environment": "sandbox",
                                  "device": "check phone", "on_device": True}) as r:  # fmt: skip
                 pass
         await until(lambda: len(agent.of("reask")) > asked_before, 3)

@@ -259,7 +259,7 @@ func outcome(status int, reason string, err error) string {
 	return strings.TrimSpace(fmt.Sprintf("APNs %d %s", status, reason))
 }
 
-// ring rings every registered phone once, as call callID, or a new call, from session if the
+// ring rings every paired phone once, as call callID, or a new call, from session if the
 // call names it. One line per phone.
 func ring(ctx context.Context, project, subject, voice, callID, session string) []string {
 	config := loadConfig()
@@ -267,7 +267,7 @@ func ring(ctx context.Context, project, subject, voice, callID, session string) 
 		callID = newUUID()
 	}
 	stateMu.Lock()
-	devices := loadDevices()
+	devices := pairedDevices()
 	stateMu.Unlock()
 	tokens := make([]string, 0, len(devices))
 	for token := range devices {
@@ -320,7 +320,7 @@ func notifyNoSpeech(ctx context.Context, callID, project, subject string) []stri
 func notifyWaiting(ctx context.Context, callID, what, title, body string, until time.Time) []string {
 	config := loadConfig()
 	stateMu.Lock()
-	devices := devicesByName(loadDevices())
+	devices := devicesByName(pairedDevices())
 	stateMu.Unlock()
 	payload := map[string]any{"aps": map[string]any{
 		"alert":              map[string]string{"title": title, "body": body},
@@ -349,7 +349,7 @@ func notifyWaiting(ctx context.Context, callID, what, title, body string, until 
 func askPhonesToCheck(ctx context.Context) []string {
 	config := loadConfig()
 	stateMu.Lock()
-	devices := devicesByName(loadDevices())
+	devices := devicesByName(pairedDevices())
 	stateMu.Unlock()
 	payload := map[string]any{"aps": map[string]any{"content-available": 1}, "check": "nebula"}
 	var lines []string

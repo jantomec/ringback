@@ -296,9 +296,13 @@ async def main() -> int:
         ))  # fmt: skip
         if not await wait_for(hub_log, r"hub listening", 10):
             sys.exit(f"The hub didn't start:\n{hub_log.read_text()}")
+        # The made-up phone pairs, with a code from `ringback-hub pair`, as the app does.
+        printed = subprocess.run([hub_bin, "pair"], env=without_claude(HOME=str(tmp / "hub")),
+                                 capture_output=True, text=True).stdout  # fmt: skip
+        code = re.search(r"code=([A-Za-z0-9_-]+)", printed).group(1)
         async with aiohttp.ClientSession() as http:
-            phone = {"token": PHONE, "environment": "sandbox", "device": DEVICE, "on_device": True}
-            async with http.post(f"http://{hub_address}/register", json=phone) as r:
+            phone = {"code": code, "token": PHONE, "environment": "sandbox", "device": DEVICE, "on_device": True}
+            async with http.post(f"http://{hub_address}/pair", json=phone) as r:
                 registered = r.status
         procs.append(subprocess.Popen(
             [agent_bin, "serve", "--socket", str(sock), "--config", str(tmp / "agent.toml")],
@@ -307,7 +311,7 @@ async def main() -> int:
         ))  # fmt: skip
         linked = await wait_for(hub_log, r"agent session-check: connected", 20) and await wait_for(agent_log, r"voice listening", 20)
         if registered != 200 or not linked:
-            sys.exit(f"The phone didn't register ({registered}) or the agent didn't link.\n{hub_log.read_text()}\n{agent_log.read_text()}")
+            sys.exit(f"The phone didn't pair ({registered}) or the agent didn't link.\n{hub_log.read_text()}\n{agent_log.read_text()}")
 
         # The phone's own speech for a call the agent didn't place: the hub asks the agent,
         # which refuses it, as it refuses an offer.

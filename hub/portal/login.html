@@ -8,6 +8,9 @@
     <p class="error" role="alert">{{.Error}}</p>
     {{- end}}
     <input type="hidden" name="csrf" value="{{.CSRF}}">
+    {{- with .Next}}
+    <input type="hidden" name="next" value="{{.}}">
+    {{- end}}
     <label for="name">User name</label>
     <input id="name" name="name" value="{{.Data}}" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required autofocus>
     <label for="password">Password</label>

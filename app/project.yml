@@ -51,6 +51,10 @@ targets:
         NSMicrophoneUsageDescription: Ringback uses the microphone so you can talk to your Claude Code sessions.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        # ringback://pair?hub=…&code=…, the link the hub's portal opens to pair this phone.
+        CFBundleURLTypes:
+          - CFBundleURLName: ringback
+            CFBundleURLSchemes: [ringback]
   # The hold switch in Control Center (Controls/HoldControl.swift), which can also go on the
   # Lock Screen or the Action button.
   RingbackControls:

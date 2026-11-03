@@ -12,6 +12,8 @@ It runs the hub built in `hub/build` on localhost, with its config (tokens inclu
 state in a throwaway HOME, and checks:
 - a link with a wrong token is refused (401), and the agent's and node's hellos are
   welcomed;
+- the phone pairs, with a code from `ringback-hub pair` traded at `/pair` for its key, which
+  its later requests carry;
 - before any speech node links, a call the agent places waits instead of ringing (held, reason
   "no speech"); the app's waiting calls list it with its reason, and the status with them says
   calls can't be talked through, that the last push to the phone failed for want of a key

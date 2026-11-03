@@ -665,8 +665,9 @@ body.bare main { padding-top: max(10vh, 32px); }
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 .card input.otp { font-family: var(--mono); font-size: 28px; letter-spacing: 0.32em; text-align: center; padding-left: 0.32em; }
-button.primary {
+button.primary, a.primary {
   display: block;
+  box-sizing: border-box;
   width: 100%;
   margin-top: 24px;
   padding: 13px;
@@ -677,9 +678,14 @@ button.primary {
   font: inherit;
   font-size: 17px;
   font-weight: 600;
+  text-align: center;
+  text-decoration: none;
   cursor: pointer;
 }
-button.primary:hover { background: color-mix(in srgb, var(--accent) 88%, #000000); }
+button.primary:hover, a.primary:hover { background: color-mix(in srgb, var(--accent) 88%, #000000); text-decoration: none; }
+.pairing { max-width: 34rem; }
+.pairing p { margin: 16px 0 0; }
+.pairing .foot { margin: 14px 0 0; }
 .error {
   margin: 16px 0 0;
   padding: 10px 12px;

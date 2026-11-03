@@ -20,9 +20,9 @@ struct HoldState: Codable, Equatable {
     }
 }
 
-/// What the app shares with its Control Center extension: the hub's address and the
-/// push token that names this phone to it, which the app writes once the hub has taken
-/// its registration, and the switch as last heard. In a keychain group the two share, rather
+/// What the app shares with its Control Center extension: the hub's address, the push token
+/// that names this phone to it, which the app writes once the hub has taken its registration,
+/// the key the phone paired with, and the switch as last heard. In a keychain group the two share, rather
 /// than an App Group: the team's provisioning profiles allow any keychain group of the team,
 /// while an App Group needs a capability added to each App ID. Readable once the phone has been
 /// unlocked after a restart, so the control works on a locked phone.
@@ -37,6 +37,13 @@ enum Shared {
     static var token: String? {
         get { read("token").map { String(decoding: $0, as: UTF8.self) } }
         set { write("token", newValue.map { Data($0.utf8) }) }
+    }
+
+    /// This phone's key, which the hub gave it when it paired, and which every request that
+    /// names the phone by its push token carries. Kept on this device only.
+    static var key: String? {
+        get { read("key").map { String(decoding: $0, as: UTF8.self) } }
+        set { write("key", newValue.map { Data($0.utf8) }, accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly) }
     }
 
     static var hold: HoldState? {
@@ -65,13 +72,13 @@ enum Shared {
         return SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess ? found as? Data : nil
     }
 
-    private static func write(_ key: String, _ data: Data?) {
+    private static func write(_ key: String, _ data: Data?, accessible: CFString = kSecAttrAccessibleAfterFirstUnlock) {
         guard let query = item(key) else { return }
         SecItemDelete(query as CFDictionary)
         guard let data else { return }
         var added = query
         added[kSecValueData as String] = data
-        added[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        added[kSecAttrAccessible as String] = accessible
         SecItemAdd(added as CFDictionary, nil)
     }
 }
@@ -90,7 +97,7 @@ enum HoldSwitch {
     /// The switch at the hub; throws if it can't be reached, or the phone hasn't
     /// registered there yet.
     static func fetch() async throws -> HoldState {
-        try await remember(state(post("hold", ["token": try token()], timeout: 4)))
+        try await remember(state(post("hold", ["token": try token(), "key": Shared.key ?? ""], timeout: 4)))
     }
 
     /// Sets it. Taking calls, the waiting calls' Macs ask again now; one that can't be reached
@@ -98,7 +105,7 @@ enum HoldSwitch {
     @discardableResult
     static func set(_ on: Bool) async throws -> HoldState {
         let token = try token()
-        let set = try await remember(state(post("hold", ["token": token, "hold": on])))
+        let set = try await remember(state(post("hold", ["token": token, "key": Shared.key ?? "", "hold": on])))
         if !on { await reask(token: token) }
         return set
     }
@@ -111,7 +118,7 @@ enum HoldSwitch {
     /// The switch and how many calls wait, from the hub (`/waiting`), or as last heard
     /// if it can't be reached. For the Lock Screen widget, which mustn't reload itself.
     static func status() async -> (hold: HoldState?, waiting: Int) {
-        if let token = Shared.token, let data = try? await post("waiting", ["token": token], timeout: 5),
+        if let token = Shared.token, let data = try? await post("waiting", ["token": token, "key": Shared.key ?? ""], timeout: 5),
             let answer = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let calls = answer["calls"] as? [[String: Any]]
         {
@@ -129,7 +136,7 @@ enum HoldSwitch {
     }
 
     private static func reask(token: String) async {
-        guard let data = try? await post("waiting", ["token": token], timeout: 5),
+        guard let data = try? await post("waiting", ["token": token, "key": Shared.key ?? ""], timeout: 5),
             let calls = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["calls"] as? [[String: Any]]
         else { return }
         var byMac: [String: [String]] = [:]

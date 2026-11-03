@@ -42,6 +42,11 @@ struct RootView: View {
         .alert(state.callBackProblem ?? "", isPresented: $showsCallBackProblem) {
             Button("OK") { state.callBackProblem = nil }
         }
+        // The hub's portal pairs this phone with a link to the app (ringback://pair).
+        .onOpenURL { url in Task { await push.open(url) } }
+        .alert(state.pairingMessage ?? "", isPresented: .constant(state.pairingMessage != nil)) {
+            Button("OK") { state.pairingMessage = nil }
+        }
         .onChange(of: scenePhase, initial: true) { _, phase in
             guard phase == .active else { return }
             checkMicrophone()  // also after coming back from Settings

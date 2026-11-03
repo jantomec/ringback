@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="robots" content="noindex">
+{{- with .Open}}
+<meta http-equiv="refresh" content="0;url={{.}}">
+{{- end}}
 <title>{{.Title}} · ringback hub</title>
 <link rel="stylesheet" href="/portal/static/portal.css">
 <link rel="icon" href="/portal/static/icon.svg" type="image/svg+xml">

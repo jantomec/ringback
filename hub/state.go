@@ -42,7 +42,8 @@ func writeJSON(path string, value any) error {
 // devices.json in the state folder. A phone that also gave a notification token gets
 // connection checks, and "checked_in" is when it last reached the hub on one. A phone with
 // work hours has them here too (workHoursKeys), and one whose hold switch you set has it
-// ("hold", "yes" if on hold) and when ("hold_set").
+// ("hold", "yes" if on hold) and when ("hold_set"). A paired phone has the hash of its key
+// ("key", pairing.go); one without hasn't paired, and isn't rung or pushed to.
 var devicesPath = filepath.Join(stateDir, "devices.json")
 
 func loadDevices() map[string]map[string]string {
@@ -69,14 +70,15 @@ func registerDevice(token, environment, device, notificationToken, onDevice stri
 	entry := devices[token]
 	if entry == nil {
 		entry = map[string]string{}
+		paired := pairedDevices()
 		switched := true
-		for _, other := range devices {
+		for _, other := range paired {
 			switched = switched && other["hold"] == "yes"
 		}
 		if held, _ := heldUntil(now()); held && switched {
 			entry["hold"] = "yes"
 			set := ""
-			for _, other := range devices {
+			for _, other := range paired {
 				set = max(set, other["hold_set"])
 			}
 			if set != "" {
@@ -100,10 +102,10 @@ func registerDevice(token, environment, device, notificationToken, onDevice stri
 	return saveDevices(devices)
 }
 
-// phoneSpeaks says whether a registered phone speaks itself, so a call can be talked through
+// phoneSpeaks says whether a paired phone speaks itself, so a call can be talked through
 // without a speech node.
 func phoneSpeaks() bool {
-	for _, device := range loadDevices() {
+	for _, device := range pairedDevices() {
 		if device["on_device"] == "yes" {
 			return true
 		}
@@ -153,23 +155,28 @@ func setHold(token string, on bool) (map[string]string, error) {
 	return entry, saveDevices(devices)
 }
 
-// holdEveryPhone sets the hold switch of every registered phone at once, as the portal's
-// does, so the app shows it too: on hold, no call rings, whatever speech there is. How many
-// phones it set.
+// holdEveryPhone sets the hold switch of every paired phone at once, as the portal's does, so
+// the app shows it too: on hold, no call rings, whatever speech there is. How many phones it
+// set.
 func holdEveryPhone(on bool) (int, error) {
 	devices := loadDevices()
+	set := 0
 	for _, entry := range devices {
+		if entry["key"] == "" {
+			continue
+		}
 		if on {
 			entry["hold"] = "yes"
 		} else {
 			delete(entry, "hold")
 		}
 		entry["hold_set"] = isoNow()
+		set++
 	}
-	if len(devices) == 0 {
+	if set == 0 {
 		return 0, nil
 	}
-	return len(devices), saveDevices(devices)
+	return set, saveDevices(devices)
 }
 
 func forgetDevice(token string) error {

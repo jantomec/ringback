@@ -29,6 +29,7 @@ import (
 // restart; what a live call shows; Apple push's setup; and the map's layout for every number
 // of parts it's made for.
 
+// registerPhone registers a paired phone, whose key is testKey(token).
 func registerPhone(t *testing.T, token, name, onDevice string) {
 	t.Helper()
 	stateMu.Lock()
@@ -36,7 +37,14 @@ func registerPhone(t *testing.T, token, name, onDevice string) {
 	if err := registerDevice(token, "sandbox", name, "", onDevice, nil); err != nil {
 		t.Fatal(err)
 	}
+	devices := loadDevices()
+	devices[token]["key"] = hashOf(testKey(token))
+	if err := saveDevices(devices); err != nil {
+		t.Fatal(err)
+	}
 }
+
+func testKey(token string) string { return "key-" + token }
 
 func seePart(t *testing.T, kind, name string) {
 	t.Helper()
@@ -76,7 +84,7 @@ func TestHoldEveryPhone(t *testing.T) {
 	}
 	stateMu.Lock()
 	devices := loadDevices()
-	answer, _ := holdSwitch(map[string]any{"token": "phone-token-2"})
+	answer, _ := holdSwitch(map[string]any{"token": "phone-token-2", "key": testKey("phone-token-2")})
 	placed, _ := placeCall("test-mac", map[string]any{"project": "infra", "call_id": "rings-not-0000000001"})
 	stateMu.Unlock()
 	for token, d := range devices {
@@ -150,6 +158,11 @@ func TestHoldWithWorkHours(t *testing.T) {
 	stateMu.Lock()
 	defer stateMu.Unlock()
 	if err := registerDevice("hours-1", "sandbox", "iPhone", "", "no", hours(at(2*time.Hour), at(3*time.Hour))); err != nil {
+		t.Fatal(err)
+	}
+	paired := loadDevices()
+	paired["hours-1"]["key"] = hashOf(testKey("hours-1"))
+	if err := saveDevices(paired); err != nil {
 		t.Fatal(err)
 	}
 	start, _ := newWorkHours(loadDevices()["hours-1"])

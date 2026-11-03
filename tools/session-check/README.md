@@ -4,9 +4,9 @@ Plays a session's calls on this Mac, through ringback's real agent and hub, up t
 phone would ring. A Claude Code session (`claude -p`) loads the ringback mod from `mod/`,
 runs `/ringback`, then does a little work. When that turn ends, the mod has the session write
 its call briefing and gives it to an agent (`agent/`) started here, which asks a hub (`hub/`)
-started here to ring. The hub knows only a made-up phone, registered as the app registers,
-with its On-device voice on, so a call rings with no speech node linked instead of waiting for
-one; it has no APNs key, so it logs the push it would have sent ("no [apns.sandbox] key in
+started here to ring. The hub knows only a made-up phone, paired as the app pairs (a code from
+`ringback-hub pair`, traded at `/pair`), with its On-device voice on, so a call rings with no
+speech node linked instead of waiting for one; it has no APNs key, so it logs the push it would have sent ("no [apns.sandbox] key in
 the config") and nothing rings. Then a message is left for the session through the agent's
 socket, as the voice leaves what you say on a call: the session answers it, and since no
 call is live, it writes a new briefing and calls again. Neither call is answered, so once

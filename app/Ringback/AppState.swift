@@ -117,12 +117,14 @@ struct ActiveCall: Equatable {
     var muted = false
 }
 
-/// Whether calls can reach this phone: it has a push token and the hub has it.
+/// Whether calls can reach this phone: it has a push token and the hub has it. Not paired: the
+/// hub answered, but hasn't paired with this phone.
 enum Connection: Equatable {
     case notSetUp
     case waitingForToken
     case connecting
     case connected(at: Date)
+    case notPaired
     case failed(reason: String)
 
     var failed: Bool {
@@ -142,6 +144,10 @@ final class AppState {
     /// For background pushes that start a connection check; nil until iOS gives it.
     var notificationToken: String?
     var connection: Connection = .notSetUp
+    /// A pairing link's one-time code, until the hub has taken it (PushService.connect).
+    var pairingCode: String?
+    /// How pairing went, shown once: paired, or why not.
+    var pairingMessage: String?
     var activeCall: ActiveCall?
     /// Why a call you made ended by itself, a call back or a waiting call you called, shown
     /// once the in-call screen is gone; or why a waiting call's question didn't go to the
@@ -185,7 +191,16 @@ final class AppState {
     /// reached, both stay as they were.
     @MainActor
     func refreshWaiting() async {
-        guard Switchboard.url != nil, let token, let found = try? await Switchboard.waiting(token: token) else { return }
+        guard Switchboard.url != nil, let token else { return }
+        let found: (calls: [WaitingCall], hold: HoldState?, status: HubStatus?)
+        do {
+            found = try await Switchboard.waiting(token: token)
+        } catch is NotPaired {
+            connection = .notPaired
+            return
+        } catch {
+            return
+        }
         if found.calls != waiting { waiting = found.calls }
         if let switched = found.hold, switched != hold { hold = HoldSwitch.remember(switched) }
         if found.status != status { status = found.status }

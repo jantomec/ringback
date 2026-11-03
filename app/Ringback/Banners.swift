@@ -1,8 +1,8 @@
 import SwiftUI
 import UIKit
 
-/// What Recents shows above the calls, only while something's wrong: the app isn't set up,
-/// calls can't reach the phone (the hub can't be reached, or Apple refused its push), calls
+/// What Recents shows above the calls, only while something's wrong: the app isn't set up or
+/// the hub hasn't paired with it, calls can't reach the phone (the hub can't be reached, or Apple refused its push), calls
 /// can't be talked through (no speech computer), On-device voice isn't ready, or microphone
 /// access is off. Only the most serious shows, with the others a tap away.
 struct Banners: View {
@@ -17,7 +17,7 @@ struct Banners: View {
 
     /// What's wrong, most serious first.
     private enum Problem: Hashable {
-        case notSetUp, unreachable, push(String), speech(waiting: Int), onDevice(String), microphone
+        case notSetUp, notPaired, unreachable, push(String), speech(waiting: Int), onDevice(String), microphone
     }
 
     private var problems: [Problem] {
@@ -25,6 +25,8 @@ struct Banners: View {
         // The state starts as not set up, until the first check: the address says.
         if state.connection == .notSetUp && Switchboard.url == nil {
             found.append(.notSetUp)
+        } else if state.connection == .notPaired {
+            found.append(.notPaired)
         } else if lastConnectionWarning > 0 || state.connection.failed || isRetrying {
             // A connection check in the background warned you, or the hub can't be
             // reached now. It repeats the warning, which is gone once you tap it, and goes
@@ -76,6 +78,14 @@ struct Banners: View {
                 message: "Enter your hub's address in Ringback's settings, such as 10.0.0.1."
             ) {
                 Button("Open Settings", action: openSettings)
+            }
+        case .notPaired:
+            Banner(
+                systemImage: "lock.iphone", title: "Pair this iPhone",
+                message: "Your hub needs this iPhone paired before calls can ring it. Pair opens the hub's portal in "
+                    + "Safari: sign in, tap Pair this phone, and Ringback opens again to finish."
+            ) {
+                Button("Pair", action: openPairing)
             }
         case .unreachable:
             Banner(systemImage: "phone.down.fill", title: ConnectionCheck.title, message: message) {
@@ -140,6 +150,12 @@ struct Banners: View {
             " Last connected \(Calendar.current.isDateInToday($0) ? $0.formatted(date: .omitted, time: .shortened) : $0.recentsLabel)."
         }
         return ConnectionCheck.message + (last ?? "")
+    }
+
+    /// The hub's pairing page, in Safari: it signs you in if need be, and its button opens
+    /// Ringback with a pairing link (ringback://pair).
+    private func openPairing() {
+        if let url = Switchboard.url?.appending(path: "portal/pair") { openURL(url) }
     }
 
     /// Ringback's page in the Settings app, where its settings and the Microphone switch are;

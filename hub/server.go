@@ -20,14 +20,14 @@ var (
 
 type endpoint func(body map[string]any) (map[string]any, error)
 
-// serve answers the phone over Nebula (/register, /events, /check, /waiting, /contacts,
-// /hold), and the links the agents and the speech nodes open. The phone's requests are small
+// serve answers the phone over Nebula (/pair, /register, /events, /check, /waiting,
+// /contacts, /hold), and the links the agents and the speech nodes open. The phone's requests are small
 // and rare, and are handled one at a time (stateMu); each gets at most 5 s, so a stalled
 // connection can't hold the next one past the app's 10 s timeout. Meanwhile it asks the
 // phones to check their connection every 30 min.
 func serve(listen string) {
 	endpoints := map[string]endpoint{
-		"/register": register, "/events": event, "/check": checkIn, "/waiting": waiting,
+		"/pair": pair, "/register": register, "/events": event, "/check": checkIn, "/waiting": waiting,
 		"/contacts": contacts, "/hold": holdSwitch,
 	}
 	listener, err := net.Listen("tcp4", listen)
@@ -105,6 +105,10 @@ func answer(endpoints map[string]endpoint, r *http.Request) (int, string) {
 		return http.StatusBadRequest, notOK
 	case errors.Is(err, errForbidden):
 		return http.StatusForbidden, notOK
+	case errors.Is(err, errNotPaired):
+		return http.StatusUnauthorized, `{"ok": false, "error": "not paired"}`
+	case errors.Is(err, errPairingCode):
+		return http.StatusForbidden, `{"ok": false, "error": "pairing code not valid"}`
 	case err != nil:
 		log(r.URL.Path + " failed: " + err.Error())
 		return http.StatusInternalServerError, notOK
@@ -120,15 +124,28 @@ func str(body map[string]any, key string) string {
 	return s
 }
 
-// register: a phone registers its push tokens, and its work hours if it has any. A
-// registration without them clears them, and ones that can't be read are a 400. It also says
-// whether its On-device voice is on (on_device), which the portal shows.
+// register: a paired phone registers its push tokens, with its key, and its work hours if it
+// has any. A registration without them clears them, and ones that can't be read are a 400. It
+// also says whether its On-device voice is on (on_device), which the portal shows. A phone that
+// didn't pair, or whose key doesn't match: 401. A key with a new push token (APNs can change
+// it) moves the phone to it.
 func register(body map[string]any) (map[string]any, error) {
 	token := str(body, "token")
-	hours, valid := workHoursFields(body)
-	if token == "" || !valid {
+	if _, valid := workHoursFields(body); token == "" || !valid {
 		return nil, errBadRequest
 	}
+	if paired, err := movePairedPhone(token, str(body, "key")); err != nil {
+		return nil, err
+	} else if !paired {
+		return nil, errNotPaired
+	}
+	return ok, keepPhone(body)
+}
+
+// keepPhone keeps what a phone registers (register, pair). The caller has checked the body.
+func keepPhone(body map[string]any) error {
+	token := str(body, "token")
+	hours, _ := workHoursFields(body)
 	environment := orDefault(str(body, "environment"), "sandbox")
 	device := orDefault(str(body, "device"), "a phone")
 	notificationToken := str(body, "notification_token")
@@ -138,7 +155,7 @@ func register(body map[string]any) (map[string]any, error) {
 	}
 	was := loadDevices()[token]["on_device"]
 	if err := registerDevice(token, environment, device, notificationToken, onDevice, hours); err != nil {
-		return nil, err
+		return err
 	}
 	registeredAgain(token, notificationToken)
 	// Its own voice turned on: the calls that waited for speech can be talked through now.
@@ -154,7 +171,7 @@ func register(body map[string]any) (map[string]any, error) {
 		checks += ", " + h
 	}
 	log(fmt.Sprintf("registered %s (%s), token …%s%s", device, environment, suffix(token, 8), checks))
-	return ok, nil
+	return nil
 }
 
 // placeCall: an agent (its `place`, over its link) asks to ring the phone for one of its
@@ -238,7 +255,7 @@ func placeCall(mac string, body map[string]any) (map[string]any, error) {
 	go func() {
 		lines := ring(context.Background(), project, subject, voice, callID, session)
 		if len(lines) == 0 {
-			log("call " + prefix(callID, 8) + ": no phone registered")
+			log("call " + prefix(callID, 8) + ": no phone has paired")
 		}
 		for _, line := range lines {
 			log(line)
@@ -248,14 +265,18 @@ func placeCall(mac string, body map[string]any) (map[string]any, error) {
 	return map[string]any{"ok": true}, nil
 }
 
-// checkIn: the phone reached the hub on a connection check. Without a known token it still
-// gets a 200: the check is whether it got through. Its work hours come along, so a new time
-// zone reaches the hub within the half hour between checks. Hours that can't be read are left
-// out rather than refused, for the same reason.
+// checkIn: the phone reached the hub on a connection check. Without a token it still gets a
+// 200: the check is whether it got through. With one, the phone must have paired (401
+// otherwise, which tells the app so). Its work hours come along, so a new time zone reaches the
+// hub within the half hour between checks. Hours that can't be read are left out rather than
+// refused, for the same reason.
 func checkIn(body map[string]any) (map[string]any, error) {
-	token, isString := body["token"].(string)
-	if !isString {
+	if _, isString := body["token"].(string); !isString {
 		return ok, nil
+	}
+	token, _, err := pairedPhone(body)
+	if err != nil {
+		return nil, err
 	}
 	sent := false
 	for _, key := range workHoursKeys {
@@ -308,23 +329,13 @@ func event(body map[string]any) (map[string]any, error) {
 	return ok, nil
 }
 
-// registered is the phone a request names by its push token; forbidden otherwise.
-func registered(body map[string]any) (string, map[string]string, error) {
-	token, isString := body["token"].(string)
-	device, known := loadDevices()[token]
-	if !isString || !known {
-		return "", nil, errForbidden
-	}
-	return token, device, nil
-}
-
 // waiting: the calls that wait, for the app to show, soonest first: {"calls": [...]}, each
 // with its call ID, project, subject, where the phone sends its audio (voice), when it rings
 // (held_until, missing if it waits until you take calls), whether it has a question
-// (question); and the phone's hold switch (hold, as /hold answers). Only a phone that
-// registered gets them, by its push token: a call's ID lets whoever has it take the call.
+// (question); and the phone's hold switch (hold, as /hold answers). Only a paired phone gets
+// them, by its push token and key: a call's ID lets whoever has it take the call.
 func waiting(body map[string]any) (map[string]any, error) {
-	token, device, err := registered(body)
+	token, device, err := pairedPhone(body)
 	if err != nil {
 		return nil, err
 	}
@@ -373,7 +384,7 @@ func status(token string, device map[string]string, calls []map[string]any) map[
 // change it, missing if they won't. On taking calls, the app asks the hub to have the waiting
 // calls ask again now (/reask).
 func holdSwitch(body map[string]any) (map[string]any, error) {
-	token, device, err := registered(body)
+	token, device, err := pairedPhone(body)
 	if err != nil {
 		return nil, err
 	}
@@ -436,10 +447,9 @@ func keepSessions(key string, given []any) ([]map[string]string, error) {
 
 // contacts: the sessions that listen on every Mac, for the app's Sessions tab:
 // {"contacts": [...]}, by project, each with the URL the phone calls it at (voice). Only a
-// phone that registered gets them, by its push token, as for /waiting: a session's ID lets
-// whoever has it call the session.
+// paired phone gets them, as for /waiting: a session's ID lets whoever has it call the session.
 func contacts(body map[string]any) (map[string]any, error) {
-	if _, _, err := registered(body); err != nil {
+	if _, _, err := pairedPhone(body); err != nil {
 		return nil, err
 	}
 	list, err := listContacts()

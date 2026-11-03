@@ -161,12 +161,12 @@ func (h Hold) answer(device map[string]string) map[string]any {
 	return answer
 }
 
-// heldUntil says whether a call asked for at t is held: while every registered phone is on
-// hold. until is when the first of them comes off hold by its hours, written with that
-// phone's offset; empty when none will by itself, so the call waits until you take calls.
-// Not held if a phone takes calls, or none is registered.
+// heldUntil says whether a call asked for at t is held: while every paired phone is on hold.
+// until is when the first of them comes off hold by its hours, written with that phone's
+// offset; empty when none will by itself, so the call waits until you take calls. Not held if
+// a phone takes calls, or none has paired.
 func heldUntil(t time.Time) (held bool, until string) {
-	devices := loadDevices()
+	devices := pairedDevices()
 	if len(devices) == 0 {
 		return false, ""
 	}

@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"sort"
@@ -36,7 +37,7 @@ func parsePortalPages() map[string]*template.Template {
 	}
 	base := template.Must(template.New("base").Funcs(funcs).ParseFS(portalFiles, "portal/base.html"))
 	pages := map[string]*template.Template{}
-	for _, name := range []string{"status", "calls", "log", "setup", "login", "code", "noaccount", "message"} {
+	for _, name := range []string{"status", "calls", "log", "setup", "pair", "login", "code", "noaccount", "message"} {
 		pages[name] = template.Must(template.Must(base.Clone()).ParseFS(portalFiles, "portal/"+name+".html"))
 	}
 	return pages
@@ -49,6 +50,8 @@ type page struct {
 	Refresh                                 int // seconds between refreshes; 0: none
 	Hold                                    holdView
 	Data                                    any
+	Next                                    string       // the login's: the portal page to go to once signed in
+	Open                                    template.URL // a link the page opens at once (pairing's)
 }
 
 const refreshEvery = 5
@@ -94,7 +97,12 @@ func portal(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "signed out", http.StatusUnauthorized)
 			return
 		}
-		http.Redirect(w, r, "/portal/login", http.StatusSeeOther)
+		// A page you opened comes back once you've signed in, as the app's Pair button needs.
+		login := "/portal/login"
+		if next := portalPath(p); next != "" && next != "/portal/" && r.Method == http.MethodGet {
+			login += "?next=" + url.QueryEscape(next)
+		}
+		http.Redirect(w, r, login, http.StatusSeeOther)
 		return
 	}
 	base := page{CSRF: s.csrf, User: s.name}
@@ -112,6 +120,8 @@ func portal(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/portal/login", http.StatusSeeOther)
 		case "/portal/hold":
 			holdForm(w, r, s)
+		case "/portal/pair":
+			pairForm(w, r, s, base)
 		case "/portal/forget":
 			// Any name the hub has seen, however long: a link's hello gives it, unbounded.
 			kind, name := r.PostFormValue("kind"), r.PostFormValue("name")
@@ -156,13 +166,16 @@ func portal(w http.ResponseWriter, r *http.Request) {
 	case "/portal/setup":
 		base.Title, base.Page, base.Data = "Setup", "setup", setupData()
 		render(w, http.StatusOK, "setup", base)
+	case "/portal/pair":
+		base.Title, base.Page, base.Data = "Pair this phone", "setup", pairView{}
+		render(w, http.StatusOK, "pair", base)
 	default:
 		base.Title, base.Data = "Not found", "There's no such page."
 		render(w, http.StatusNotFound, "message", base)
 	}
 }
 
-// holdForm sets the hub's hold, which is every registered phone's hold switch: "on", and no
+// holdForm sets the hub's hold, which is every paired phone's hold switch: "on", and no
 // call rings, whatever speech there is, until you take calls or, as the app's switch, work
 // hours next start; "off", and the calls held ask again, and ring. The app shows it the next
 // time it asks the hub, as it does on opening.
@@ -227,11 +240,15 @@ func portalStatic(w http.ResponseWriter, name string) {
 
 // loginPage: the first factor, a user name and password. Right, it waits for the passcode.
 func loginPage(w http.ResponseWriter, r *http.Request, a *portalAccount) {
+	next := portalPath(r.URL.Query().Get("next"))
+	if r.Method == http.MethodPost {
+		next = portalPath(r.PostFormValue("next"))
+	}
 	if signedIn(r, a) != nil {
-		http.Redirect(w, r, "/portal/", http.StatusSeeOther)
+		http.Redirect(w, r, orDefault(next, "/portal/"), http.StatusSeeOther)
 		return
 	}
-	p := page{Title: "Sign in", Data: ""}
+	p := page{Title: "Sign in", Data: "", Next: next}
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
 		p.CSRF = formToken(w, r)
@@ -252,7 +269,7 @@ func loginPage(w http.ResponseWriter, r *http.Request, a *portalAccount) {
 			p.CSRF, p.Error = formToken(w, r), "That name and password don't match."
 			render(w, http.StatusUnauthorized, "login", p)
 		default:
-			startLogin(w, a)
+			startLogin(w, a, next)
 			http.Redirect(w, r, "/portal/code", http.StatusSeeOther)
 		}
 	default:
@@ -308,7 +325,7 @@ func codePage(w http.ResponseWriter, r *http.Request, a *portalAccount) {
 		finishLogin(w, r, a)
 		loggedIn(addr)
 		log("portal: " + a.Name + " signed in, from " + addr)
-		http.Redirect(w, r, "/portal/", http.StatusSeeOther)
+		http.Redirect(w, r, orDefault(portalPath(pending.next), "/portal/"), http.StatusSeeOther)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -661,17 +678,23 @@ func setupData() setupView {
 		SpeechSet: set(config["tokens.speech"]), AgentSet: set(config["tokens.agent"])}
 	v.Node = partSetUp(nodeNames, len(seen["speech"]), "speech node")
 	v.Mac = partSetUp(macs, len(seen["agent"]), "Mac")
-	var phones []string
+	var phones, unpaired []string
 	for _, d := range devicesByName(devices) {
-		phones = append(phones, orDefault(d["device"], "A phone"))
+		if d["key"] == "" {
+			unpaired = append(unpaired, orDefault(d["device"], "A phone"))
+		} else {
+			phones = append(phones, orDefault(d["device"], "A phone"))
+		}
 	}
 	switch {
 	case len(phones) == 1:
-		v.Phone = setupPart{true, phones[0] + " is registered."}
+		v.Phone = setupPart{true, phones[0] + " is paired."}
 	case len(phones) > 1:
-		v.Phone = setupPart{true, andList(phones) + " are registered."}
+		v.Phone = setupPart{true, andList(phones) + " are paired."}
+	case len(unpaired) > 0:
+		v.Phone = setupPart{false, andList(unpaired) + " registered but hasn't paired yet."}
 	default:
-		v.Phone = setupPart{false, "No phone is registered yet."}
+		v.Phone = setupPart{false, "No phone is paired yet."}
 	}
 	push := checkPush(config, devices)
 	switch {

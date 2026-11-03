@@ -8,15 +8,18 @@ socket only you can open (`~/.local/state/ringback/voice.sock`).
 ## The phone
 
 The app posts JSON and gets JSON back, on the hub's `listen` address. What lets it act on a
-call is the call's ID, a random string of 16 to 128 characters that the push brings; what
-lets it read the waiting calls and the sessions is its own push token, which `/register` takes
-without proof ("Security" in `docs/design.md`). Each request gets at most 5 s, or 15 s for
-`/offer`, `/answered`, `/claude-app` and `/reask`.
+call is the call's ID, a random string of 16 to 128 characters that the push brings. What
+names the phone is its push token, with the key it got when it paired: `/pair` trades a
+one-time code from the portal (`ringback://pair?hub=…&code=…`, "The hub's portal" in
+`docs/design.md`) for that key, and every request that carries the push token (`token`) must
+carry the key (`key`) too, or the hub answers 401 `{"error": "not paired"}`. Each request gets
+at most 5 s, or 15 s for `/offer`, `/answered`, `/claude-app` and `/reask`.
 
 | Endpoint | What it's for |
 |---|---|
-| `/register` | the phone's push tokens and name, its work hours, and whether its On-device voice is on |
-| `/check` | the connection check: every 30 min the hub wakes the phone with a background push, and the app answers here; its work hours come along |
+| `/pair` | trades a pairing code (`code`, valid 10 minutes, once) for the phone's key, registering it with what `/register` takes; answers `{"key": "…"}` (64 hex characters), or 403 `{"error": "pairing code not valid"}` |
+| `/register` | the phone's push tokens and name, its work hours, and whether its On-device voice is on, with its key; with a new push token and the key, the phone moves to the new token |
+| `/check` | the connection check: every 30 min the hub wakes the phone with a background push, and the app answers here; its work hours come along. Without a token it only says the hub was reached |
 | `/events` | what happened to a call: rang, answered, ended and how long it lasted, called now, sent to the Claude app |
 | `/waiting` | the calls that wait, for Recents, and the hold switch |
 | `/contacts` | the sessions listening on every Mac, for the Sessions tab |

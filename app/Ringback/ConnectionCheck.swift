@@ -25,10 +25,15 @@ enum ConnectionCheck {
     static func run(token: String?) async -> Bool {
         for delay in [0.0, 3, 6] {
             try? await Task.sleep(for: .seconds(delay))
-            if (try? await Switchboard.check(token: token)) != nil {
-                clear()
-                return true
+            do {
+                try await Switchboard.check(token: token)
+            } catch is NotPaired {
+                // Reached: the app's banner asks you to pair, so no warning that it can't be.
+            } catch {
+                continue
             }
+            clear()
+            return true
         }
         await warn()
         return false

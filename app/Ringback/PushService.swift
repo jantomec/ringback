@@ -36,7 +36,7 @@ final class PushService: NSObject, PKPushRegistryDelegate {
         guard Switchboard.url != nil else { state.connection = .notSetUp; return }
         guard let token = state.token else { state.connection = .waitingForToken; return }
         guard state.connection != .connecting else { return }
-        if !force, case .connected(let at) = state.connection, Date.now.timeIntervalSince(at) < 10,
+        if !force, state.pairingCode == nil, case .connected(let at) = state.connection, Date.now.timeIntervalSince(at) < 10,
             state.notificationToken == sentNotificationToken, WorkHours.fields == sentHours,
             OnDeviceVoice.isOn == sentOnDevice, Switchboard.url == sentURL
         {
@@ -49,7 +49,15 @@ final class PushService: NSObject, PKPushRegistryDelegate {
             let hours = WorkHours.fields
             let onDevice = OnDeviceVoice.isOn
             let url = Switchboard.url
-            try await Switchboard.register(token: token, notificationToken: notificationToken, hours: hours, onDevice: onDevice)
+            if let code = state.pairingCode {
+                // A pairing link opened the app: the code makes the phone its key.
+                state.pairingCode = nil
+                Shared.key = try await Switchboard.pair(
+                    code: code, token: token, notificationToken: notificationToken, hours: hours, onDevice: onDevice)
+                state.pairingMessage = "This iPhone is paired with your hub: calls can ring it now."
+            } else {
+                try await Switchboard.register(token: token, notificationToken: notificationToken, hours: hours, onDevice: onDevice)
+            }
             sentNotificationToken = notificationToken
             sentHours = hours
             sentOnDevice = onDevice
@@ -61,6 +69,13 @@ final class PushService: NSObject, PKPushRegistryDelegate {
             Shared.token = token
             ConnectionCheck.clear()
             if force { state.confirmations += 1 }
+        } catch is NotPaired {
+            state.connection = .notPaired
+            return
+        } catch let refused as PairingRefused {
+            state.connection = .notPaired
+            state.pairingMessage = "\(refused.localizedDescription). Pair again from your hub's portal."
+            return
         } catch {
             state.connection = .failed(reason: error.localizedDescription)
             return
@@ -81,6 +96,21 @@ final class PushService: NSObject, PKPushRegistryDelegate {
         guard Switchboard.url != sentURL || WorkHours.fields != sentHours || OnDeviceVoice.isOn != sentOnDevice
         else { return }
         await connect()
+    }
+
+    /// A pairing link (ringback://pair?hub=…&code=…, from the hub's portal): sets the hub's
+    /// address, as the Settings app would, and pairs with the code, now or once the push
+    /// token has come. Not a link of that shape: nothing happens.
+    @MainActor
+    func open(_ url: URL) async {
+        guard url.scheme == "ringback", url.host() == "pair",
+            let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
+            let hub = items.first(where: { $0.name == "hub" })?.value.flatMap(Switchboard.normalize),
+            let code = items.first(where: { $0.name == "code" })?.value, !code.isEmpty
+        else { return }
+        UserDefaults.standard.set(Switchboard.displayHost(of: hub), forKey: Switchboard.urlKey)
+        state.pairingCode = code
+        await connect(force: true)
     }
 
     func pushRegistry(_ registry: PKPushRegistry, didUpdate credentials: PKPushCredentials, for type: PKPushType) {

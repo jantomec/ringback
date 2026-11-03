@@ -15,6 +15,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import shutil
 import struct
@@ -25,6 +26,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import aiohttp
 
@@ -144,6 +146,7 @@ class Hub:
         self.env = os.environ | {"HOME": str(self.home)}
         self.process, self.links, self.callers = None, [], []
         self.secret, self.used = "", 0
+        self.keys = {}  # each paired phone's key, by its push token
 
     def make_account(self):
         """`ringback-hub portal-user`, as you'd answer it: the password twice, then the
@@ -199,11 +202,18 @@ class Hub:
             async with http.post(self.base + path, json=body) as r:
                 return r.status, await r.json(content_type=None)
 
+    def pairing_code(self) -> str:
+        """A one-time code from `ringback-hub pair`, as the portal's button makes one."""
+        printed = subprocess.run([str(BINARY), "pair"], env=self.env, capture_output=True, text=True, check=True).stdout
+        return re.search(r"code=([A-Za-z0-9_-]+)", printed).group(1)
+
     async def phone(self, token, name, on_device, environment="sandbox", hours=None):
-        body = {"token": token, "environment": environment, "device": name, "on_device": on_device,
-                "notification_token": token[::-1]}
-        await self.post("/register", body | (hours or {}))
-        await self.post("/check", {"token": token})
+        """A phone that pairs, as the app does, then checks in."""
+        body = {"code": self.pairing_code(), "token": token, "environment": environment, "device": name,
+                "on_device": on_device, "notification_token": token[::-1]}
+        _, answer = await self.post("/pair", body | (hours or {}))
+        self.keys[token] = answer["key"]
+        await self.post("/check", {"token": token, "key": self.keys[token]})
 
     async def agent(self, name):
         link = await Link(self, "agent", name).open()
@@ -364,6 +374,64 @@ async def fresh(h):
     pass
 
 
+UNPAIRED = "c0de" * 16
+
+
+async def unpaired(h):
+    """A phone that registered before pairing: kept by the hub, but not rung."""
+    (h.state / "devices.json").write_text(json.dumps({UNPAIRED: {"environment": "sandbox", "device": "iPhone", "registered": iso()}}))
+    await h.agent("studio")
+    await h.node("gpu-tower", False)
+
+
+async def pairing_flow(cdp, hub):
+    """The pairing page as the app's Pair button opens it on the phone: signed out, so signing
+    in comes back to it; its button; and the page after, which opens Ringback, whose link's
+    code pairs the phone."""
+    await cdp.size(*SIZES["phone"], False)
+    await cdp.go(hub.base + "/portal/")
+    await cdp.js("document.querySelector('form.out').submit()")
+    await asyncio.sleep(1.0)
+    await cdp.go(hub.base + "/portal/pair")
+    at = await cdp.js("location.pathname + location.search")
+    check("unpaired: signed out, the pairing page signs you in first", at == "/portal/login?next=%2Fportal%2Fpair", at)
+    await cdp.shot("pair-signed-out-phone-light", full=False)
+    await cdp.submit({"name": USER, "password": PASSWORD})
+    # A second sign-in needs a passcode the hub hasn't taken, within a step of now: wait for
+    # the clock to catch up with the last one used.
+    while int(time.time() // 30) < hub.used:
+        await asyncio.sleep(1)
+    await cdp.submit({"code": hub.code()})
+    at = await cdp.js("location.pathname")
+    check("unpaired: once signed in, back on the pairing page", at == "/portal/pair", at)
+    for dark in (False, True):
+        await cdp.size(*SIZES["phone"], dark)
+        await cdp.go(hub.base + "/portal/pair")
+        await cdp.shot(f"pair-phone-{'dark' if dark else 'light'}", full=False)
+    await cdp.size(*SIZES["desktop"], False)
+    await cdp.go(hub.base + "/portal/pair")
+    await cdp.shot("pair-desktop-light", full=False)
+    await cdp.size(*SIZES["phone"], False)
+    await cdp.go(hub.base + "/portal/pair")
+    await cdp.js("document.querySelector('form[action=\"/portal/pair\"]').submit()")
+    await asyncio.sleep(1.5)
+    link = await cdp.js("document.querySelector('a[href^=\"ringback://pair?\"]')?.getAttribute('href')") or ""
+    refresh = await cdp.js("document.querySelector('meta[http-equiv=refresh]')?.content") or ""
+    check("unpaired: the button opens Ringback at once, with Open Ringback beside it",
+          link.startswith("ringback://pair?hub=") and refresh == "0;url=" + link, f"{link} / {refresh}")
+    await cdp.shot("pair-link-phone-light", full=False)
+    await cdp.size(*SIZES["phone"], True)
+    await cdp.shot("pair-link-phone-dark", full=False)
+    query = parse_qs(urlparse(link).query)
+    status, answer = await hub.post("/pair", {"code": query["code"][0], "token": UNPAIRED, "environment": "sandbox", "device": "iPhone"})
+    check(f"unpaired: the link's code pairs the phone, at the link's hub ({query['hub'][0]})",
+          status == 200 and len(answer.get("key", "")) == 64 and query["hub"][0] == hub.base, str(status))
+    await cdp.size(*SIZES["desktop"], False)
+    await cdp.go(hub.base + "/portal/")
+    text = await cdp.js("document.body.innerText")
+    check("unpaired: once paired, the status page says calls ring it", "Calls ring your iPhone" in (text or ""))
+
+
 async def busy(h):
     await h.phone("f00d" * 16, "iPhone", False)
     await h.phone("beef" * 16, "iPad", True)
@@ -391,6 +459,7 @@ STATES = {
     "ringing": (ringing, "good", [], ["Ringing", "1 call ringing"]),
     "no-phone": (no_phone, None, [], ["No phone yet", "Not set up"]),
     "fresh": (fresh, None, [], ["No phone yet", "Not set up"]),
+    "unpaired": (unpaired, "good", [], ["Calls have nowhere to ring: iPhone hasn't paired yet", "Pair this phone", "No phone is paired"]),
     "busy": (busy, "good", [], ["and 1 asleep", "spare-box", "iPad", "a-project-with-a-rather-long-name-indeed", "on one of your phones"]),
 }
 
@@ -502,7 +571,7 @@ async def run_state(cdp, out, name, port):
             await asyncio.sleep(1.0)
             studio = hub.links[0]
             await on_hold_calls(hub, studio)
-            _, answer = await hub.post("/hold", {"token": "f00d" * 16})
+            _, answer = await hub.post("/hold", {"token": "f00d" * 16, "key": hub.keys["f00d" * 16]})
             check("on-hold: the app's hold switch is on", answer.get("hold") is True, json.dumps(answer))
 
         for dark in (False, True):
@@ -544,6 +613,8 @@ async def run_state(cdp, out, name, port):
                         if await cdp.overflows():
                             check(f"{name}: {page}, {size}, {tone}, no sideways scroll", False)
                         await cdp.shot(f"{page}-{name}-{size}-{tone}", full=page != "log")
+        if name == "unpaired":
+            await pairing_flow(cdp, hub)
         if name == "working":
             # The refresh keeps the page up to date: a node that goes shows as offline.
             await cdp.size(*SIZES["desktop"], False)

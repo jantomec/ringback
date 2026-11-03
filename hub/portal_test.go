@@ -38,6 +38,7 @@ func TestMain(m *testing.M) {
 	eventsPath = filepath.Join(stateDir, "events.jsonl")
 	accountPath = filepath.Join(stateDir, "portal-user.json")
 	seenPath = filepath.Join(stateDir, "seen.json")
+	pairingPath = filepath.Join(stateDir, "pairing.json")
 	configPath = filepath.Join(dir, "hub.toml")
 	config := "listen = \"127.0.0.1:18899\"\n[tokens]\nspeech = \"speech-secret-1234\"\nagent = \"agent-secret-5678\"\n"
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
@@ -388,10 +389,15 @@ func TestPagesNeedASession(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(portal))
 	defer server.Close()
 	b := newBrowser(t, server)
-	pages := []string{"/portal/", "/portal/calls", "/portal/log", "/portal/setup", "/portal/nope"}
+	pages := []string{"/portal/", "/portal/calls", "/portal/log", "/portal/setup", "/portal/pair", "/portal/nope"}
 	for _, path := range pages {
 		status, to, body := b.get(path)
-		if status != http.StatusSeeOther || to != "/portal/login" || strings.Contains(body, "secret") {
+		// Signed in, the login comes back to the page asked for.
+		want := "/portal/login?next=" + url.QueryEscape(path)
+		if path == "/portal/" {
+			want = "/portal/login"
+		}
+		if status != http.StatusSeeOther || to != want || strings.Contains(body, "secret") {
 			t.Errorf("GET %s: %d → %q", path, status, to)
 		}
 		if status, _, _ := b.get(path, refreshHeader, "1"); status != http.StatusUnauthorized {

@@ -85,7 +85,7 @@ func place(p mapPart, x, y, s float64, n int, above bool) mapPart {
 	p.GX, p.GY = x-p.GS/2, y-p.GS/2
 	p.BX, p.BY = x+s/2-2, y-s/2+2
 	p.Short = cut(p.Name, n)
-	if p.Setup != "" {
+	if p.Setup != "" && p.Tag == "" {
 		p.Tag, p.TagTone = "Set up", "link"
 	}
 	if p.Tag != "" {

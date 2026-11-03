@@ -133,7 +133,8 @@ Ringback is a working prototype: everything below is built and passes its offlin
 **Not yet tried on the phone:** a session calling when it finishes; permission prompts and
 questions on the call; work hours, the hold switch, its breathing light and the Lock Screen
 widget; calling back, calling a waiting call now, and the Sessions tab; Opus on the line; weak
-signal; calls and asks surviving a restart of the agent or the hub.
+signal; calls and asks surviving a restart of the agent or the hub; pairing the phone from
+the hub's portal.
 
 ## To do
 
@@ -142,7 +143,7 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 - [ ] Try on the phone what's only been checked offline (above)
 - [ ] A call that can't reach the hub ends and says why, rather than staying silent (built, untried)
 - [ ] Find why the phone's tunnel stops receiving the hub's packets on some Wi-Fi
-- [ ] A phone proves it's yours before the hub takes its push token
+- [ ] A phone proves it's yours before the hub takes its push token (built, untried)
 - [ ] A public hub, so no private network is needed
 - [ ] A hub hosted for several users, who install only the app and the Mac client
 - [ ] End-to-end encrypted calls with On-device Voice

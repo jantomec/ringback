@@ -41,13 +41,37 @@ check "GET /register is refused" 405 "$(status "$url/register")"
 check "unknown path" 404 "$(status -d '{}' "$url/nope")"
 check "no calls over plain HTTP: /call is 404" 404 "$(status -d '{"project": "demo", "call_id": "0123456789abcdef0123"}' "$url/call")"
 check "no sessions over plain HTTP: /sessions is 404" 404 "$(status -d '{"sessions": []}' "$url/sessions")"
-check "register" 200 "$(status -d '{"token": "aaaa1111bbbb2222", "environment": "sandbox", "device": "Test phone", "notification_token": "cccc3333"}' "$url/register")"
+# A phone pairs with a one-time code from `ringback-hub pair`, which it trades at /pair for its
+# key; every request that names it by its push token then carries the key ("$me").
+code_of() { HOME="$home" "$bin" pair | grep -oE 'code=[A-Za-z0-9_-]+' | cut -d= -f2; }
+key_of() { printf '%s' "$1" | grep -oE '"key":"[0-9a-f]+"' | cut -d'"' -f4; }
+before='{"token": "aaaa1111bbbb2222", "environment": "sandbox", "device": "Test phone"}'
+check "register before pairing: 401, not paired" '{"ok": false, "error": "not paired"}' "$(body -d "$before" "$url/register")"
+code1=$(code_of)
+pair1="{\"code\": \"$code1\", \"token\": \"aaaa1111bbbb2222\", \"environment\": \"sandbox\", \"device\": \"Test phone\", \"notification_token\": \"cccc3333\"}"
+k1=$(key_of "$(body -d "$pair1" "$url/pair")")
+check "pairing with a code from ringback-hub pair gives a key" 64 "${#k1}"
+check "the same code again: 403" 403 "$(status -d "$pair1" "$url/pair")"
+made_up=$(printf '%s' "$pair1" | sed "s/$code1/not-a-code/")
+check "a made-up code: 403, not valid" '{"ok": false, "error": "pairing code not valid"}' "$(body -d "$made_up" "$url/pair")"
+check "the key isn't kept, only its hash" no "$(yes_if grep -q "$k1" "$home/.local/state/ringback/devices.json")"
+check "nor the codes, which only the hub's user can read" "600 no" \
+    "$(stat -f %Lp "$home/.local/state/ringback/pairing.json") $(yes_if grep -q "$code1" "$home/.local/state/ringback/pairing.json")"
+me="\"token\": \"aaaa1111bbbb2222\", \"key\": \"$k1\""
+me_only="{$me}"
+me_full="{$me, \"environment\": \"sandbox\", \"device\": \"Test phone\", \"notification_token\": \"cccc3333\"}"
+me_again="{$me, \"environment\": \"sandbox\", \"device\": \"Test phone\"}"
+no_key='{"token": "aaaa1111bbbb2222"}'
+wrong_key='{"token": "aaaa1111bbbb2222", "key": "0000000000000000000000000000000000000000000000000000000000000000"}'
+check "register" 200 "$(status -d "$me_full" "$url/register")"
 check "register without a token" 400 "$(status -d '{"device": "Test phone"}' "$url/register")"
-check "register again, before the notification token arrived" 200 "$(status -d '{"token": "aaaa1111bbbb2222", "environment": "sandbox", "device": "Test phone"}' "$url/register")"
+check "register with a wrong key: 401" 401 "$(status -d "$wrong_key" "$url/register")"
+check "register again, before the notification token arrived" 200 "$(status -d "$me_again" "$url/register")"
 check "event" 200 "$(status -d '{"call_id": "12345678-abcd", "event": "ended", "duration_s": "21.1", "at": "2026-10-28T13:21:02Z"}' "$url/events")"
 check "event that isn't JSON" 400 "$(status -d 'not json' "$url/events")"
-check "connection check" 200 "$(status -d '{"token": "aaaa1111bbbb2222"}' "$url/check")"
+check "connection check" 200 "$(status -d "$me_only" "$url/check")"
 check "connection check before the token arrived" 200 "$(status -d '{}' "$url/check")"
+check "connection check without the key: 401" 401 "$(status -d "$no_key" "$url/check")"
 check "an agent's link with a wrong token: 401" 401 "$(status -H 'Authorization: Bearer wrong' "$url/agent")"
 check "an agent places a call" 200 "$(status -d '{"project": "demo", "subject": "Tests pass", "call_id": "0123456789abcdef0123"}' "$agent/place")"
 check "a call without a call ID: 400" 400 "$(status -d '{"project": "demo"}' "$agent/place")"
@@ -66,13 +90,12 @@ zone2=$(zone_ahead $((ahead - 1)))  # an hour behind, where 14:00 hasn't come ye
 zone_re=$(printf '%s' "$zone" | sed 's/+/\\+/g') zone2_re=$(printf '%s' "$zone2" | sed 's/+/\\+/g')
 today=$(TZ=$zone date +%Y-%m-%d)
 offset=$(TZ=$zone date +%z | sed -E 's/^\+0000$/Z/; s/([0-9]{2})([0-9]{2})$/\1:\2/')
-phone='"token": "aaaa1111bbbb2222", "environment": "sandbox", "device": "Test phone"'
-second='"token": "dddd4444eeee5555", "environment": "sandbox", "device": "Second phone"'
+phone="$me, \"environment\": \"sandbox\", \"device\": \"Test phone\""
 hours() {  # phone, from, to[, time zone]: registers it with these work hours
     status -d "{$1, \"hours_from\": \"$2\", \"hours_to\": \"$3\", \"time_zone\": \"${4:-$zone}\"}" "$url/register"
 }
 check_in() {  # from, to, time zone: a connection check that brings work hours
-    status -d "{\"token\": \"aaaa1111bbbb2222\", \"hours_from\": \"$1\", \"hours_to\": \"$2\", \"time_zone\": \"$3\"}" "$url/check"
+    status -d "{$me, \"hours_from\": \"$1\", \"hours_to\": \"$2\", \"time_zone\": \"$3\"}" "$url/check"
 }
 # Bodies with quotes are built outside "$(...)": macOS's sh keeps the backslashes in there.
 # The refused ones would hold the call if they were taken.
@@ -101,14 +124,18 @@ check "work hours without a time zone: 400" 400 "$(status -d "$no_zone" "$url/re
 check "only From: 400" 400 "$(status -d "$only_from" "$url/register")"
 check "with those refused, the last hours still hold: it rings" "$rings" "$(call_as ring0004-000000000000)"
 check "register with 14:00–16:00 again" 200 "$(hours "$phone" 14:00 16:00)"
-check "a second phone with 13:30–13:45" 200 "$(hours "$second" 13:30 13:45)"
+pair2="{\"code\": \"$(code_of)\", \"token\": \"dddd4444eeee5555\", \"environment\": \"sandbox\", \"device\": \"Second phone\", \"hours_from\": \"13:30\", \"hours_to\": \"13:45\", \"time_zone\": \"$zone\"}"
+k2=$(key_of "$(body -d "$pair2" "$url/pair")")
+check "a second phone pairs, with 13:30–13:45" 64 "${#k2}"
+second="\"token\": \"dddd4444eeee5555\", \"key\": \"$k2\", \"environment\": \"sandbox\", \"device\": \"Second phone\""
+check "and registers with them again" 200 "$(hours "$second" 13:30 13:45)"
 check "outside both, held until the earlier start" "$(held_until 13:30)" "$(call_as held0003-000000000000)"
 check "the second phone again, without hours" 200 "$(status -d "{$second}" "$url/register")"
 check "its hours are gone, and a phone without them is always inside: it rings" "$rings" "$(call_as ring0005-000000000000)"
 check "the second phone with 13:30–13:45 again" 200 "$(hours "$second" 13:30 13:45)"
 check "a connection check brings a new time zone" 200 "$(check_in 14:00 16:00 "$zone2")"
 check "a check with hours that can't be read still gets a 200" 200 "$(check_in 14:00 16:00 Mars/Olympus)"
-check "a check without hours keeps them: still held" "$(held_until 13:30)" "$(status -d '{"token": "aaaa1111bbbb2222"}' "$url/check" > /dev/null; call_as held0004-000000000000)"
+check "a check without hours keeps them: still held" "$(held_until 13:30)" "$(status -d "$me_only" "$url/check" > /dev/null; call_as held0004-000000000000)"
 sleep 1  # the call's push goes out after the answer
 kill $server
 wait $server 2> /dev/null || true
@@ -141,20 +168,22 @@ serve_waiting() {
     HOME="$home" RINGBACK_WAITING_STALE=4 "$bin" serve >> "$home/log" 2>&1 &
     server=$!
 }
-listed() { body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting" | grep -oE 'wait[0-9]{4}' | tr '\n' ' ' | sed 's/ $//'; }
+listed() { body -d "$me_only" "$url/waiting" | grep -oE 'wait[0-9]{4}' | tr '\n' ' ' | sed 's/ $//'; }
 call_about() {  # call ID, subject
     body -d "{\"project\": \"demo\", \"subject\": \"$2\", \"call_id\": \"$1\"}" "$agent/place"
 }
 called_now='{"call_id": "wait0002-000000000000", "event": "called now", "at": "2026-10-30T09:00:00Z"}'
 serve_waiting
-check "waiting calls for a token that isn't registered: 403" 403 "$(status -d '{"token": "ffff9999"}' "$url/waiting")"
-check "waiting calls without a token: 403" 403 "$(status -d '{}' "$url/waiting")"
-check "no calls wait yet" yes "$(yes_if has_text "$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting")" '"calls":[]')"
+check "waiting calls for a token that hasn't paired: 401" 401 "$(status -d '{"token": "ffff9999"}' "$url/waiting")"
+check "waiting calls without a token: 401" 401 "$(status -d '{}' "$url/waiting")"
+check "waiting calls without the key: 401" 401 "$(status -d "$no_key" "$url/waiting")"
+check "waiting calls with a wrong key: 401" 401 "$(status -d "$wrong_key" "$url/waiting")"
+check "no calls wait yet" yes "$(yes_if has_text "$(body -d "$me_only" "$url/waiting")" '"calls":[]')"
 check "a held call waits" "$(held_until 13:30)" "$(call_about wait0001-000000000000 "Docs updated")"
 check "the second phone with 13:15–13:20" 200 "$(hours "$second" 13:15 13:20)"
 check "another, held until sooner" "$(held_until 13:15)" "$(call_about wait0002-000000000000 "Parser fixed")"
 check "both are listed, soonest first" "wait0002 wait0001" "$(listed)"
-waiting=$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting")
+waiting=$(body -d "$me_only" "$url/waiting")
 check "with project, subject, voice URL and when it rings, and no question" yes "$(yes_if has_text "$waiting" \
     "\"call_id\":\"wait0002-000000000000\",\"held_until\":\"${today}T13:15:00$offset\",\"project\":\"demo\",\"question\":false,\"subject\":\"Parser fixed\",\"voice\":\"http:")"
 kill $server
@@ -179,7 +208,7 @@ ask_held() {  # call ID, subject, question
     body -d "{\"project\": \"demo\", \"subject\": \"$2\", \"call_id\": \"$1\", \"question\": $3}" "$agent/place"
 }
 fields() {  # call ID: its question, as listed
-    body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting" | grep -oE "\"call_id\":\"$1[^}]*" \
+    body -d "$me_only" "$url/waiting" | grep -oE "\"call_id\":\"$1[^}]*" \
         | grep -oE '"question":(true|false)'
 }
 told() {  # call ID: how many times the phone was told of its question (the push goes after the answer)
@@ -222,22 +251,23 @@ serve_contacts() {
     HOME="$home" RINGBACK_CONTACTS_STALE=5 "$bin" serve >> "$home/log" 2>&1 &
     server=$!
 }
-contact_ids() { body -d '{"token": "aaaa1111bbbb2222"}' "$url/contacts" | grep -oE 'sess[0-9]{4}' | tr '\n' ' ' | sed 's/ $//'; }
+contact_ids() { body -d "$me_only" "$url/contacts" | grep -oE 'sess[0-9]{4}' | tr '\n' ' ' | sed 's/ $//'; }
 two="{\"sessions\": [{\"session_id\": \"sess0001-aaaa\", \"project\": \"zeta\", \"since\": \"2026-10-30T09:00:00+01:00\"}, {\"session_id\": \"sess0002-aaaa\", \"project\": \"Alpha\", \"since\": \"2026-10-30T10:00:00+01:00\", \"subject\": \"Parser fixed\", \"briefed_at\": \"2026-10-30T10:30:00+01:00\"}]}"
 one_b="{\"sessions\": [{\"session_id\": \"sess0003-bbbb\", \"project\": \"alpha\", \"since\": \"2026-10-30T08:00:00+01:00\"}]}"
 one_a="{\"sessions\": [{\"session_id\": \"sess0002-aaaa\", \"project\": \"Alpha\", \"since\": \"2026-10-30T10:00:00+01:00\"}]}"
 no_project="{\"sessions\": [{\"session_id\": \"sess0009-aaaa\"}]}"
 held_with_session='{"project": "demo", "subject": "Docs", "call_id": "wait0006-000000000000", "session_id": "sess0004-cccc"}'
 serve_contacts
-check "contacts for a token that isn't registered: 403" 403 "$(status -d '{"token": "ffff9999"}' "$url/contacts")"
-check "contacts without a token: 403" 403 "$(status -d '{}' "$url/contacts")"
-check "no contacts yet" '{"contacts":[]}' "$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/contacts")"
+check "contacts for a token that hasn't paired: 401" 401 "$(status -d '{"token": "ffff9999"}' "$url/contacts")"
+check "contacts without a token: 401" 401 "$(status -d '{}' "$url/contacts")"
+check "contacts without the key: 401" 401 "$(status -d "$no_key" "$url/contacts")"
+check "no contacts yet" '{"contacts":[]}' "$(body -d "$me_only" "$url/contacts")"
 check "a session without a project is refused" yes "$(status -d "$no_project" "$agent/sessions?agent=mac-a" > /dev/null; yes_if grep -qF 'agent mac-a: sessions refused: bad request' "$home/log")"
-check "nothing is listed for it" '{"contacts":[]}' "$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/contacts")"
+check "nothing is listed for it" '{"contacts":[]}' "$(body -d "$me_only" "$url/contacts")"
 check "an agent says two sessions listen" 200 "$(status -d "$two" "$agent/sessions?agent=mac-a")"
 check "another agent, one" 200 "$(status -d "$one_b" "$agent/sessions?agent=mac-b")"
 check "all three are listed, by project, then since when" "sess0003 sess0002 sess0001" "$(contact_ids)"
-listed=$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/contacts")
+listed=$(body -d "$me_only" "$url/contacts")
 check "with project, latest subject and when, since when, and the hub's URL" yes "$(yes_if has_text "$listed" \
     '{"briefed_at":"2026-10-30T10:30:00+01:00","project":"Alpha","session_id":"sess0002-aaaa","since":"2026-10-30T10:00:00+01:00","subject":"Parser fixed","voice":"http:')"
 check "the first agent again, now with one: it replaces its two" 200 "$(status -d "$one_a" "$agent/sessions?agent=mac-a")"
@@ -251,7 +281,7 @@ check "the second agent says again" 200 "$(status -d "$one_b" "$agent/sessions?a
 sleep 3
 check "the first, not heard from in time, is dropped" "sess0003" "$(contact_ids)"
 check "a held call names its session" "$(held_until 13:15)" "$(body -d "$held_with_session" "$agent/place")"
-check "listed as waiting with it" yes "$(yes_if has_text "$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting")" '"session_id":"sess0004-cccc"')"
+check "listed as waiting with it" yes "$(yes_if has_text "$(body -d "$me_only" "$url/waiting")" '"session_id":"sess0004-cccc"')"
 kill $server
 wait $server 2> /dev/null || true
 check "an agent's sessions are logged" yes "$(yes_if grep -qF 'sessions listening on agent:mac-a: zeta (sess0001), Alpha (sess0002)' "$home/log")"
@@ -264,8 +294,9 @@ check "a dropped agent is logged" yes "$(yes_if grep -qE 'sessions listening on 
 # It's between 12:00 and 13:00 in $zone. set_at moves when a switch was set back in time, to
 # before an edge.
 first=aaaa1111bbbb2222 other=dddd4444eeee5555
-hold_of() { body -d "{\"token\": \"$1\"}" "$url/hold"; }
-set_hold() { body -d "{\"token\": \"$1\", \"hold\": $2}" "$url/hold"; }
+key_for() { if [ "$1" = "$first" ]; then echo "$k1"; else echo "$k2"; fi; }
+hold_of() { body -d "{\"token\": \"$1\", \"key\": \"$(key_for "$1")\"}" "$url/hold"; }
+set_hold() { body -d "{\"token\": \"$1\", \"key\": \"$(key_for "$1")\", \"hold\": $2}" "$url/hold"; }
 set_at() {  # token, ISO 8601
     python3 -c 'import json, sys; p, t, at = sys.argv[1:]; d = json.load(open(p)); d[t]["hold_set"] = at; json.dump(d, open(p, "w"))' \
         "$state/devices.json" "$1" "$2"
@@ -274,8 +305,9 @@ hold_json() { echo "{\"hold\":$1,\"until\":\"$2:00$offset\"}"; }  # true|false, 
 tomorrow=$(TZ=$zone date -v+1d +%Y-%m-%d)
 HOME="$home" "$bin" serve >> "$home/log" 2>&1 &
 server=$!
-check "the switch without a token: 403" 403 "$(status -d '{}' "$url/hold")"
-check "for a token that isn't registered: 403" 403 "$(status -d '{"token": "ffff9999"}' "$url/hold")"
+check "the switch without a token: 401" 401 "$(status -d '{}' "$url/hold")"
+check "for a token that hasn't paired: 401" 401 "$(status -d '{"token": "ffff9999"}' "$url/hold")"
+check "without the key: 401" 401 "$(status -d "$no_key" "$url/hold")"
 check "the first phone with 14:00–16:00" 200 "$(hours "$phone" 14:00 16:00)"
 check "the second with 13:15–13:20" 200 "$(hours "$second" 13:15 13:20)"
 check "outside its hours, a phone is on hold until they start" "$(hold_json true "${today}T14:00")" "$(hold_of $first)"
@@ -297,7 +329,7 @@ check "without hours, a phone takes calls" '{"hold":false}' "$(hold_of $first)"
 check "on hold, it has no time to come off it" '{"hold":true}' "$(set_hold $first true)"
 check "the other takes calls: a call rings" "$rings" "$(call_as hold0005-000000000000)"
 check "both on hold: held until you take calls" '{"held":true,"ok":true}' "$(set_hold $other true > /dev/null; call_as hold0006-000000000000)"
-waiting=$(body -d '{"token": "aaaa1111bbbb2222"}' "$url/waiting")
+waiting=$(body -d "$me_only" "$url/waiting")
 check "listed without a time" yes "$(yes_if has_text "$waiting" '"call_id":"hold0006-000000000000","project":"demo","question":false')"
 check "with the phone's switch" yes "$(yes_if has_text "$waiting" '"hold":{"hold":true}')"
 check "taking calls again: it rings" "$rings" "$(set_hold $first false > /dev/null; call_as hold0006-000000000000)"
@@ -313,7 +345,7 @@ check "the others ring, the last once you take calls" 4 "$(grep -cE 'call hold00
 if [ "${1:-}" = --apns ]; then
     cp ~/.config/ringback/hub.toml "$home/.config/ringback/hub.toml"
     cp ~/.config/ringback/AuthKey_*.p8 "$home/.config/ringback/"
-    printf '{"%s": {"environment": "sandbox", "device": "made-up phone"}}' \
+    printf '{"%s": {"environment": "sandbox", "device": "made-up phone", "key": "made-up"}}' \
         0000000000000000000000000000000000000000000000000000000000000000 > "$state/devices.json"
     out=$(HOME="$home" "$bin" ring --project smoke-test)
     echo "      $out" | head -1

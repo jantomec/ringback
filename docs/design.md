@@ -100,7 +100,7 @@ built or run on Linux. The agent runs where the sessions run, on a Mac.
    briefing goes to the call as news instead.
 2. **Placing the call.** The agent makes a random call ID, which is the call's secret, and
    asks the hub to ring. The hub either holds the call (outside your hours, on hold, or with
-   no speech; see the next sections) or rings: a VoIP push to every registered phone with the
+   no speech; see the next sections) or rings: a VoIP push to every paired phone with the
    call's ID, project, subject and session, and a word to the speech nodes to load their
    models (about 2.2 s, while the phone rings). The agent starts Haiku on the briefing at
    once, so its opening is written while the phone rings, as a person thinks of what to say
@@ -435,9 +435,9 @@ phone always dials the hub, and never the other way. Another VPN with the same p
 phone reaches the hub from anywhere) should work, but hasn't been tried.
 
 **A public address isn't supported.** The hub speaks plain HTTP, so the portal's password,
-the links' tokens and the calls' IDs would cross the internet unencrypted, and some of its
-endpoints take requests without a token (Security). A public hub with TLS and pairing is
-planned (Next).
+the links' tokens, the phones' keys and the calls' IDs would cross the internet unencrypted
+(Security). A public hub with TLS, and the Macs and speech nodes paired too, is planned
+(Next).
 
 ## Security
 
@@ -450,10 +450,15 @@ The private network is the outer wall: anything on it can reach the hub. Inside 
   for a call the agent that owns it knows. A session's ID is a secret of the same kind: with
   it, a call to that session can pass it messages, which it takes as prompts.
 - **Calls and sessions come only from agents,** over their links, with the agent token.
-- **A phone registers without proof.** The hub lists the IDs of waiting calls and sessions
-  (`/waiting`, `/contacts`) only for a registered phone, named by its push token, but
-  `/register` takes any token, so anything on the private network can register one and read
-  them (Limits and risks).
+- **A phone pairs before the hub trusts it.** The portal, signed in, makes a one-time pairing
+  code (32 random bytes, valid 10 minutes, kept only as a hash, in a file only the hub's user
+  can read), which opens Ringback as a link (`ringback://pair`); `ringback-hub pair` makes one
+  on the hub's machine. The app trades it at `/pair` for the phone's own key (32 random bytes),
+  which it keeps in its Keychain, on that device only; the hub keeps only the key's SHA-256,
+  with the phone. Every request that names the phone by its push token must carry the key,
+  compared in constant time, or gets 401: so only your phones register, get the IDs of the
+  waiting calls and the sessions (`/waiting`, `/contacts`), set their hold, or are rung and
+  pushed to. The pairing page's sign-in comes back only to a page of the portal.
 - **The portal** has one account, made on the hub's machine (`ringback-hub portal-user NAME`):
   a password of at least 10 characters, hashed with PBKDF2-SHA256 at 600,000 iterations and
   a random salt, then a one-time passcode from an authenticator app (TOTP, RFC 6238: 6 digits,
@@ -494,11 +499,17 @@ every 5 s by a small script, with no framework; light and dark, and laid out for
 - **Log:** the hub's last 500 lines, newest first.
 - **Setup:** how to add a speech node, a Mac, the phone and Apple push, with each link's
   address and token from `hub.toml` (hidden until shown, with a copy button).
+- **Pair this phone** (`/portal/pair`): opened on the iPhone, from the app's "Pair this iPhone"
+  banner or by hand. Signed out, it signs you in first and comes back. Its one button makes a
+  one-time pairing code and opens Ringback with it at once (`ringback://pair?hub=…&code=…`,
+  through a refresh, with an Open Ringback link should Safari not follow), and the app trades
+  the code for the phone's key (Security).
 
-The portal changes two things: **the hold**, on every phone at once, so the app shows it too
-(work hours still end it at their next start, as they end the app's); and **forgetting** a
-node or a Mac that's gone for good. Everything else has one home: secrets and addresses in
-`hub.toml`, what the phone owns on the phone (shown on the portal, read-only).
+The portal changes three things: **the hold**, on every paired phone at once, so the app shows
+it too (work hours still end it at their next start, as they end the app's); **forgetting** a
+node or a Mac that's gone for good; and the **pairing codes** it makes. Everything else has
+one home: secrets and addresses in `hub.toml`, what the phone owns on the phone (shown on the
+portal, read-only).
 
 Signing in is described under Security. Passkeys would be better, but browsers offer them only
 on HTTPS, and need a domain name rather than an IP address (not checked): a name of your own
@@ -526,6 +537,10 @@ with a certificate, or a private certificate authority installed on each device 
   hard to justify for a personal tool, narrowband audio hurts recognition, and the call's
   audio would need a public address. Kept as a fallback for weak data (Next).
 - **The phone dials the hub,** since nothing can open a tunnel to a phone on mobile data.
+- **Pairing by a link from the portal,** opened on the phone, rather than a QR code the app
+  scans or a code typed in its settings: no camera access and no typing, and the portal's
+  sign-in, with its passcode, is the proof. The app's banner opens the pairing page itself,
+  since it knows the hub's address.
 - **The connection check comes from the hub as a push,** and the app answers it. Pinging the
   phone raised false alarms (a locked, idle phone stops answering within 30 s) and tests the
   wrong direction; iOS doesn't run apps on a timer.
@@ -594,10 +609,6 @@ with a certificate, or a private certificate authority installed on each device 
 
 ## Limits and risks
 
-- **Anything on the private network can read your calls' and sessions' IDs** (to be fixed,
-  Next): by registering a made-up push token, it can read the IDs of the waiting calls and the
-  sessions, and with a session's ID call it and pass it prompts (Security). The private network
-  is the only wall: keep it to your own devices.
 - **Calls don't queue or retry.** Two sessions calling at once both ring, and a call you
   don't answer is forgotten after 90 s with only a note to its session (Next).
 - **The phone's tunnel can stop receiving.** On one Wi-Fi network (2026-11-03), for over two
@@ -678,6 +689,8 @@ how things look):
   from the portal, with the pill's breathing light, the icon's badge and the Lock Screen
   widget;
 - the connection check's push, and the app checking in with the hub;
+- pairing the phone: the app's banner, the portal's pairing page and its link back to the app
+  (the hub's side checked, the app only built);
 - calling back, calling a waiting call now, and calling from the Sessions tab;
 - permissions and questions on a call, and a held call's question sent to the Claude app;
 - Opus on the line;
@@ -705,10 +718,11 @@ host unable to read their calls.
   can't be reached, as the connection check says, or the error.
 - [ ] **Find why the phone's tunnel stops receiving the hub's packets on some Wi-Fi** (Limits
   and risks).
-- [ ] **A phone proves it's yours before the hub takes its push token** (to be fixed; Limits
-  and risks). `/register` takes any token, so anything on the private network can register one
-  and read the IDs of the waiting calls and the sessions; a phone should pair with the hub
-  first, so they go only to your phones.
+- [ ] **A phone proves it's yours before the hub takes its push token** (built; not yet tried
+  on the phone). The app's banner sends an unpaired phone to the portal's pairing page, whose
+  one-time link opens Ringback, which trades it for the phone's key; every request that names
+  the phone by its push token carries the key (Security). A phone registered before this
+  pairs once.
 - [ ] **A public hub,** so no private network is needed: HTTPS and WSS with a certificate for a
   domain name; the phone, the Macs and the speech nodes paired with the hub (a one-time code
   from the portal) instead of trusting the network; the call's audio on the public address

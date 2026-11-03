@@ -12,21 +12,23 @@ import (
 )
 
 const usage = `usage: ringback-hub install | uninstall | serve | ring [--project NAME] [--subject TEXT]
-       | check | devices | portal-user NAME
+       | check | devices | pair | portal-user NAME
 
   install  run the hub as a service (a launchd agent): now, at login, and again whenever
            it stops; again after updating the binary, to restart it; uninstall stops it
            and takes it away
   serve    serve the phone, the speech nodes and the agents: ring calls, carry their audio,
            and every 30 min ask each phone to check that it can still reach the hub
-  ring     ring every registered phone, at any time, to try the push; the call has no
-           audio (an agent places a session's calls)
+  ring     ring every paired phone, at any time, to try the push; the call has no audio
+           (an agent places a session's calls)
              --project NAME  shown as the caller (default: ringback)
              --subject TEXT  a few words on what the call is about
-  check    ask every phone to check its connection now; one that can't reach the
+  check    ask every paired phone to check its connection now; one that can't reach the
            hub shows a warning
-  devices  list registered phones, when each last checked in, their work hours and
-           their hold switch
+  devices  list the phones, whether each has paired, when it last checked in, its work
+           hours and its hold switch
+  pair     print a one-time link that pairs a phone, valid 10 min: open it on the phone
+           (the portal's Pair this phone does the same)
   portal-user NAME
            make the account for the hub's portal (/portal/ on its address), or replace
            it: asks for its password and prints the setup key for an authenticator app`
@@ -49,8 +51,8 @@ func main() {
 		serve(listen)
 	case "ring":
 		options := parseOptions(args[1:], "--project", "--subject")
-		if len(loadDevices()) == 0 {
-			fail("No phone registered yet: open the app and enter the hub's address.")
+		if len(pairedDevices()) == 0 {
+			fail("No phone has paired yet: `ringback-hub pair` makes a link to open on the phone.")
 		}
 		project := options["--project"]
 		if project == "" {
@@ -67,6 +69,14 @@ func main() {
 		for _, line := range lines {
 			fmt.Println(line)
 		}
+	case "pair":
+		code, expires, err := newPairingCode()
+		if err != nil {
+			fail("Can't make a pairing code: " + err.Error())
+		}
+		fmt.Println("Open this on the phone, in Safari or from a message to yourself, before " +
+			timeOfDay(expires.Local()) + "; it works once:")
+		fmt.Println(pairingLink(code))
 	case "devices":
 		devices := loadDevices()
 		tokens := make([]string, 0, len(devices))
@@ -110,6 +120,9 @@ func describeDevice(token string, d map[string]string) string {
 	}
 	if set, ok := d["hold_set"]; ok {
 		state += ", set " + set
+	}
+	if d["key"] == "" {
+		state += "  not paired"
 	}
 	return fmt.Sprintf("…%s  %s  %s  registered %s%s%s  %s", suffix(token, 8), d["device"], d["environment"], d["registered"], checks, hours, state)
 }

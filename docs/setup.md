@@ -100,10 +100,10 @@ even Nebula.
 What it keeps is in `~/.local/state/ringback/`: the phones (`devices.json`), the calls that
 wait (`waiting.json`), the sessions you can call (`contacts.json`) and every call's events
 (`events.jsonl`). Every 30 min it wakes each phone with a background push, and the app checks
-in over the network; if it can't, the phone warns you. Once the app has registered (step 7),
+in over the network; if it can't, the phone warns you. Once the phone has paired (step 7),
 `ringback-hub check` does that now, `ringback-hub devices` shows when each phone last checked
-in, and `ringback-hub ring --project myproject` rings every phone without audio, to try the
-push.
+in, and `ringback-hub ring --project myproject` rings every paired phone without audio, to
+try the push. `ringback-hub pair` prints a one-time link that pairs a phone (step 7).
 
 ## 3. The hub's portal
 
@@ -139,8 +139,9 @@ would do now: which phone it rings, and what hears and speaks it (a speech node,
 own voice, or nothing, so calls wait); a call ringing or live lights its path. Below it:
 - the calls, live and waiting (and why);
 - the sessions listening, each with the Mac it runs on;
-- each phone: when it registered and last checked in, the last push to it, and what's set in
-  the app (work hours, On-device voice), as the hub last heard them;
+- each paired phone: when it registered and last checked in, the last push to it, and what's
+  set in the app (work hours, On-device voice), as the hub last heard them; a phone that
+  registered but hasn't paired is named above the map, with how to pair it;
 - the speech nodes and Macs: since when they're linked, whether a node's models are loaded (it
   loads them while a call rings and lets them go a minute after), and those that are gone.
 
@@ -149,12 +150,14 @@ events; **Log** the hub's last 500 lines, newest first. Status, Calls and Log re
 themselves every 5 s. **Setup** shows which parts are set up, and what a new speech node or Mac
 needs: the hub's address for its link, its token from `hub.toml` (hidden until you show it,
 and a button to copy the config) and the commands of steps 4 and 5; and how the phone and
-Apple push are set up. It doesn't refresh itself, so its tokens are fetched once.
+Apple push are set up. It doesn't refresh itself, so its tokens are fetched once. **Pair this
+phone** (`/portal/pair`), opened on the iPhone, pairs it (step 7); signed out, it signs you in
+first and comes back.
 
 The portal changes only what the hub keeps in its state. The **hold** is set on Status, and
 every page's bar shows it: hold calls and nothing rings, not through a speech node and not with
 the phone's own voice; they wait until you take calls. It's the app's hold switch, set on every
-phone at once, so the app shows it too; and as in the app, your work hours set it at their
+paired phone at once, so the app shows it too; and as in the app, your work hours set it at their
 edges, so with work hours a hold lasts until they next start, and the page says so. A phone
 that registers while you've held every other (in the app or here) starts on hold too. A speech
 node or Mac that's gone for good can be **forgotten** on Status: the hub remembers the ones it
@@ -311,7 +314,16 @@ xcrun devicectl device install app --device <UDID> app/build/Build/Products/Debu
 Open the app and allow the microphone and notifications. Its settings are in the Settings
 app, under **Settings → Apps → Ringback** (the app's banner, "Set up Ringback", has a button
 that opens it): enter the hub's address under **Hub**, e.g. `10.0.0.1` (port 8787 is the
-default), then go back to the app. The banner goes once the hub has the phone.
+default), so the app can reach the hub, then go back to the app.
+
+Then pair the phone with the hub: the hub rings, and lists calls and sessions for, only a
+phone that proves it's yours. The app's banner, "Pair this iPhone", has a **Pair** button,
+which opens the hub's pairing page (`/portal/pair`) in Safari: sign in to the portal, as in
+step 3, and tap **Pair this phone**. Safari opens Ringback with a one-time link, the app
+trades it for the phone's own key, kept in its Keychain, and says it's paired; the banner
+goes. The link works once, for 10 minutes. Without a browser at hand, `ringback-hub pair` on
+the hub's machine prints such a link, to open on the phone (send it to yourself). A phone
+pairs once; registering again, or with a new push token from Apple, carries its key.
 
 The same page has the rest:
 - **Work Hours**, off by default, with **From** and **To** in 15-minute steps: Claude calls

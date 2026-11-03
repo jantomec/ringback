@@ -13,7 +13,8 @@ with its own HOME under the output folder: its config with tokens, and an accoun
 `ringback-hub portal-user` as you'd answer it, the password twice and then the passcode for
 the setup key it prints. On its links, stand-in Macs (agents with sessions, which accept every
 offer) and speech nodes (which say their models are loaded when a call comes); a fake phone
-registered over `/register` and `/check`; a live call made as from the app's Sessions tab with
+paired with a code from `ringback-hub pair` (`/pair`), then checked in (`/check`, with its
+key); a live call made as from the app's Sessions tab with
 the stand-in phone (`tools/stand-in-phone`), so no push goes out; calls reported over `/events`. It
 signs in through the pages in Chrome (its DevTools protocol), with a fresh passcode. Nothing
 reaches Apple: the APNs key is one Apple has never seen and nothing pushes with it, or a file
@@ -37,6 +38,11 @@ The states:
 - `no-phone`: a Mac and a node, but no phone and no APNs key;
 - `fresh`: nothing set up; first the page for making the account, then signing in on a phone,
   a wrong password first;
+- `unpaired`: a phone that registered but hasn't paired, so calls have nowhere to ring; then
+  pairing, as the app's Pair button opens it on the phone: signed out, `/portal/pair` signs
+  you in first and comes back (`pair-signed-out-…`), its button (`pair-phone-…`,
+  `pair-desktop-…`), and the page after, which opens Ringback at once with an Open Ringback
+  link (`pair-link-…`), whose code then pairs the phone;
 - `busy`: four Macs (one asleep, one with a long name), two nodes, two phones (one speaking
   calls itself), a long project and subject, and a live call, which the hub can't place on
   either phone.

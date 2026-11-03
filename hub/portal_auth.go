@@ -325,6 +325,7 @@ type portalSession struct {
 	name, account string // the account's name and salt, which a new account changes
 	csrf          string
 	used, until   time.Time
+	next          string // a pending login's: the portal page to go to once signed in
 }
 
 type loginFailures struct {
@@ -408,11 +409,14 @@ func pendingLogin(r *http.Request, a *portalAccount) *portalSession {
 	return s
 }
 
-// startLogin keeps a login past its password until its passcode comes, at most loginWithin.
-func startLogin(w http.ResponseWriter, a *portalAccount) {
+// startLogin keeps a login past its password until its passcode comes, at most loginWithin,
+// with the portal page to go to then (next, checked by portalPath).
+func startLogin(w http.ResponseWriter, a *portalAccount, next string) {
 	id := newID()
 	portalMu.Lock()
-	pendingLogins[keyOf(id)] = &portalSession{name: a.Name, account: a.Salt, csrf: newID(), until: now().Add(loginWithin)}
+	pendingLogins[keyOf(id)] = &portalSession{
+		name: a.Name, account: a.Salt, csrf: newID(), until: now().Add(loginWithin), next: portalPath(next),
+	}
 	portalMu.Unlock()
 	setCookie(w, loginCookie, id, int(loginWithin.Seconds()))
 }

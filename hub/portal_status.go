@@ -14,7 +14,7 @@ import (
 // below it the calls, the sessions, the phones, and the speech nodes and Macs. Each fact is
 // said where it belongs, once: the map shows what's linked, the lists what the map can't.
 
-// holdView is the hub's hold: on hold while every registered phone is, and then no call
+// holdView is the hub's hold: on hold while every paired phone is, and then no call
 // rings, whatever speech there is. Setting it sets every phone's hold switch, so the app
 // shows it too, and work hours set it at their edges, as they set the app's switch.
 type holdView struct {
@@ -30,7 +30,7 @@ func currentHold() holdView {
 	stateMu.Lock()
 	defer stateMu.Unlock()
 	waiting, _ := listWaiting()
-	return hubHold(loadDevices(), len(waiting))
+	return hubHold(pairedDevices(), len(waiting))
 }
 
 // hubHold is the hold now; the caller holds stateMu. Its words promise no more than the hold
@@ -165,12 +165,18 @@ func statusData() statusView {
 	seen := loadSeen()
 	seenMu.Unlock()
 	var waitingCalls []map[string]any
-	var devices map[string]map[string]string
+	var devices map[string]map[string]string // the paired phones: the ones calls ring
+	var unpaired []string                    // phones that registered but haven't paired
 	func() {
 		stateMu.Lock()
 		defer stateMu.Unlock()
 		waitingCalls, _ = listWaiting()
-		devices = loadDevices()
+		devices = pairedDevices()
+		for _, d := range devicesByName(loadDevices()) {
+			if d["key"] == "" {
+				unpaired = append(unpaired, orDefault(d["device"], "A phone"))
+			}
+		}
 		v.Hold = hubHold(devices, len(waitingCalls))
 	}()
 	config := loadConfig()
@@ -384,6 +390,9 @@ func statusData() statusView {
 	}
 	if len(m.Phones) == 0 {
 		m.Phones = []mapPart{{Kind: "phone", State: "unset", Name: "iPhone", Sub: "Not set up", Setup: "phone", Wire: "unset", PushWire: "unset"}}
+		if len(unpaired) > 0 {
+			m.Phones[0].Name, m.Phones[0].Sub, m.Phones[0].Tag, m.Phones[0].TagTone = unpaired[0], "Not paired", "Pair", "link"
+		}
 	}
 
 	// The speech a call would have now: a speech node, the phone's own, or none.
@@ -421,6 +430,14 @@ func statusData() statusView {
 	your := "your " + andList(ringNames)
 	type issue struct{ tone, headline, hint string }
 	var issues []issue
+	pairIt := "On the iPhone, tap Pair in Ringback's banner, or open Pair this phone on this portal."
+	if len(unpaired) > 0 && len(devices) > 0 {
+		hasnt := " hasn't paired, so calls don't ring it."
+		if len(unpaired) > 1 {
+			hasnt = " haven't paired, so calls don't ring them."
+		}
+		issues = append(issues, issue{"wait", andList(unpaired) + hasnt, pairIt})
+	}
 	switch {
 	case !push.set:
 		issues = append(issues, issue{"unset", "Calls can't ring yet: Apple push isn't set up.", "Add an Apple push key to the hub's config, as Setup shows."})
@@ -456,8 +473,11 @@ func statusData() statusView {
 			"Add a speech node, as Setup shows, or turn on " + onDevice + " voice in the app's settings."})
 	}
 	switch {
+	case len(devices) == 0 && len(unpaired) > 0:
+		v.Tone, v.Headline, v.Hint = "wait", "Calls have nowhere to ring: "+andList(unpaired)+" hasn't paired yet.", pairIt
 	case len(devices) == 0:
-		v.Tone, v.Headline, v.Hint = "unset", "No phone yet: calls have nowhere to ring.", "Open the app on your iPhone and enter the hub's address in its settings."
+		v.Tone, v.Headline, v.Hint = "unset", "No phone yet: calls have nowhere to ring.",
+			"Install the app on your iPhone, enter the hub's address in its settings, then tap Pair in its banner."
 	case len(issues) > 0:
 		v.Tone, v.Headline, v.Hint = issues[0].tone, issues[0].headline, issues[0].hint
 		for _, more := range issues[1:] {
