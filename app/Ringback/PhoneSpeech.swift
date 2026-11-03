@@ -673,6 +673,21 @@ private final class Hearing: @unchecked Sendable {  // its shared state is under
         }
     }
 
+    /// The final words of a turn as one text. A result can start with the punctuation that ends
+    /// the one before it (". What do you think"), which goes onto that one, or at the start of
+    /// the turn is dropped.
+    static func joined(_ words: [String]) -> String {
+        var text = ""
+        for piece in words {
+            let piece = piece.trimmingCharacters(in: .whitespaces)
+            let lead = piece.prefix { ".,;:!?".contains($0) }
+            let rest = piece.dropFirst(lead.count).trimmingCharacters(in: .whitespaces)
+            if !text.isEmpty { text += lead }
+            if !rest.isEmpty { text += (text.isEmpty ? "" : " ") + rest }
+        }
+        return text
+    }
+
     /// Your turn ended: asks the analyzer for the final words through the end of your speech,
     /// waits for them, and sends them, "" if none came. Under `lock`.
     private func finishTurn(start: Double, end: Double) {
@@ -693,7 +708,7 @@ private final class Hearing: @unchecked Sendable {  // its shared state is under
                 let words = finals.filter { $0.start < through && $0.end > start - 0.3 }.map(\.text)
                 finals.removeAll { $0.start < through }
                 turnCount += 1
-                return words.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " ")
+                return Self.joined(words)
             }
             outbox.send(
                 "turn",
