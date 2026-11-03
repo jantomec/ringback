@@ -1,13 +1,13 @@
 import Foundation
 import UIKit
 
-/// Sends a waiting call's question to the Claude app instead of the call. The calling Mac's
-/// voice server releases the question to the session's own dialog, which Remote Control shows
-/// in the Claude app (ringback turns it on in the session), and forgets the call, so it never
-/// rings. It goes over Nebula, as a call's audio does, with the call's ID.
+/// Sends a waiting call's question to the Claude app instead of the call. The hub passes it to
+/// the calling Mac's agent, which releases the question to the session's own dialog, which
+/// Remote Control shows in the Claude app (ringback turns it on in the session), and forgets
+/// the call, so it never rings. It goes to the hub, as a call's audio does, with the call's ID.
 enum ClaudeApp {
-    private static let unreachable = "Can't reach the Mac that's calling over Nebula. Check that Nebula is on."
-    /// Why the voice server didn't take it, as it says.
+    private static let unreachable = ConnectionCheck.message
+    /// Why the agent didn't take it, as it says.
     private static let refusals = [
         "not waiting": "This call isn't waiting any more.",
         "not listening": "The session isn't listening any more: ringback is off in it, or it has ended.",

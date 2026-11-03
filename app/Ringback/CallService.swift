@@ -460,7 +460,7 @@ final class CallService: NSObject, CXProviderDelegate {
             guard callIDs[uuid] != nil else { return reached }
             guard let reached else {
                 audioFailed(uuid, callID, ReachError().localizedDescription, note: offerNote(uuid))
-                state.callBackProblem = "Can't reach \(contact.project)'s Mac over Nebula. Check that Nebula is on."
+                state.callBackProblem = ConnectionCheck.message
                 end(uuid)
                 return nil
             }
@@ -502,7 +502,7 @@ final class CallService: NSObject, CXProviderDelegate {
             guard callIDs[uuid] != nil else { return reached }
             guard let reached else {
                 audioFailed(uuid, callID, ReachError().localizedDescription, note: offerNote(uuid))
-                callNowFailed(uuid, "Can't reach the Mac that's calling over Nebula. Check that Nebula is on.")
+                callNowFailed(uuid, ConnectionCheck.message)
                 return nil
             }
             reportReached(callID, reached)
