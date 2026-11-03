@@ -1,8 +1,8 @@
 # Hub check
 
-Checks the Go hub's side of a call (`hub/`, the Go port in `docs/design.md`) with stand-ins
-for everything around it:
-- the phone: `tools/phone-check`'s, an aiortc peer making the offer as the app does;
+Checks the hub's side of a call (`hub/`, "The parts" in `docs/design.md`) with stand-ins for
+everything around it:
+- the phone: `tools/stand-in-phone`, an aiortc peer making the offer as the app does;
 - an agent: a WebSocket client speaking `docs/protocol.md`, which owns the calls whose ID
   starts with `known-` and speaks a reply once you've answered and the audio connected;
 - a speech node: a WebSocket client that answers each piece to speak with a 440 Hz tone, 60 ms
@@ -12,12 +12,12 @@ It runs the hub built in `hub/build` on localhost, with its config (tokens inclu
 state in a throwaway HOME, and checks:
 - a link with a wrong token is refused (401), and the agent's and node's hellos are
   welcomed;
-- before any speech node links, a call the agent places waits instead of ringing (held,
-  reason "no speech"); the app's waiting calls list it with its reason, and the status with
-  them says calls can't be talked through, that the last push to the phone failed for want of a
-  key (`problem` "key": there's no APNs key here), and which Macs are linked. Once the node links, the agent is asked to ask
-  again, and asked again, the call rings and the status is fine;
-- an offer for a call no agent owns is refused (403), as the voice server refused it;
+- before any speech node links, a call the agent places waits instead of ringing (held, reason
+  "no speech"); the app's waiting calls list it with its reason, and the status with them says
+  calls can't be talked through, that the last push to the phone failed for want of a key
+  (`problem` "key": there's no APNs key here), and which Macs are linked. Once the node links,
+  the agent is asked to ask again, and asked again, the call rings and the status is fine;
+- an offer for a call no agent owns is refused (403);
 - an offer the agent accepts is answered; the agent hears `answered` and `connected`, and the
   node is told to warm up (`warm`, as for every offer and every call placed that rings), then
   asked to hear the call with the offer's sensitivity and background filter;
@@ -67,7 +67,7 @@ loopback addresses out, so the hub on 127.0.0.1 offered none (fixed: loopback is
 the hub listens on one); then a reply after a finished one was taken as more of it, and the
 end of a reply wasn't reported as heard (both fixed). The universal binary from `hub/build.sh` (libopus 1.6.1 linked in statically; it links only
 macOS's own libraries) passed all 25 too, its Apple silicon half and its Intel half alone
-(under Rosetta), and the switchboard's smoke test (139). The cut-off checks came after: a reply
+(under Rosetta), and the hub's smoke test (139). The cut-off checks came after: a reply
 cut while still being written went on being spoken from the slices still coming, so replies
 are numbered now (`docs/protocol.md`); and at the end of a reply the last frame wasn't counted
 as heard ("Going on" for "Going on now.").

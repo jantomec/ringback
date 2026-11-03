@@ -1,12 +1,12 @@
 # Portal screens
 
-Screenshots the hub's portal (`hub/portal/`, "Status and the hub's portal" under Stages in
-`docs/design.md`) in every state its status page's map shows, to review how it looks: light
-and dark, on a desk (1440 px wide) and on a phone (390 px), and the Calls, Log, Setup and
-sign-in pages. Headless Chrome is fine for most of this: it's the page's drawing, not ringing,
-push or audio. But Safari draws some things differently, and these screenshots don't show it:
-the map's words once had an outline under their letters (`paint-order`), which Safari drew
-letter by letter, each over the one before (2026-11-03).
+Screenshots the hub's portal (`hub/portal/`, "The hub's portal" in `docs/design.md`) in every
+state its status page's map shows, to review how it looks: light and dark, on a desk (1440 px
+wide) and on a phone (390 px), and the Calls, Log, Setup and sign-in pages. Headless Chrome is
+fine for most of this: it's the page's drawing, not ringing, push or audio. But Safari draws
+some things differently, and these screenshots don't show it: the map's words once had an
+outline under their letters (`paint-order`), which Safari drew letter by letter, each over the
+one before (2026-11-03).
 
 Each state is a throwaway hub (`hub/build/ringback-hub`, which it builds first) on localhost,
 with its own HOME under the output folder: its config with tokens, and an account made with
@@ -14,7 +14,7 @@ with its own HOME under the output folder: its config with tokens, and an accoun
 the setup key it prints. On its links, stand-in Macs (agents with sessions, which accept every
 offer) and speech nodes (which say their models are loaded when a call comes); a fake phone
 registered over `/register` and `/check`; a live call made as from the app's Sessions tab with
-`tools/phone-check`'s stand-in phone, so no push goes out; calls reported over `/events`. It
+the stand-in phone (`tools/stand-in-phone`), so no push goes out; calls reported over `/events`. It
 signs in through the pages in Chrome (its DevTools protocol), with a fresh passcode. Nothing
 reaches Apple: the APNs key is one Apple has never seen and nothing pushes with it, or a file
 that isn't a key.
@@ -47,7 +47,7 @@ the screen; the refresh; the tokens hidden. Whole-page captures on a phone leave
 which Chrome would draw where the window's bottom was when the capture began;
 `status-…-phone-…-screen.png` shows the first screen with it.
 
-Needs Google Chrome, Go, and the voice project's Python (for `aiohttp` and the stand-in
+Needs Google Chrome, Go, and the tools' Python environment (for `aiohttp` and the stand-in
 phone). Run from the repo root (about 2.5 min):
 
     uv run --project tools tools/portal-screens/portal_screens.py [OUT_DIR] [--only working,on-hold]

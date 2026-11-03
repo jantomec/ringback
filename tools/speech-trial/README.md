@@ -2,7 +2,7 @@
 
 A measured trial of Apple's on-device speech recognition (SpeechAnalyzer with
 SpeechTranscriber, iOS 26 and later) on the phone, for hearing you without a speech node
-("Speech on the phone" in `docs/design.md`). It was in the app's debug builds, behind a
+("Where a call's speech runs" in `docs/design.md`). It was in the app's debug builds, behind a
 button at the top of Recents, until its runs were done; the app's commit `a89043e` is the last
 that has it. It answers four questions:
 - **Does it hear on a locked phone during a call?** Nothing in Apple's documentation says either
@@ -23,7 +23,8 @@ What Apple's documentation says, checked on 2026-11-02 (sources in the design):
 ## Running it
 
 The phone needs the debug build of commit `a89043e` installed (`git switch --detach a89043e`,
-then `docs/setup.md`, step 7), and to be unlocked and on the same Wi-Fi as the Mac for the
+then `docs/setup.md`, step 7). It replaces the app on the phone: install the current one again
+afterwards. The phone also needs to be unlocked and on the same Wi-Fi as the Mac for the
 copies. `UDID` is the phone's (`xcrun devicectl list devices`), `BUNDLE` the app's bundle ID
 (`RINGBACK_BUNDLE_ID` in `app/Config/Local.xcconfig`), and `DATA_DIR` the recordings folder of
 `tools/stt-eval`.

@@ -1,106 +1,47 @@
 # ringback
 
 Claude Code sessions call the user's iPhone when they're done, talk the result through and
-take spoken replies. `docs/design.md` is the source of truth for requirements,
-architecture, rejected alternatives, risks and the stage plan. Read it first.
+take spoken replies. `docs/design.md` is the source of truth: how it works, why, what's
+turned down, the limits, what's tried on the phone (its "Status") and what's next. Read it
+first. `docs/setup.md` installs it and places a test call; `docs/protocol.md` is how the
+parts talk to each other.
 
-Status (2026-10-30): Stages 0 (Nebula) and 1 (ring + audio) are done. **Stage 3 (one
-session) is in progress**, as five steps under Stage 3 in `docs/design.md`. Steps 1 and 2
-are built, checked offline (`tools/session-check`, `tools/call-check --session`) and
-worked on the phone (three calls, including the session calling again after you hung up);
-still untried: the app reaching the Mac through a stale Nebula tunnel (the first test
-call's audio failed on one). Built after that and tried on the phone (two calls; offline
-with `tools/phone-check`): Haiku starts when the call is placed and thinks of its opening
-while the phone rings, the app connects the audio while it rings, only over Nebula, and
-tells the Mac when you answer, which sends nothing until then; the voice started 0.2–0.4 s
-after the Mac heard you answer, and sounded clean. The session is told how each call went
-in a note that starts no turn. Step 3 is built, tried offline (`tools/session-check
---asks`, `tools/ask-check`, `tools/call-check`) and on the phone (two calls): a permission
-prompt shows in the terminal and goes to the call at once, whichever answers first
-decides; the session's questions (AskUserQuestion) go to the call instead of the terminal.
-Step 4 (a better model on the line: Opus resumes the call's session), step 5 (calling back
-a call you didn't answer, from the app's call history; what the missed call asked waits for
-the call back while the session's mod holds it, 15 min) and step 6 (work hours, set in the
-app, outside which the switchboard holds a call and the calling Mac asks again when they
-start) are built, tried offline (`tools/call-check`, `tools/handover-check`,
-`tools/ask-check`, `tools/phone-check --back`) and worked on the phone (2026-10-30). Step 7
-was rebuilt (2026-10-30): a question outside your work hours waits for the held call, the
-phone gets one notification and the app lists the call with its question, and a swipe
-action ("Claude App") sends the question to the session's own dialog, which Remote Control
-shows in the Claude app, and forgets the call; it's tried offline only (`tools/ask-check`,
-the switchboard's smoke test, the mod's tests, `tools/swipe-check`). `/ringback` turns on
-Remote Control (`/remote-control`), and the rest takes it as on: a mod can't tell
-(`tools/env-check`).
-The voice now asks several things one at a time and passes the answers on together. Stages 4
-(staying up through restarts: the voice server keeps its calls in a state file, the mod
-remembers `/ringback`), 5 (waiting calls in the app, and calling one now) and 6 (weak
-signal: the Mac sends mono at 24 kbps with forward error correction, asks the phone for the
-same, and rebuilds or conceals your lost packets) are built and tried offline
-(`tools/restart-check`, the switchboard's smoke test, `tools/phone-check --signal`,
-`tools/opus-check`). Stage 6 worked on the phone (2026-10-30: normal, 3G and Very Bad
-Network, after fixing two limits that broke calls on slow networks, `tools/ice-check`); 4
-and 5 aren't tried on the phone yet. The voice server's launchd agent is written up in
-`docs/setup.md`, not installed. Stage 5, step 1 made the app like the Phone app: tabs for
-Recents (the call history, waiting calls on top, two-line rows with ⓘ for a call's details;
-tapping any call calls its session, answered calls too) and Sessions (Contacts until
-2026-10-30: the sessions with ringback on, on every Mac, which each voice server tells the
-switchboard, a card each, fetched every 3 s while the tab shows; tapping one calls it, and
-the voice opens with what's new); its settings moved to the Settings app
-(`app/Settings.bundle`). Built and tried offline (`tools/phone-check --contacts`, the
-switchboard's smoke test, the mod's tests) and in a simulator (`tools/app-screens`), and on
-the phone (2026-10-31: the Sessions tab, calls from its cards, a call back from Recents).
-Stage 5, step 2 (2026-11-02) added a hold switch: in a pill beside the tabs and in Control
-Center (`app/Controls`), it holds every call until you let them through, and work hours set it
-at their edges; on hold the pill breathes and the app with it, faintly, the app's icon counts
-the waiting calls and a Lock Screen widget says so. Built and tried offline (the switchboard's
-smoke test, `tools/ask-check`) and in a simulator; on the phone only the pill setting the
-switch at the switchboard so far. Then 7 (several sessions and retries) and 8 (later: a
-phone-network fallback, showing you things), under Stages in `docs/design.md`. How it works:
-the ringback mod (`mod/`) adds `/ringback`; while it's on, each finished turn has the
-session write a call briefing, and the voice server places the call through the
-switchboard's `/call`. On the call, the voice passes what you say to the session with its
-one tool, held until you've heard it announced; the session's answer comes back to the
-call, or the session calls again if you've hung up; the transcript goes to the project's
-`.ringback/calls/`. Mods replaced the planned hooks and MCP channel, and a tool replaced
-tags in Haiku's reply (rejected alternatives). Stage 2 (conversation) works: Parakeet v2 →
-Haiku → Kokoro `af_heart` on the phone, interruptions included (`voice/ringback_voice/`,
-results under Stage 2 in `docs/design.md`). Its last test is left open: two interruption
-settings are built and checked offline, not yet on the phone: the sensitivity, and a
-background filter ("Ignore Background Noise"), a rough level gate that ignores speech
-quieter than yours. They still need a phone test with gym-like noise and with someone
-talking nearby. Tuning the filter waits until testers report a problem. VoxLock (a model
-keeping only your voice, from a sample recorded in the app) is parked on the branch
-`voxlock`; see rejected alternatives in `docs/design.md`.
+## The parts
 
-The app warns you when calls can't reach the phone because Nebula is off: the switchboard
-wakes it every 30 min to check (the connection check in `docs/design.md`).
+- `app/`: the iPhone app (SwiftUI, generated with XcodeGen), with its Control Center control
+  and Lock Screen widget (`app/Controls`); its settings are in the Settings app
+  (`app/Settings.bundle`).
+- `hub/` (Go): one always-on Mac. Push (APNs), work hours, the hold and the calls that wait,
+  the sessions you can call, each call's audio (WebRTC, Opus) and timing, the portal.
+- `speech/` (Go, sherpa-onnx on CUDA): the optional speech node on a Linux machine with an
+  NVIDIA GPU. Hears (Silero, Smart Turn v3, Parakeet v2) and speaks (Kokoro `af_heart`).
+  Without one, the phone's On-device Voice hears and speaks, and only text crosses.
+- `agent/` (Go): each Mac with sessions. The mods' socket, each call's state, and the call's
+  Haiku (Opus on request) as `claude -p` on the user's subscription.
+- `mod/` (TypeScript): the Claude Code mod in each session. `/ringback`, the call briefing,
+  and putting permissions and questions to the call.
+- `tools/`: checks and measurements, each with a README. The Python ones run in the tools'
+  environment (`uv run --project tools ...`); the stand-in phone the call checks use is
+  `tools/stand-in-phone`.
 
-Left until testers report them as real problems, because the calls so far went fine:
-- very short words can go unheard: a recorded "Great." offline, and once "wait" on the
-  phone while the voice talked (Silero needs 0.2 s of speech to start a turn);
-- a stop where no words are recognised should make the voice carry on (built, untested).
+## Status
 
-Try a change offline with `tools/call-check` before calling the phone.
+All of the above is built. On the phone with the current code, so far: a call placed by hand
+through the agent (rang, connected while ringing, talked through with an interruption, a
+message passed on once heard), a call waiting for a missing speech node and ringing when it
+linked, and the portal from the phone. Not yet tried on the phone: a real session calling
+through the mod, held calls and work hours, the hold set from the pill or Control Center,
+call backs, Sessions, asks, Opus, weak signal, the interruption settings in real noise,
+On-device Voice in a real call, and restarts. The full list is under "Status" in
+`docs/design.md`; known problems left until testers report them are under "Limits and risks".
 
-Code: `app/` (iPhone app, generated with XcodeGen), `switchboard/` (push and call events;
-one Swift binary that needs nothing but macOS), `voice/` (the calling Mac's audio and
-voice), `mod/` (the Claude Code mod in each session, TypeScript), `tools/` (checks for
-Nebula, speech-to-text, speech speed, reply speed, briefings, scripted calls
-(`call-check`), sessions' calls and asks (`session-check`), the phone's side of calls
-(`phone-check`), what sessions ask the voice server (`ask-check`), Opus taking a call
-over (`handover-check`), what the voice speaks around its tool calls (`reply-check`), the
-voice server's calls through a restart (`restart-check`), the call's Opus with lost
-packets (`opus-check`; `phone-check --signal` runs it through a call), how long a call's
-connection lasts on a slow network (`ice-check`), what `.disabled` does to a SwiftUI swipe
-action (`swipe-check`), what a mod sees of its session's environment (`env-check`),
-the app's screens in a simulator, with sample calls, and its breathing light on hold
-(`app-screens`), and the hub's portal in headless Chrome, in every state its map shows
-(`portal-screens`)).
-How to set it all up and place a test call: `docs/setup.md`.
+Before calling the phone, try a change offline: `tools/hub-check` for the hub's side of a
+call, `tools/line-check` for a whole call through the real hub, agent and speech node with a
+stand-in phone.
 
 ## Checks
 
-Run before every commit; together they take about a minute and a half (90 s on 2026-11-02):
+Run before every commit; together they take about a minute and a half (89 s on 2026-11-03):
 
 ```sh
 (cd app && xcodegen generate && xcodebuild -project Ringback.xcodeproj -scheme Ringback \
@@ -121,18 +62,16 @@ user's personal setup and info (hardware, machines, Nebula addresses, accounts, 
 stay in Claude's private memory for this project. Don't commit IP addresses, hostnames,
 keys or certificates.
 
-Requirements: a Mac with Apple silicon and Xcode, a paid Apple Developer Program account, an iPhone, and
-Nebula on both the Mac and the iPhone, with a lighthouse that acts as a relay, and Claude Code
-on a Claude subscription that includes Opus (for a better model on the line).
+What it needs to run is under "You need" in `docs/setup.md`.
 
 ## Working rules
 
 - Build a rough version, say what's untested, and move on: tuning and edge cases wait
-  until testers report a real problem (the list under Status).
-- Verify every stage on the real phone (locked, on mobile data, with headphones).
+  until testers report a real problem ("Limits and risks" in `docs/design.md`).
+- Verify every change to calls on the real phone (locked, on mobile data, with headphones).
   Simulator runs and unit tests don't count for ringing, push or audio.
-- Facts marked unverified in `docs/design.md` must be checked against current docs
-  before building on them.
+- Facts marked unverified or "not checked" in `docs/design.md` must be checked against
+  current docs before building on them.
 - A script that measures or checks something for a decision (a benchmark, an evaluation,
   a network check) goes in `tools/<name>/` from the start, with a README that says how to
   rerun it, and the design cites it next to its results. Look at `tools/` before writing

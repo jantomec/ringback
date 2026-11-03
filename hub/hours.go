@@ -118,7 +118,7 @@ func minutes(text string) (int, bool) {
 	return hour*60 + minute, true
 }
 
-// Hold is a phone's hold switch (Stage 5 step 2): on hold, its calls wait; taking calls,
+// Hold is a phone's hold switch ("When calls ring" in docs/design.md): on hold, its calls wait; taking calls,
 // they ring. You set it in the app ("hold", and when, "hold_set", in the devices file), and
 // its work hours set it at their edges: on hold when they end, taking calls when they start.
 // An edge sets it, it doesn't flip it, so one that finds it already so changes nothing, and

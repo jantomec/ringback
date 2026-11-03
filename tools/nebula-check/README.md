@@ -16,6 +16,7 @@ Run from the repo root; it needs only Python 3:
 
 Stop early with Ctrl-C; the summary is still printed.
 
-Results are under Stage 0 in `docs/design.md`: once the phone had sent to the Mac, the Mac
+Results, with the phone and a Mac on Nebula: once the phone had sent to the Mac, the Mac
 reached it at about 60 ms round trip, until the tunnel stopped answering within 30 s of
-locking the phone.
+locking the phone. That's why every connection to the phone is one the phone opens ("The
+network" in `docs/design.md`).

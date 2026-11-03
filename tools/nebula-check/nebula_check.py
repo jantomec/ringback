@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage 0 check: does a Nebula peer (the phone) stay reachable?
+"""Does a Nebula peer (the phone) stay reachable?
 
 Pings HOST every INTERVAL seconds for MINUTES minutes and prints one line per
 probe, then a summary: replies, round-trip times and every outage. An outage's

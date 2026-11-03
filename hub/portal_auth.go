@@ -31,7 +31,7 @@ import (
 
 // The portal's login: a user name and password, then a one-time passcode from an
 // authenticator app (TOTP, RFC 6238). Passkeys wait until the portal has a name and HTTPS
-// ("Status, the hub's portal and speech on the phone" in docs/design.md).
+// ("The hub's portal" and "Security" in docs/design.md).
 
 // The portal's account: portal-user.json in the state folder, readable only by the hub's
 // user. `ringback-hub portal-user NAME` makes it, or replaces it, which ends every session

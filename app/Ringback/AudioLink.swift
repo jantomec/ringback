@@ -58,7 +58,8 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     /// can stay stale for more than 15 s; each try sends fresh packets, so Nebula notices
     /// sooner and goes through the lighthouse's relay. It starts when the phone rings. Each
     /// try waits longer, 3 s, then 6, then 12: a try takes two round trips, and on Very Bad
-    /// Network one is 1.1 s, or 2.1 s with Nebula's packets slowed twice (Stage 6).
+    /// Network one is 1.1 s, or 2.1 s with Nebula's packets slowed twice ("Weak signal" in
+    /// docs/design.md).
     static func reach(_ voiceURL: URL, until deadline: Date) async -> (at: Date, tries: Int)? {
         var tries = 0
         while Date.now < deadline, !Task.isCancelled {
@@ -164,10 +165,10 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     }
 
     /// Makes the peer connection and its offer, with all its addresses gathered. Nebula shows
-    /// to WebRTC as a VPN adapter, and the offer reaches the voice server over Nebula, so that
-    /// path is known to work. With every adapter, WebRTC also checks pairs of addresses that
-    /// can't connect, such as mobile data against the Mac's Wi-Fi; audio then took 2.5–2.8 s
-    /// to connect over Nebula (Stage 3).
+    /// to WebRTC as a VPN adapter, and the offer reaches the hub over Nebula, so that path is
+    /// known to work. With every adapter, WebRTC also checks pairs of addresses that can't
+    /// connect, such as mobile data against the other side's Wi-Fi; audio then took 2.5–2.8 s
+    /// to connect over Nebula.
     @MainActor
     private func gather(nebulaOnly: Bool) async throws -> RTCSessionDescription {
         let options = RTCPeerConnectionFactoryOptions()
@@ -273,8 +274,8 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
         done(stats)
     }
 
-    /// What the call's audio did, from WebRTC's stats, as fields for the switchboard (see "Data
-    /// and weak signal" in docs/design.md): each way, the bytes of Opus and of RTP headers and
+    /// What the call's audio did, from WebRTC's stats, as fields for the hub (see "Weak signal"
+    /// in docs/design.md): each way, the bytes of Opus and of RTP headers and
     /// the packets, the packets lost and the jitter as the receiving end saw them, how much of
     /// the voice the phone made up for lost or late packets, and the round trip.
     private static func stats(_ report: RTCStatisticsReport) -> [String: String] {

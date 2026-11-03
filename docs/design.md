@@ -1,2149 +1,695 @@
 # ringback — design
 
+How ringback works, why it's built this way, and what's left to do. `docs/setup.md` installs
+it, and `docs/protocol.md` specifies how its parts talk to each other.
+
 ## Goal
 
-Your Claude Code sessions call your iPhone when they finish or need you. Each one tells
-you what it did, and you talk it through hands-free, with the phone locked in your pocket
-and on mobile data.
+Your Claude Code sessions call your iPhone when they finish or need you. Each one tells you
+what it did, and you talk it through hands-free, with the phone locked in your pocket and on
+mobile data. It all runs on your own machines and your Claude subscription: no API key, and
+no server of anyone else's in between, apart from Apple's push service.
 
-## Requirements
+## What a call does
 
-1. **Conversation.** Real back-and-forth in one call. You can interrupt Claude
-   mid-sentence. It stops talking the moment it hears you and waits for you to finish,
-   and it answers everything you say.
-2. **One call per session.** The phone shows the call as the project's name, so the
-   voice doesn't repeat it. It opens with what's new, then what needs your attention.
-   Your replies, including permission approvals and answers to its questions, go to that
-   session.
-3. **Not now.** You can decline or leave unanswered any call, including one that comes
-   in as call waiting during another call. The switchboard then tries again 5 min,
-   20 min, 1 h, 2½ h and 6 h after the first ring, and holds every other call
-   meanwhile. If the 6-hour try isn't answered either, the call is marked declined and
-   all calls stay held until you call that session back from the app. Sessions' own
-   calls never overlap: they wait in one queue.
-4. **Understanding you.** Recognition copes with non-native accents. When a reply is
-   unclear, the call asks instead of guessing, and a permission is only granted on a
-   clear yes.
-5. **Only while you're away.** You switch calling on in a session with `/ringback`, which
-   switches on Remote Control too, and off again when you're back. While it's on, the
-   session shows it under the prompt.
-6. **A better model on request.** If Haiku can't keep up, you ask for a better model on
-   the line, and the call carries on with Opus, with everything said so far.
+1. **It rings like a phone call.** A locked phone rings through CallKit, in your headphones
+   too, with the project's name as the caller and a few words on what the call is about.
+2. **It's a conversation.** You can interrupt mid-sentence: the voice stops the moment it
+   hears you, waits until you've finished, and answers everything you say, a short "mm-hmm"
+   included.
+3. **One session per call.** The voice opens with what's new, then what needs you. What you
+   want done goes to that session, and its answer comes back to the call. If you've hung up
+   by then, the session calls again.
+4. **You approve by voice.** A permission prompt or a question the session asks you comes to
+   the call. A clear yes or no settles a permission; a question takes one of its options or
+   your own words. The terminal shows the prompt at the same time, and whichever you answer
+   first decides.
+5. **Only while you're away.** `/ringback` switches calling on in a session, and off again
+   when you're back.
+6. **It keeps your hours.** Outside your work hours, or while you've put calls on hold,
+   calls wait in the app and ring when you take calls again. A question that waits can go to
+   the Claude app instead.
+7. **You can call back.** Any call in your history, and any session with ringback on, is a
+   tap away in the app.
+8. **A better model on request.** Ask for one and Opus takes the call over, with everything
+   said so far.
+9. **It understands you.** Recognition copes with non-native accents. When a reply is
+   unclear, the voice asks instead of guessing, and a permission is granted only on a clear
+   yes.
+10. **The session is told how it went.** After each call it gets a note: answered and for how
+    long, or not answered. The call's transcript is in the project.
 
-## Architecture
+## The parts
 
 ```
- Mac running the session                    always-on Mac             iPhone
- session ── ringback ──briefing─▶ voice ───▶ switchboard ──VoIP push─▶ app rings
-            mod      ◀─replies─── pipeline   (queue,      via APNs    (CallKit)
-            (/ringback)           (STT, TTS,  retries)                    │
-                                  Haiku) ◀──── call audio over Nebula ────┘
+  Mac with Claude Code sessions        always-on machine             iPhone
+  ┌───────────────────────────┐        ┌────────────────────┐        ┌─────────────────┐
+  │ session ── ringback mod   │        │ hub                │◀───────│ app             │
+  │               │ socket    │  link  │  push, hold, work  │  HTTP, │  CallKit, audio │
+  │               ▼           │───────▶│  hours, waiting    │  call  │  Recents,       │
+  │ agent ── Haiku / Opus     │        │  calls, sessions,  │  audio │  Sessions, hold │
+  │          (claude -p)      │        │  the call's audio  │        └─────────────────┘
+  └───────────────────────────┘        │  and timing,       │                ▲
+                                       │  portal            │── Apple push ──┘
+  machine with a GPU                   └────────────────────┘
+  ┌───────────────────────────┐  link            ▲
+  │ speech node: Silero,      │──────────────────┘
+  │ Smart Turn, Parakeet,     │
+  │ Kokoro                    │
+  └───────────────────────────┘
 ```
-
-Sessions can run on several Macs. All of them share one switchboard, so there is one
-queue, and each call's audio goes to the Mac whose session is calling.
-
-Parts marked with a stage that isn't done, such as (Stage 7), are planned and not built
-yet, unless they say they're built; the rest is built. The plan for them is under Stages.
-
-### Moving to one hub, in Go (decided 2026-11-02)
-
-The design above puts the voice on every Mac that runs sessions, on Apple silicon (MLX),
-and the phone must reach each of those Macs. It's being replaced, in "The Go port" under
-Stages, by parts that each run anywhere:
 
 | Part | Runs on | Does |
 |---|---|---|
-| **hub** (Go) | one always-on machine, macOS or Linux, any CPU | the switchboard, merged in (push, the hold switch, waiting calls, sessions); the call's audio (WebRTC, Opus); the conversation (turns, interruptions, the reply cut into spoken pieces) |
-| **speech node** (Go, sherpa-onnx) | a machine with the horsepower, natively | hearing (Silero, Smart Turn v3, Parakeet v2) and speaking (Kokoro, `af_heart`), on CUDA or a CPU; it dials out to the hub |
-| **agent** (Go) | each Mac that runs sessions | what the voice server does for sessions today (the mods' socket, briefings, asks, messages, outcomes, transcripts), and the call's Haiku and Opus (`claude -p`), on the session's own Mac; it dials out to the hub |
-| **mod** | each session | unchanged: it talks to its Mac's agent over the same socket |
-| **app** | the iPhone | the switchboard's address becomes the hub's, a local or static IP; it reaches only the hub |
+| **app** (`app/`, Swift) | an iPhone on iOS 26 or later | rings through CallKit when a VoIP push comes; carries the call's audio to the hub (WebRTC, Opus), or with On-device voice hears and speaks the call itself; Recents, Sessions and the hold switch; its settings are in the Settings app |
+| **hub** (`hub/`, Go) | one always-on machine | the phone's endpoints; pushes through Apple (APNs); work hours, the hold and the calls that wait; the sessions you can call; each call's audio (WebRTC through Pion, Opus through libopus) and its timing; the portal |
+| **speech node** (`speech/`, Go with sherpa-onnx) | a Linux machine with an NVIDIA GPU | hearing: Silero VAD v5, Smart Turn v3.2, Parakeet TDT 0.6B v2; speaking: Kokoro v1.0 with the `af_heart` voice |
+| **agent** (`agent/`, Go) | each Mac that runs sessions | the mods' socket; each call's state; the call's Haiku, and Opus on request, as `claude -p` on your Claude subscription; the call transcripts |
+| **mod** (`mod/`, TypeScript) | each Claude Code session, as a plugin | `/ringback`; has the session write its call briefing; brings what you say on a call to the session as a prompt; puts permissions and questions to the call |
 
-- **Why.** Run on any platform with the least RAM, disk and CPU: a compiled hub instead of
-  Python (whose environment takes 1.7 GB), no AI models on the hub, and models only where
-  there's a GPU. The phone reaches one machine, never the Macs, which only dial out.
-- **Links.** The phone and the hub keep today's endpoints (the switchboard's and the voice
-  server's), so the offline checks can run against the hub. The agent and the speech node
-  each hold one WebSocket to the hub, opened from their side, with a token from their
-  config: the agent carries sessions, calls and the call's text both ways; the speech node
-  carries your audio in (16 kHz) and events and words out, and text in and speech out
-  (24 kHz). Nebula carries all of it, as today.
-- **The first setup:** the hub on an always-on Intel Mac, the speech node on a Linux
-  workstation with an NVIDIA GPU, natively (no Docker: it runs other work), and an agent on
-  each Mac with sessions.
-- **Who does what in a call.** The hub owns the call's timing: the audio both ways, when you
-  start and stop speaking (from the node's events), stopping the voice the moment you
-  interrupt, cutting the reply into spoken pieces, and how much of it you've heard. The agent
-  owns what's said: the call's state as the voice server keeps it today (placed, held,
-  answered, remembered for calling back), Haiku and Opus, their tools, holding what's passed
-  on until you've heard it announced, and the transcript. The line between them is where
-  Pipecat's language-model service sits today (`claude_code.py`).
-- **The speech node's link** (`/speech`, a WebSocket the node opens, `Authorization: Bearer`
-  its token). JSON text frames for control, binary frames for audio, each starting with a
-  4-byte stream number. Hearing: the hub opens a stream with the call's sensitivity and
-  background filter, sends your audio (16 kHz, 16-bit mono, 20 ms frames), and the node
-  answers `speech started` (for interrupting), `speech stopped`, and `turn` with your words
-  once Smart Turn says you've finished (or after the wait, as today). Speaking: the hub sends
-  a piece of text, the node sends its audio back (24 kHz, 16-bit mono) as it's made, then
-  `spoken` with its length; the hub can cancel a stream. A node that's gone fails the call's
-  speech at once; there's no fallback yet.
-- **The agent's link** (`/agent`, a WebSocket the agent opens, `Authorization: Bearer` its
-  token). JSON messages, some as requests with an ID and a reply. The agent says which
-  sessions listen (as `/sessions` today) and places, re-asks and forgets calls (as `/call`
-  today; the hub answers held or ringing). When the phone offers a call, asks to call one now,
-  calls back, calls a session or sends a question to the Claude app, the hub asks the agent
-  that owns it, which accepts or refuses as the voice server does today. In a call the hub
-  sends `answered`, `connected`, your `turn`s, `interrupted` with what you'd heard, how much
-  of each reply you've heard as it plays, and `ended` with how long you talked; the agent
-  streams the reply's text back, and says when Opus takes over.
-- **Rejected:** a Python hub (its RAM and disk), Docker on the speech node (its footprint),
-  Claude Code on the hub (it stays with the session, on its own Mac, and needs no server
-  login), a Coral Edge TPU for speech (it can't run Kokoro or Parakeet).
-- **Later:** speech on the phone (see the next section), and a public hub with pairing and
-  TLS instead of Nebula.
+**Who dials whom.** The agent and the speech node each open one WebSocket to the hub, with a
+token from the hub's config, and keep it open. The phone makes requests to the hub and
+connects the call's audio to it. The hub pushes to the phone through Apple. Nothing dials the
+Macs, the speech node or the phone, so only the hub needs an address the others can reach.
 
-### Status, the hub's portal and speech on the phone (decided 2026-11-02)
+The hub is built for macOS (`hub/build.sh`: one binary for Intel and Apple silicon, libopus
+linked in, needing nothing installed). Its code has nothing Mac-only in it, but it hasn't been
+built or run on Linux. The agent runs where the sessions run, on a Mac.
 
-- **Where a call's speech runs.** Each call uses the first of:
-  1. a speech node linked to the hub;
-  2. the phone's own speech, if "On-device voice" is on in the Settings app;
-  3. neither: the call doesn't ring. It goes to the waiting calls with the reason, as a held
-     call does, and asks again once speech is back (a node links, or the phone's own is
-     turned on), as a held call does when work hours start.
+### Who does what in a call
 
-  A node needs no address anywhere: it links to the hub itself, with its token. Nothing
-  about nodes is set in the app. What's set about them (adding one, its token, forgetting one
-  that's gone for good) is set on the hub's portal. To stop calls for a while, whatever their
-  speech, there's the hold: the app's switch, or the portal's, which sets it on every phone.
-- **Status in the app.** The hub says what's up (`/status`): speech (the nodes linked, and
-  whether the phone's own is on), the Macs linked and their sessions, and the last push to
-  the phone. The app checks on opening, at the connection check every 30 min, and when a
-  call fails. It shows one banner, for the most serious problem, in plain words with what to
-  do; tapping it shows the rest. For example: "Can't reach your hub. Is Nebula on?"; "Calls
-  can't be talked through: the speech computer is offline. Start it, or turn on On-device
-  voice in Settings."; "The hub can't ring this phone: Apple refused its push key."; the
-  microphone not allowed. Normal states raise none: a Mac asleep (shown in the Sessions tab),
-  a node with its models unloaded until a call comes.
-- **The portal.** Pages the hub serves, for setup and for the rare times something's wrong:
-  - **What it shows:**
-    - a map of the system: the Macs with their sessions counted, the hub with its hold, the
-      speech nodes (their models loaded or idle; memory isn't shown yet), Apple push, and the
-      phones with On-device voice; each part and each link working, a problem, gone (a Mac
-      asleep, quietly; a speech node offline, as a problem) or not set up, which isn't a
-      fault and links to Setup; the speech a call would have now, and live calls' paths lit;
-    - calls: live, waiting and recent, with their events;
-    - the sessions, each with the Mac it runs on;
-    - the phone's registration and the last push;
-    - the log's tail;
-    - the phone's settings, read-only (work hours, On-device voice), and the hold in every
-      page's bar.
-  - **What it changes:** adding a node or a Mac (it shows the hub's address, the token from
-    the hub's config, and the commands to run there), the hold, on Status only (every phone's
-    hold switch at once, so the app shows it too: while held, no call rings, whatever speech
-    there is, until you take calls or work hours next start), and forgetting a node or a Mac
-    that's gone for good.
-  - **How it's built:** plain HTML and SVG from the hub's own binary, refreshing itself, with
-    no JavaScript framework; the map is laid out by the hub and drawn in two shapes, wide for a
-    desk and tall for a phone.
-  - **One home for each setting:** secrets and addresses in the hub's config file; what the
-    portal changes in the hub's state; what the phone owns on the phone, shown on the portal.
-  - **Login:** a user name and password, then a second factor: a one-time passcode (TOTP,
-    from an authenticator app), and later a passkey (WebAuthn) as well. The hub listens
-    only on Nebula, but anything in the mesh could open the portal, and it shows your
-    sessions' subjects; a public hub needs this anyway.
-  - **Open:** passkeys need the portal on HTTPS under a domain name. Browsers offer WebAuthn
-    only to a secure origin, and an IP address can't be its relying party (unverified). So
-    the portal needs a name with a certificate: a domain of your own with Let's Encrypt
-    (its DNS challenge works for a name pointing at a Nebula address), or a private
-    certificate authority installed on each device that opens it. The passcode works
-    without either.
-- **Speech on the phone.** With the phone's own speech, your audio never leaves the phone:
-  the app hears and speaks, and sends the hub only text. The app is the call's speech node,
-  over a link instead of WebRTC.
-  - **Gains:** a weak signal matters little, since only text crosses; less mobile data;
-    your voice stays on the phone; and what you've heard is exact, since the phone knows
-    what it played.
-  - **Costs:** battery, heat and memory on an older iPhone (4 GB) during a background call.
-  - **Hearing:** Apple's on-device speech recognition first (SpeechAnalyzer and
-    SpeechTranscriber, iOS 26 and later). Unverified: that it runs in a system process,
-    outside the app's memory; how soon your words come; and that it works on a locked phone
-    during a call.
-  - **Speaking:** Kokoro through Core ML, or Apple's own voices; decided after the trial.
-  - **Later:** on a weak signal, the phone's own speech even when a node is linked.
+- **The hub owns the call's timing:** the audio both ways; when you start and stop speaking,
+  from the speech node's events; stopping the voice the moment you interrupt; cutting each
+  reply into pieces to speak; and how much of each you've heard.
+- **The agent owns what's said:** the call's state (placed, held, answered, remembered for
+  calling back), Haiku and Opus and their tools, holding what's passed on until you've heard
+  it announced, the transcript, and the note to the session afterwards.
+- **The speech node runs the models:** it hears your audio and says when you speak and what
+  you said, and turns text into speech. It has no state of its own about calls.
+- **The mod is the session's side:** the briefing, the session's prompts and answers, and
+  what the session asks you.
 
-1. **Ringback mod** (in each session, in `mod/`). A Claude Code mod is code that runs
-   inside Claude Code: it's installed once, as a plugin, and loads in every session
-   (Claude Code 2.1.287 or later). Docs:
-   https://code.claude.com/docs/en/plugins/mods/overview.md. It does nothing until you
-   switch it on:
-   - `/ringback` switches calling on or off for its session, at once and without a
-     Claude turn. While it's on, the dim line under the prompt ends with "☎ ringback on"
-     (a placeholder until ringback has an icon). Switching it on also runs
-     `/remote-control`, so a question held outside your work hours can go to the Claude app
-     (Stage 3, step 7). If Remote Control is on already, Claude Code shows its menu instead,
-     with Continue chosen: Enter or Esc leaves it on (tried 2026-10-30). A session resumed
-     with ringback on runs it too; a reload of the mod doesn't. Run from `/ringback`'s own
-     hook, Claude Code refuses it ("it would wait on the turn this hook is holding"), so
-     it's run from a timer just after.
-     **Remembered** (Stage 4; built, not yet tried on the phone): it stays on through a
-     reload of the mod, and when you resume the session after Claude Code restarts
-     (`claude --resume`), until you switch it off. Through a reload it's kept in `$.state`;
-     across sessions, in the mod's store by the session's ID, for 30 days from the
-     session's last start with it on. A resumed session keeps its ID: checked on
-     2026-10-30 (Claude Code 2.1.314) with a mod that logged `$.session.id()`, a session
-     started with `claude -p --session-id <id>`, then resumed with `claude -p --resume
-     <id>` and with an interactive `claude --resume <id>`, saw the same ID at
-     `session.start` each time. Not checked: `/resume` inside a running session, which
-     switches sessions without a new `session.start`, and `/clear`, which gives the
-     session a new ID.
-   - When a turn ends while it's on, the mod asks the session to write its call briefing:
-     a subject of 3–8 words, then what's new and what needs you, written to be spoken.
-     The session has its whole context then and its prompt cache is warm, so this extra
-     turn is quick and cheap. The mod gives the briefing to the voice server on the same
-     Mac, which places the call. If you're on a call with that session already, the
-     voice gets the session's answer as news instead. Outside your work hours, a dim line
-     says when the call rings ("Outside your work hours: the call rings at 08:00."), with
-     the date if it isn't today.
-   - **While the voice server is down** (Stage 4; built, not yet tried on the phone), as
-     while it restarts, the mod doesn't give up. A briefing the voice server doesn't take
-     (it isn't running, or answers 5xx, as when it can't reach the switchboard) is kept and
-     offered again every 30 s for up to 30 min, a newer briefing taking its place; a dim
-     line says so once, and the line under the prompt ends with "☎ waiting for the voice
-     server…". A permission or question that can't reach the voice server is asked again
-     every 5 s within its 15 min, and so is a long poll for its answer; the voice server
-     keeps what was asked across a restart, so the poll carries on under the same id. A
-     404 still means it's gone. A hook can't wait with `$.clock.sleep`, which counts
-     against its 10 s, so the 5 s are a `sleep` run on the Mac (`$.process.run`), a call on
-     `$` whose wait doesn't count.
-   - Once a second, it collects what the voice passed on for the session and submits each
-     message to the session as a prompt, with the call transcript's path. A question the
-     voice forwards goes the same way, and the session's answer goes back to the call.
-   - **Call outcomes.** After each call, the session is told how it went: answered and how
-     long, with the transcript's path, or not answered within 90 s. How long is from when
-     its audio connected or you answered, whichever came last, until your audio last came
-     to the voice server, which notes when it does (`Heard` in `voice/ringback_voice/__main__.py`).
-     The phone sends audio all through a call, silence too, so a phone that vanishes (no
-     signal, a dead battery) ends the call there, though the voice server notices only once
-     its checks of the connection fail, 20–60 s later. A call whose audio never connected
-     after you answered, as when you hang up a call you made at once, "didn't connect", and
-     isn't remembered as heard: the next call about it still tells its briefing.
-     (Until 2026-10-31 it was until the voice server noticed: a call from the app hung up
-     1.2 s after the tap, before its audio connected, was told to its session as "lasted
-     1 min". Tried offline, `tools/phone-check --contacts`.) The note is added to
-     its conversation, not submitted, so it starts no turn and can't set off another
-     call, and Claude reads it on its next turn. It waits while a turn runs, you see it
-     as a dim line, and it says it's from ringback: Claude Code adds it to the next
-     prompt's message, and unsigned, Haiku took it for your words. So the briefing no
-     longer says whether the call will reach you.
-   - **Permissions.** When Claude Code is about to ask your permission while ringback is
-     on, the mod puts it to you on a call too (`classic.PermissionRequest`, which fires
-     only when you'd be asked, so auto mode's own approvals never ring). The prompt shows
-     in the terminal at the same time, and whichever you answer first decides; answered
-     in the terminal, the call's question is withdrawn. Your clear yes or no on the call
-     decides it; on a no, the session reads your words, and a yes is shown to you as a
-     dim line. If you hang up without answering, switch ringback off, or after 15 min, the
-     request is withdrawn and the prompt stays. If you don't answer the call, the request
-     waits on for a call back or the session's next call, within those 15 min. While the
-     call is held outside your work hours, the 15 min count from when it rings.
-   - **The session's questions.** When it asks you something with options
-     (AskUserQuestion), the mod holds the question (`tool.call`), puts it to you on a call,
-     and gives your answer back as the dialog's own, so the dialog doesn't show. Without
-     an answer, it does, as for permissions. So after a call you didn't answer, the dialog
-     shows only after 15 min, or once you switch ringback off.
-     - **Outside your work hours** (Stage 3, step 7; built, not yet tried on the phone), a
-       question waits for the held call as anything the session asks does: the session
-       waits, the mod's 15 min count from when the call rings, and when your hours start the
-       call rings and the voice asks it. Meanwhile the phone gets one notification that the
-       call has a question (the switchboard's waiting calls), and the app lists it. From
-       there you can send the question to the Claude app instead (the iPhone app's waiting
-       calls): the voice server answers the mod's poll `terminal`, the mod lets the dialog
-       show, and Remote Control shows it in the Claude app, with its own "action required"
-       notification ("Push when actions required" in `/config`). The held call is then
-       forgotten and never rings. Permissions are unchanged: their terminal prompt shows
-       anyway, and with Remote Control in the Claude app too; sent with a question to the
-       Claude app, they're left to that prompt.
-     - **Remote Control.** Ringback turns it on when it's switched on (the ringback mod),
-       and everything else takes it as on: no mod API says whether it is, and the variable
-       Claude Code gives the Bash tool and hooks while it is (`CLAUDE_CODE_BRIDGE_SESSION_ID`)
-       doesn't reach a mod (`tools/env-check`, 2026-10-30, Claude Code 2.1.314). If it's off
-       after all (switched off since, or no claude.ai subscription), a question sent to the
-       Claude app still waits in the terminal's dialog.
-2. **Voice server's session side** (`voice/ringback_voice/sessions.py`). The voice server
-   also listens on a Unix socket that only you can open
-   (`~/.local/state/ringback/voice.sock`), for the mods of the sessions on its Mac:
-   - For each briefing it makes a random call ID, the call's secret, and asks the
-     switchboard to ring with it. The ID reaches the phone only through Apple's push, and
-     the voice server accepts only an offer that carries the ID of a call it placed. A
-     call rung by hand (`ringback-switchboard ring --voice`) is accepted only while the
-     server runs with `--report`, and talks about that report.
-   - **Thinking before you answer.** As soon as the switchboard takes the call, it starts
-     the call's Haiku with the briefing, which writes its opening while the phone rings,
-     as a person thinks of what to say while the other side picks up. The call's voice
-     takes that session over when the phone's offer comes.
-   - A call you haven't answered stays placed, with its Haiku, so the phone can offer
-     again; after 90 s it's forgotten, and its session is told it wasn't answered. The
-     voice server can't tell a decline from a missed call or audio that didn't connect;
-     the switchboard's log can. It holds a sleep assertion while a call is placed or in
-     progress.
-   - **Held calls.** Outside your work hours the switchboard holds a call and says when it
-     can ring (`held_until`). The voice server keeps the call without starting Haiku, and
-     asks the switchboard again with the same call ID then, or after 10 min if that's
-     sooner, so hours you widen apply within 10 min. It waits on the wall clock, looked at
-     every 30 s, because asyncio's clock stops while the Mac sleeps; if the switchboard
-     can't be reached, it asks again each minute. Once the call rings, it's like any other:
-     Haiku starts, and the 90 s to answer count from then. Meanwhile:
-     - the sleep assertion holds, held calls included, so the call can ring in the morning.
-       If the Mac sleeps anyway, as a laptop may with its lid closed, the call should ring
-       within 30 s of it waking, once your hours have started (not tried);
-     - a new briefing from the same session replaces the held call's subject and briefing,
-       instead of placing a second call. What the old briefing asked goes to the voice as
-       notes, since the new one doesn't mention it;
-     - what the session asks goes to the held call (`"call": "held"`, with `held_until`),
-       and the mod's long polls answer `"held": true`. A question that joins it has the
-       switchboard asked again at once, so the phone is told of it (Stage 3 step 7);
-     - each time the switchboard is asked about a call, it hears whether the call has a
-       question;
-     - from the app's waiting calls, you can send a held call's question to the Claude app
-       (`POST /claude-app` with the call's ID, over Nebula as an offer is; Stage 3 step 7).
-       Everything the call asks is settled as `terminal`, so the mod lets the session's
-       dialog show, and a permission's prompt stays; the call is forgotten: its asking the
-       switchboard stops, it never rings, it isn't remembered for calling back, and its
-       session is told "The call about "…" won't ring: the developer chose on the phone to
-       answer its question in the Claude app instead, with Remote Control." A call that
-       doesn't wait here gets 403; one whose session isn't listening, or that has no
-       question, 409;
-     - **the hold switch** (Stage 5 step 2; built, tried offline, not yet on the phone): a
-       call the switchboard holds with no time (`"held": true` without `held_until`: your
-       phone is paused, without work hours to take calls again) asks again every 10 min, and
-       the mod hears `"held": true` with no time and says the call rings when you take calls.
-       When you take calls on the phone, the app posts `/reask` with the waiting calls' IDs
-       to each of their voice servers (over Nebula, as an offer), and those held there ask
-       the switchboard again at once, so they ring now rather than within 10 min. They ring
-       together, as they do when work hours start, until Stage 7's queue;
-     - an offer for it is refused, as for an unknown call: the phone knows its ID only
-       from the switchboard's waiting calls (Stage 5; built, not yet tried on the phone).
-       An offer for it with `"now": true` calls it at once, without ringing, as a call back
-       does: asking the switchboard again stops, and a fresh Haiku picks up, with the
-       briefing and a lead that says you saw the call waiting and called it (`called_now`
-       in `voice/ringback_voice/instructions.py`). It talks with the session as an answered
-       call does, and its session is told "The developer called about "…" from the app
-       while it waited and it lasted 2 min." Work hours don't apply: you called. A `now`
-       offer for a call that rang meanwhile and is still placed is answered as any offer
-       is; one for a call that doesn't wait here gets 403.
-   - **Staying up** (Stage 4; built, not yet tried on the phone). It writes what it keeps
-     to `voice-state.json` in the folder of its socket (`~/.local/state/ringback/`, so a
-     check with a socket of its own has its own), on every change, atomically and readable
-     only by you (it holds the calls' IDs), and reads it at start: held calls, with their
-     briefing and what they ask (held again, and asking the switchboard when due); calls
-     remembered for calling back; what missed calls asked; what sessions asked and wait
-     for, with the same ids, so a mod's long poll carries on; and the messages and outcomes
-     waiting for a session's mod. A call that was ringing or on during a restart has ended:
-     its session is told it "ended when the voice server restarted" (with the transcript if
-     you'd answered), what it asked waits as a missed call's does, and it can be called
-     back. A launchd agent starts it at login and again if it stops (`docs/setup.md`);
-     starting fails while Nebula is down, and launchd tries again every 30 s.
-     - Offline (`tools/restart-check`, two runs, 19 checks each, 2–3 min): killed with
-       SIGTERM, then with SIGKILL right after a message was left, and started again each
-       time, it kept a held call (still held, its offer refused, and asking the switchboard
-       again with the same ID 4.9 s after it listened), calls to call back, a missed call's
-       permission (a long poll carried on under its id), the messages and outcomes waiting
-       for sessions, and told a session whose call was on that it ended with the restart.
-       Called back afterwards, both missed calls' voices opened with what they were about,
-       and the spoken yes allowed both waiting permissions, one asked by the call back's
-       briefing and one, from the call that ended, as a note.
-     - It isn't small like the switchboard: measured on 2026-10-30, it held 3.1 GB of
-       memory while idle (4.2 GB at its peak), with 1.7 GB of Python packages and about
-       3 GB of speech models on disk; its own code is 2,685 lines. Each call also runs a
-       Claude Code process for Haiku. The models load in 5 s. An option, not decided:
-       load them only when a call is placed, while the phone rings, and drop them after a
-       while without calls. That frees the memory, but adds up to 5 s to a call back.
-   - It keeps what the voice passes on for each session until that session's mod
-     collects it, and takes the session's answers back as news for the call. When a mod
-     last collected tells whether its session is listening: within 30 s, as the mod
-     collects once a second while ringback is on. The mod says its session's project and
-     folder as it collects (`?project=…&cwd=…`), for the Sessions tab.
-   - **The sessions that listen** (Stage 5, step 1; built, tried offline, not yet on the
-     phone) are the app's Sessions. The voice server tells the switchboard which they are
-     (`POST /sessions` with its own address and, for each, the session's ID, project,
-     since when it listens, and its latest briefing's subject and when the session wrote
-     it, if it has one), whenever that changes and every 30 s; after a try that fails, a
-     change goes again 5 s later. A session whose mod didn't say its project (a mod from
-     before the Sessions tab) goes by its latest call's project, or isn't listed. "Since when" is
-     when this voice server first saw it listen, so a restart sets it anew. A switchboard
-     from before the Sessions tab answers 404, which is logged once.
-   - **Calling from the Sessions tab** (`"contact": <session ID>` in the phone's offer, with a call
-     ID made on the phone, at least 16 characters). For a session that listens, it makes a
-     new call for that session under that ID, a fresh Haiku answered at once, as a call back
-     does: messages, news, what the session asks (what it asked on calls you didn't answer
-     comes to this one too), a transcript in its folder, and a call outcome ("The developer
-     called the session from the app's Contacts and it lasted 2 min."). The voice gets the
-     session's latest briefing with a lead that says you called it from your contacts and to
-     open with what's new, briefly; if you already talked that briefing through on a call,
-     that there may be nothing new; with no briefing yet, that it knows nothing of the
-     session's work and should ask what you want (`called_contact` in
-     `voice/ringback_voice/instructions.py`). A session that isn't listening gets 403
-     (`"not listening"`). It's remembered for calling back as a call with that briefing.
-   - **What a session asks you** (`/sessions/{id}/permissions` and `/questions`): a
-     permission or questions go to the call you're on with that session as a note, to its
-     call that's still ringing once you answer, or else to a new call whose briefing asks
-     it. The mod waits for the answer with long-polls (25 s at most each). The answer is
-     allow or deny with your words, or each question's answer, or none if you hung up
-     without one; the mod can withdraw it. If you don't answer the call, it stays
-     pending, kept for the session: the next call with it you answer, a call back or the
-     session's next call, gets it as a note, while the mod waits up to its 15 min. Each
-     has a 4-letter id, kept 10 min after it's answered (`tools/ask-check`). Sent to the
-     Claude app from a held call, the answer is `terminal`: the session asks in its own
-     dialog or prompt.
-   - **Calling back** (`"back": true` in the phone's offer). The voice server remembers
-     each call it placed or you made (session, project, folder, subject, briefing, when it
-     was placed, and when you last talked on it, if you did) for a day after it's
-     forgotten, also across a restart (Staying up). An offer marked `back` for such a call,
-     answered or not, makes a new call for its session under the same ID: a fresh Haiku,
-     answered at once. It talks with the session as an answered call does: messages, news,
-     what the session asks, a transcript, and a call outcome ("The developer called back
-     about "…" and it lasted 2 min."). An ID it doesn't remember gets 403, also when it
-     takes calls rung by hand (`--report`).
-     - For a call you missed, the voice gets its briefing with a lead that says you called,
-       how long ago the missed call was, and to open with what it was about, with no
-       introduction (`called_back` in `voice/ringback_voice/instructions.py`). For a call
-       you answered, or one you made, the lead says you talked about it so long ago, and to
-       open with what's changed since, briefly, if anything has, or else say so and ask what
-       you want (Stage 5, step 1; until then only missed calls could be called back). If the
-       session wrote a newer briefing after it, for a later call or a held one, that
-       briefing follows, "since then", and the voice opens with what changed.
-     - If the session isn't listening, ringback off or the session ended, the call back
-       still works, but the voice can't pass it anything or answer what it asked, and is
-       told why.
-     - Called back within its 90 s, a call still placed is replaced by the call back, so
-       its session isn't told it wasn't answered.
-     - Work hours don't apply: you called. A held call of the same session is left alone,
-       to ring when your hours start, with what the session asked it; a held call can't be
-       called back, since it never rang.
-   - **Call transcripts.** It writes each call's transcript into the calling
-     session's project, under `.ringback/calls/`: the briefing, your words as recognised,
-     what the voice said and where you cut it off, and what went to the session. The
-     folder holds its own `.gitignore` of `*`, so git ignores it without a change to the
-     project's. Each message from the call ends with the transcript's path, so the
-     session reads it when the message isn't enough. Inside the project, reading it
-     needs no permission prompt, which while you're away would mean another call.
-3. **Switchboard** (a daemon on one always-on Mac on the Nebula network, such as the
-   lighthouse):
-   - keeps one FIFO queue for the sessions on every Mac and places one call at a time
-     (Stage 7; for now each `/call` rings at once, unless it's outside your work hours);
-   - **waiting calls** (Stage 5; built, not yet tried on the phone): keeps the calls that
-     wait (held outside your work hours, and from Stage 7 queued) in `waiting.json` in its
-     state folder, with their project, subject, voice server, session, when they ring and
-     when they were last refreshed, so they survive a restart, and gives them to the app, soonest
-     first (`POST /waiting`, `{"calls": [...]}`). Only a phone that registered gets them,
-     by its push token in the request: a call's ID lets whoever has it take the call. Each
-     voice server's asking again every 10 min refreshes its calls; one not refreshed for
-     25 min is dropped, so a call from a Mac that's gone doesn't wait forever. A call that
-     rings, is called from the app (the phone's event "called now"), or whose question the
-     app sent to the Claude app ("claude app"), leaves the list. A new briefing for a held
-     call reaches the list with the voice server's next asking, so its subject can be up to
-     10 min old. Each listed call also says whether it has a question (`question`), as its
-     voice server last said; a voice server from before doesn't, which lists as false;
-   - **a held call's question** (Stage 3 step 7; built, not yet tried on the phone): the
-     first time a held call has a question, the switchboard sends each phone that gave a
-     notification token one ordinary notification (an APNs alert push: `apns-push-type:
-     alert`, the app's bundle ID as topic, priority 10): "\<project\> has a question", with
-     the call's subject, the default sound, and the default (active) interruption level, so
-     your Focus decides whether it shows and sounds, as for any app's. APNs keeps it until
-     the call would ring. `waiting.json` keeps when it was sent (`notified`), so asking
-     again and restarts don't repeat it. Held calls without a question stay silent. Tapping
-     it opens the app. Without an APNs key it logs that instead;
-   - **contacts** (Stage 5, step 1; built, tried offline, not yet on the phone): keeps the
-     sessions each voice server says listen (`POST /sessions`) in `contacts.json` in its
-     state folder, by voice server, each list replacing that voice server's last, and drops
-     a voice server not heard from in 90 s, as when its Mac sleeps or the voice server
-     stops. It gives them all to the app by project, each with its voice server (`POST
-     /contacts`, `{"contacts": [...]}`), only for a registered phone's push token, as the
-     waiting calls: a session's ID lets whoever has it call the session. It logs a voice
-     server's list when it changes, and when one is dropped;
-   - starts a call with a VoIP push through APNs that names the Mac taking the call, and
-     the session that calls (`session_id`, from Stage 5 step 1), so the app can call that
-     session from the Sessions tab once the voice server has forgotten the call;
-   - takes calls from the voice servers at `/call` over Nebula, with their project,
-     subject, call ID and session;
-   - **work hours:** they set each phone's hold switch at their edges (below), so outside the
-     work hours of every phone (set in the Settings app), unless you took calls since, `/call` pushes
-     nothing. It answers when the first phone's hours start (`held_until`, ISO 8601 with
-     that phone's offset from UTC) and logs it, and the voice server asks again by then. A
-     phone without hours is always inside them. The app sends its hours and time zone with
-     `/register`, and with each connection check, so a new time zone arrives within half an
-     hour when you travel. `ringback-switchboard ring` ignores them, and `devices` shows
-     them;
-   - **the hold switch** (Stage 5 step 2; built, tried offline, not yet on the phone): each
-     phone has one, on hold or taking calls, in `devices.json` (`hold`, and when you set it,
-     `hold_set`). Its work hours set it at their edges: on hold when they end, taking calls
-     when they start. An edge sets it rather than flipping it, so one that finds it already
-     so changes nothing, and between edges your setting stands: taking calls at 21:00 lasts
-     until the hours end the next day, as a scheduled Sleep Focus you turn off by hand stays
-     off until its next scheduled time. A phone without hours keeps what you set, taking
-     calls until you first set it. A call is held while every phone is on hold, until the
-     first comes off hold by its hours (`held_until`), or with no time when none will
-     (`"held": true` alone); a held call's answer always has `"held": true`. The switch is
-     worked out when asked, from the latest edge after `hold_set`, so nothing runs at the
-     edges. `POST /hold` with the phone's token reads it, and sets it with `"hold": true` or
-     `false`, answering `{"hold": Bool, "until": ISO 8601}`, `until` being when the hours
-     next change it; `/waiting` gives it too, and `devices` shows it. Setting it is logged.
-   - on "not now" (declined or unanswered), retries on the schedule in requirement 3,
-     with the whole queue paused in between. After a final decline it holds all calls
-     until the app calls that session back (Stage 7);
-   - every 30 min, wakes the app with a background push so it checks that calls can still
-     reach the phone (the connection check in the iPhone app);
-   - is one Swift binary of about 470 KB that needs nothing but macOS 13 or later (Intel
-     or Apple silicon), so an old Mac can run it. On an old Intel Mac it used about
-     4 MB of memory. It handles requests one at a time, so a stalled connection holds up
-     the next request for up to 5 s, which is within the app's 10 s timeout.
-4. **Voice pipeline** (on the Mac running the calling session, in the voice server). That Mac must be awake
-   anyway, and this keeps the always-on Mac light.
-   - Pipecat, with Parakeet TDT 0.6B v2 (MLX) for speech-to-text, Kokoro-82M (MLX, through
-     mlx-audio) with the `af_heart` voice for speech, and Claude Haiku 5.5. Pipecat has no
-     Parakeet service, and its own Kokoro service is too slow (see rejected
-     alternatives), so we write a small service for each.
-   - The phone posts its WebRTC offer to `/offer` on the voice server (`voice/`), which
-     answers it with Pipecat's SmallWebRTC connection.
-   - **Speaking a reply.** Haiku streams its reply, and Kokoro speaks it in pieces:
-     1. As soon as the first sentence is complete, it's spoken on its own, so the voice
-        starts fast.
-     2. One second before the current piece finishes playing, everything Haiku has
-        completed since, up to the last finished sentence, becomes the next piece. If no
-        sentence has finished yet, the next piece waits for the first one that does.
-     3. This repeats until the reply ends.
+## A call, step by step
 
-     Larger pieces keep intonation and pauses natural. Pieces play exactly as Kokoro
-     generates them: trimming the silence between pieces sounded worse in the listening
-     test.
+1. **The briefing.** When a turn ends in a session with ringback on, the mod has the session
+   write its call briefing in one more turn: a first line "Subject: " with 3–8 words, shown on
+   the phone as it rings, then at most 300 words written to be spoken: what's new, what needs
+   you, and what the voice needs to answer likely questions. The session has its whole
+   context and a warm prompt cache then, so this turn is quick and cheap. The mod gives the
+   briefing to the agent on its Mac. If you're on a call with that session already, the
+   briefing goes to the call as news instead.
+2. **Placing the call.** The agent makes a random call ID, which is the call's secret, and
+   asks the hub to ring. The hub either holds the call (outside your hours, on hold, or with
+   no speech; see the next sections) or rings: a VoIP push to every registered phone with the
+   call's ID, project, subject and session, and a word to the speech nodes to load their
+   models (about 2.2 s, while the phone rings). The agent starts Haiku on the briefing at
+   once, so its opening is written while the phone rings, as a person thinks of what to say
+   while the other side picks up.
+3. **Ringing.** The phone rings for 30 s. Meanwhile the app reaches the hub (`/ping`, each
+   try waiting 3 s, then 6, then 12) and makes its WebRTC offer, marked as ringing, with all
+   its addresses in it. The hub asks the agent that placed the call to accept it, and the
+   audio connects before you answer. Until you do, the phone sends no microphone and the hub
+   plays nothing. If the offer couldn't go while it rang, it goes once you've answered, for up
+   to 45 s.
+4. **Answering.** The app tells the hub (`/answered`), and the voice speaks its opening.
+5. **Hearing you.** The hub decodes your audio and sends it to the speech node at 16 kHz.
+   Silero says when you start and stop speaking; Smart Turn says when you've finished, and a
+   pause of 1.5 s ends your turn anyway; Parakeet writes down what you said. Your words reach
+   the hub about 0.3 s after you stop (`speech/README.md`).
+6. **The reply.** The hub gives your words to the agent, and Haiku answers in a Claude Code
+   session that stays open for the whole call, so each turn sends only what's new. Its first
+   words come about 1.2 s after your turn (`tools/reply-speed`). The agent streams the reply
+   to the hub as it's written, the hub cuts it into pieces, the speech node speaks each, and
+   the hub plays them.
+7. **Passing it on.** What you want done goes to the session (Acting on the call, below). The
+   mod collects it once a second and submits it to the session as a prompt; the session's
+   answer comes back to the call as a note, and the voice tells you once it has finished
+   speaking and you aren't.
+8. **The end.** Either side hangs up. The agent finishes the transcript and leaves the
+   session a note on how the call went: answered and for how long, with the transcript's path;
+   not answered within 90 s; or answered but the audio never connected. The note is added to
+   the session's conversation without starting a turn, so it can't set off another call, and
+   it says it's from ringback: unsigned, the session took it for your words.
 
-     In that test, speaking each sentence separately left about 0.75 s of silence
-     between sentences, against 0.24–0.5 s in one continuous passage.
+### Speaking a reply
 
-     The one-second lead holds because Kokoro through MLX generates speech about 27×
-     faster than real time on a recent Apple silicon Mac (`tools/tts-speed`): 0.14 s for
-     one sentence (about 4 s of speech) and 0.77 s for a 22 s reply. So it covers pieces
-     of up to about 25 s of speech. Inside the voice, pieces of 1–24 s took 0.07–0.9 s.
-     In five scripted calls (`tools/call-check`), no silence inside a reply was longer
-     than the 0.6–0.8 s that Kokoro leaves where one piece ends and the next begins.
-     Parakeet and Kokoro share one thread, so they never run at the same time.
+The first sentence is spoken on its own as soon as it's complete, so the voice starts fast.
+Then, one second before the piece that's playing ends, everything Haiku has finished since,
+up to its last complete sentence, becomes the next piece. Larger pieces keep the intonation
+and pauses natural; one sentence per piece left about 0.75 s of silence between sentences.
+The speech node makes a sentence's first audio in about 0.12 s (`speech/README.md`), well
+inside the one second.
 
-     Kokoro's text-to-phoneme package (`misaki[en]`) pulls in torch through spaCy, though
-     Kokoro doesn't use it. With it, the voice's environment takes about 1.6 GB of disk,
-     against 0.5 GB before.
-   - **Interruptions.** Playback stops as soon as you speak, and only for your voice.
-     Everything queued is dropped. The voice then waits until you've finished and always
-     answers what you said, including a short "yeah" or "mhm".
+### Interruptions
 
-     Only your voice should reach the detector that stops it:
-     1. on the phone, voice processing and the Voice Isolation mic mode remove background
-        noise (you switch Voice Isolation on once, in Control Center). With AirPods or the
-        phone at your ear, other people are also much farther from the microphone than
-        you (how much quieter they arrive isn't measured);
-     2. voice-activity detection then triggers the stop. Two settings in the app set its
-        thresholds: the interruption sensitivity sets how sure and how long speech must be,
-        and the background filter sets a volume threshold. That threshold is a level gate
-        that ignores speech quieter than you sound in the microphone. Other people farther
-        away arrive quieter, so on the Mac this gate keeps them out, not a model. Its
-        default is a rough estimate that kept out a voice 20 dB below yours offline
-        (Stage 2). It's absolute, so it depends on how loud a microphone delivers your
-        voice. If that proves fragile, the next step is a gate set relative to your own
-        level on the call.
+When you start speaking while the voice talks, the hub stops it at once, drops every piece
+not yet played, and tells the agent how much of the reply you heard, word for word. Haiku's
+session already holds the whole reply it wrote, so its next message says where you cut it
+off. The voice then waits until you've finished and answers what you said.
 
-     Removing other people's voices with a model as well (VoxLock) was built and is
-     parked; see rejected alternatives.
+Two settings in the app decide what counts as you speaking, and go with each call's offer:
+- **Interruption Sensitivity** sets how sure and how long speech must be (0.1 s at the most
+  sensitive, 0.35 s at the least): turn it down in noisy places.
+- **Ignore Background Noise** is a level gate: speech quieter than a threshold doesn't start a
+  turn or stop the voice. With AirPods or the phone at your ear, other people are much farther
+  from the microphone than you, so they arrive quieter. Its default kept out another voice
+  20 dB below yours, offline. It decides when a turn starts, not what's heard in it.
 
-     If a stop happens anyway and no words are recognised, the voice carries on, starting
-     again from the sentence it was in.
+Before that, the phone's voice processing removes echo and background noise, and Voice
+Isolation (switched on once in Control Center) more of it.
 
-     Haiku's session already holds the whole reply it wrote. So the next message tells it
-     where it was cut off, giving the last words you actually heard.
-   - Haiku runs as a Claude Code session on the Claude subscription, with no API key.
-     - On a call for a session it starts when the call is placed (thinking before you
-       answer); on a call rung by hand, when the phone's offer comes. It stays open until
-       hang-up (`claude -p --input-format stream-json --output-format stream-json`), so it
-       holds the whole call. It runs with a known `--session-id`, so Claude Code keeps it
-       at `~/.claude/projects/<cwd>/<id>.jsonl`, where Opus can resume it (a better
-       model); the voice deletes that folder when the call ends.
-     - Pipecat has no Claude Code service, so we write one around that process.
-     - Measured (`tools/reply-speed`): the first words come about 1.2 s after each of
-       your turns (0.9–3.2 s), and 1.0–3.2 s on the first turn, which includes start-up.
-       Neither lower effort nor turning thinking off made a clear difference.
-   - The voice is a fast front end that holds the session's briefing as context, because
-     a Claude Code turn is too slow for live conversation. A call rung by hand talks
-     about a report file instead.
-   - **Acting on the call.** Haiku passes what you want the session to do or know, and
-     questions it can't answer, with `pass_to_session`, and answers what the session asks
-     with `answer_permission` and `answer_question`. They're served by a small MCP server
-     that `claude -p` starts for the call (`voice/ringback_voice/call_tools.py`), which
-     relays to the call over a socket in its private folder.
-     - Haiku says it's passing something on, or what it will answer, then calls the
-       tool. The message or answer is held until you've heard the reply up to that point,
-       and dropped if you cut the voice off before; Haiku is then told, and passes it
-       again if you still want it. A tool call made before any words waits until the
-       sentence after it has been heard: Haiku often calls first, and the old rule let an
-       answer go after a single heard word. A message can't be recalled once it's passed,
-       but you can send a correction.
-     - When Haiku reaches for a tool after your words but before saying anything, the
-       voice says "Okay." at once, which doesn't count as saying what it does: the answer
-       still waits for the sentence after it. In scripted calls (`tools/call-check`) the
-       pause after your yes fell from 5.3 s to 1.7 s in that case (one run each); when
-       Haiku speaks first by itself, it stays 1.7–2.0 s.
-     - What Haiku writes after the tool isn't spoken, if it said something before: it
-       tends to say the same thing again.
-     - The session's answer comes back as a note, "[The session: ...]". Pipecat holds it
-       until the voice has finished speaking and you aren't, then Haiku tells you.
-     - Before you've said anything, the tool passes nothing and Haiku is told so: once,
-       while the phone rang, Haiku called it in its opening, which stalled the opening
-       8.7 s and passed the session a message nobody had said.
-     - Permissions: Haiku says in plain words what the session wants to do, and whether
-       it deletes, overwrites, pushes or spends something, and takes only a clear yes or
-       no; anything else, it answers and asks again. Questions: it reads them and their
-       options, and takes your choice or your own words; it never chooses for you.
-     - Notes from the session wait until the voice has started its opening, so Haiku
-       doesn't answer a note in place of its opening.
-   - **A better model.** When you ask for one ("can I get a better model on the line?"),
-     Haiku says so and calls its `better_model` tool, which is held until you've heard it,
-     like the others, and dropped if you cut it off. Then Haiku's process is closed and
-     the session resumed with `--resume <id> --model opus`, with the same flags and tools,
-     so Opus has the whole conversation, tool calls included; the session reuses its own
-     record of the system prompt. Opus gets a note that it's taking over, and speaks
-     first. It works on calls rung by hand too.
-     - Offline (`tools/call-check`, 8 scripted calls; `tools/handover-check`, 11 runs):
-       from the end of your request to Opus's first words took 6.3–6.9 s, Haiku's short
-       line and then 2.5–3.2 s of silence. Opus knew the earlier conversation, and passing
-       messages, the session's news and a permission all worked under it. Its first words
-       came a median 0.73 s after your turns, against Haiku's 1.04 s in the same calls
-       (short replies). Its first turn is mostly uncached: about as much usage as ten
-       later Opus turns, once.
-     - If Opus isn't available (a usage limit, or a plan without it), the voice goes
-       silent, as on a Haiku error; there's no way back to Haiku.
-   - Speech-to-text was chosen by measuring on accented English with `tools/stt-eval`
-     (464 scripted words plus 519 of free speech):
-     - Parakeet v2 got about 6% of words wrong at about 40 ms per utterance.
-     - Whisper large-v3-turbo was about as accurate, but took about 0.5 s and invented
-       words on short clips.
-     - Letting Haiku repair the transcript from context cut Parakeet's errors on the
-       scripted commands from 31 to 18, but changed nothing in the free speech.
-5. **Conversation rules**, in the voice's instructions and in what the mod asks of the
-   session:
-   - spoken style: short sentences, rounded numbers, no tables, lists or code read
-     aloud; offer detail instead of reciting it; stop at once when interrupted;
-   - your words come from speech recognition, so expect similar-sounding wrong words,
-     especially technical terms. Read them in context, and ask when a reply is too
-     garbled to be sure;
-   - act on a permission prompt only after a clear yes or no, otherwise ask again; never
-     choose an option for you, and take your own words when no option fits;
-   - the voice does no work itself: whatever you want written, made, changed, run or
-     looked up goes to the session, even something short; it answers from the briefing
-     only what the briefing says. On the phone (2026-10-31) "Write a short poem" got a poem
-     from the voice, read aloud, then again after "just write it, I'll read it later", and
-     the session never heard of it; the voice also said "the previous poem never reached
-     you", so it no longer mentions an interruption. Replayed with `tools/call-check`
-     (README): before, one run, no message to the session; after, three runs, each passed
-     "write a short poem about Halloween" once, and none mentioned the interruption. With
-     a briefing, two runs: its questions were still answered from it, and a name for the
-     pull request went to the session;
-   - when several things need your answer, say how many, then ask them one at a time,
-     and pass the answers on together once they're all in (or when you want to stop);
-     nothing the voice says after passing something on is spoken;
-   - the session writes its call briefing (a subject, what's new, what needs you) in a
-     form that can be spoken, and its answers to what the voice passes on go back to the
-     call, where the voice puts them in spoken words.
-6. **iPhone app** (Swift):
-   - a PushKit VoIP push triggers CallKit, which rings on the lock screen and in your
-     headphones;
-   - while the phone rings, the app opens the audio connection to the voice server named
-     in the push (`voice` in its payload), over Nebula. The Mac can't open it, because on
-     mobile data only the phone can start a Nebula tunnel (see Stage 0).
-     - **Connecting while ringing.** Once the voice server answers (reaching the Mac
-       first, below), the app makes its offer with `"ringing": true`, so the connection is
-       up by the time you answer. Until then it sends no microphone and plays nothing,
-       and the voice server sends nothing either: silence it sent while the phone rang
-       queued up on the phone and played first, so on the first such call the voice
-       started about 2 s late and garbled.
-       When you answer, it tells the voice server (`/answered`), which then lets the
-       voice speak. If the ringing offer failed, or you answered before it went, one offer
-       goes after answering, without the flag, and counts as answered. A new offer for a
-       call replaces the earlier one on the Mac.
-     - **Only Nebula's addresses.** The offer reaches the voice server over Nebula, so
-       that path is known to work, and both sides offer only it: the phone gathers
-       addresses only on its VPN adapters, which is how iOS shows Nebula to WebRTC, and
-       the voice server only on the address it listens on. Offered every address, WebRTC
-       also checked pairs that can't connect, such as mobile data against the Mac's
-       Wi-Fi, and audio connected 2.1–2.4 s after the offer; with only Nebula's, 0.94 s
-       (one call on the phone, on mobile data). If the VPN adapters give no address, the
-       phone offers every adapter.
-     - The audio is WebRTC, using Google's WebRTC library directly. Pipecat's iOS client
-       would take over the audio session.
-     - WebRTC runs in manual-audio mode: CallKit activates the voice-processing audio
-       session, which provides echo cancellation, and hands it to WebRTC.
-     - The offer carries all ICE candidates at once, because the Mac's server doesn't
-       take them one by one.
-     - **Data and weak signal.** The voice is Opus in both directions, in 20 ms packets,
-       50 a second each way. On weak signal, lost and late packets hurt more than
-       bandwidth. Measured offline (Stage 6), the phone played by aiortc set up as Google's
-       WebRTC sets itself up from the Mac's answer (`tools/phone-check --signal`), and
-       Opus on its own (`tools/opus-check`):
-       - **Headers.** Each packet carries 36 bytes of RTP and SRTP, and 88 more of UDP, IP
-         and Nebula over IPv4 (counted, not measured): about 50 kbps each way however
-         little the voice sends, now most of the traffic.
-       - **Before Stage 6** the Mac sent 96 kbps stereo (aiortc's fixed setting). In test
-         calls of about 3 min where the voice spoke about a third of the time (9 calls):
-         89–90 kbps of Opus while it spoke, 1.5–2.4 kbps in silence, 28–33 kbps over the
-         call, about 80 kbps through Nebula. The phone sent 32 kbps mono in Opus's full
-         band (31 kbps while you spoke, about 71 kbps through Nebula), without forward error
-         correction (FEC, a rougher copy of each packet in the next): WebRTC turns FEC on
-         only when the answer has `useinbandfec=1`, and aiortc's answer had no Opus
-         parameters. The phone's offer has `minptime=10;useinbandfec=1`. (From the app's
-         WebRTC package run on the Mac, and libwebrtc's source; not seen on the phone.) A
-         call was about 1.1 MB a minute in all.
-       - **Send less** (`voice/ringback_voice/opus.py`). The Mac sends mono at 24 kbps,
-         with FEC set for 10% loss. libopus 1.6 then encodes wideband (up to 8 kHz); at 5%
-         it left FEC out. In the same test calls: 23 kbps of Opus while the voice speaks,
-         3.3 kbps in silence, 8–10 kbps over the call, about 59 kbps through Nebula. The
-         voice also comes out about 3 dB louder: aiortc's mono-to-stereo resampling had made
-         it quieter. The answer asks the phone for 24 kbps, only the band speech recognition
-         uses (it hears at 16 kHz), and FEC, still as `opus/48000/2`:
-         `useinbandfec=1;maxaveragebitrate=24000;maxplaybackrate=16000`. Limited to that
-         band, Opus adds FEC from 1% loss on; at 24 kbps in its full band only from 10%.
-         WebRTC sets the loss Opus expects from the loss the Mac reports about every
-         second. The phone's stand-in then sent 21–22 kbps while you spoke, about 61 kbps
-         through Nebula. A call is about 0.9 MB a minute.
-       - Not sent less: DTX (almost nothing sent in silence) isn't among the options PyAV
-         takes for libopus here; it would need libopus directly, as the decoder below
-         uses it. Longer packets (40 ms) would halve the headers, about 25 kbps less each
-         way, for 20 ms more delay each way and twice the audio lost with each packet; not
-         changed.
-       - **Recover.** aiortc's jitter buffer held 4 of your packets back, and on a lost one
-         waited for 16 more, then dropped the 4 good ones before it too. After its first
-         loss it held 14 (0.28 s) for the rest of the call. Its decoder (FFmpeg) neither
-         used FEC nor concealed a loss: the gap was left out. Of 12 s of speech with 5% of
-         packets lost, 8.3 s came through; with 15%, 5.0 s (`tools/opus-check`). Now a
-         jitter buffer passes each packet on as soon as those before it have come, and
-         gives up on a missing one once 3 later ones have; the decoder (libopus as PyAV
-         ships it) rebuilds a lost packet from the next one's FEC, or else conceals it.
-         All 12 s come through; 25 of the 36 packets lost at 5% had FEC in the next.
-       - **Speech recognition**, through the voice server, 29 sentences (215 words) a
-         call, the phone's packets lost at random, 3 calls at each loss: words heard wrong
-         with 0%, 5% and 15% lost were 1.4%, 21.9% and 73.3% before, and are 1.4%, 1.7%
-         and 1.9% now. With none lost, all 3 wrong words in each call were numbers written
-         as digits ("200", "30"). Your words also reach speech recognition sooner: a
-         median 0.27–0.31 s after you stop, at every loss, against 0.57, 0.68 and 0.93 s
-         before with 0%, 5% and 15% lost (one call each, with the wait for silence). The
-         phone's encoder made no difference to that, so it's the Mac's receive path;
-         aiortc's buffer holding 4 packets explains 80 ms of the 0.28 s with none lost,
-         the rest isn't known.
-       - **Measure.** Each call's "ended" report to the switchboard carries the phone's
-         WebRTC stats (in `events.jsonl`): `sent_bytes`, `sent_header_bytes`,
-         `sent_packets`, `sent_lost` and `sent_jitter_ms` (as the Mac reported them), the
-         same for `received_`, `concealed_pct` (how much of the voice the phone made up),
-         and `rtt_ms`. The voice server logs its own side at the end of each call ("audio
-         for …").
-       - **On the phone** (2026-10-30, mobile data, AirPods, calls rung by hand; the
-         stats as above):
-         - A normal call (61 s): nothing lost either way, 4–7 ms jitter, 67–74 ms round
-           trip; 12.7 kbps of Opus to the phone and 16.0 kbps from it over the call; the
-           phone made up 0.2% of the voice. The wideband voice sounded no different to the
-           developer ("sounds great").
-         - Network Link Conditioner (Settings → Developer) slows Nebula's packets twice:
-           inside the tunnel and again outside it. Its 3G gave a 478 ms round trip, where
-           its 100 ms each way predicts about 270; its Very Bad Network (500 ms and 10% lost
-           each way) gave 2.06–2.18 s and 12 of 40 pings lost, which 1 s and 19% each way
-           predicts. A profile of its own with Very Bad Network's values on the Cellular
-           interface only slows them once: 1.05–1.17 s, about 22% of pings lost.
-         - 3G (42 s): nothing lost, voice clear, the voice started 1.5 s after you
-           answered.
-         - Very Bad Network as it comes: the app never reached the Mac (each try then
-           needs two 2.1 s round trips, and gave up after 3 s); see below.
-         - Very Bad Network on the cellular interface (1.06 s round trip): 10.2% of your
-           packets and 9.8% of the voice's lost; the phone made up 5.3% of the voice; the
-           call lasted until hung up (91 s); of the 111 words heard from you, two look wrong
-           ("applet", likely "updates"; "forgive", likely "forget"; not checked with the
-           developer, and not told apart from accent). The first time, before the fixes below, it ended 31 s after
-           it connected.
-         - Left: Edge, and what the phone's encoder sends (its rate fits 24 kbps, but its
-           band isn't checked).
-       - **Slow networks.** Two limits, both found on Very Bad Network and fixed:
-         - aioice checks every 4–6 s during a call that the other side still wants it
-           (consent, RFC 7675). It sent each check once and gave up on it after 0.5 s,
-           and ended the call after 6 unanswered in a row: on a network slower than a
-           0.5 s round trip, every call ended about 30 s after it connected. The voice
-           server now sends each check up to 3 times and waits 3.5 s, and ends the call
-           after 4 unanswered in a row (`patient_consent` in
-           `voice/ringback_voice/__main__.py`). Offline (`tools/ice-check`), with a 1.1 s
-           and a 2.1 s round trip, connections ended after 30–36 s before and lasted 60 s
-           after; a phone that's gone is noticed after 32–36 s, as before.
-         - The app's tries to reach the Mac waited 3 s each, and each takes two round
-           trips: above about 1.5 s, none got through. They now wait 3 s, then 6, then 12.
-           On the phone with a 1.06 s round trip, the second try got through.
-     - **Reaching the Mac first.** After the phone moves from Wi-Fi to mobile data, its
-       Nebula tunnel to the Mac can stay stale: in the first phone test of Stage 3 the
-       offer timed out after 15 s without reaching the Mac, while the switchboard on the
-       lighthouse was reachable. So from the moment the phone rings, the app tries to
-       reach the voice server (`/ping`, 3 s, then 6, then 12 per try) until it answers. Each try sends
-       fresh packets, so Nebula notices sooner and goes through the relay. The offer goes
-       when the voice server has answered, while the phone rings or up to 45 s after you
-       answer; the app reports how long reaching it took, how many tries, and whether the
-       connection was made while ringing;
-   - During another call (phone, WhatsApp, FaceTime), a ringback call rings as call
-     waiting, with iOS's own Hold & Accept, End & Accept and Decline. The app doesn't
-     end it by itself. `CXCallObserver` only records that you were on another call.
-     (Apps can't add buttons to that screen.)
-   - It reports each call's events to the switchboard: ringing, answered, ended (with
-     its duration), declined, missed and called back. Each report is stamped with when it
-     happened on the phone, and retried for about a minute. After the phone changes
-     network, Nebula can take a while to reach the Mac again. The "ringing" report also
-     brings the tunnel up while the phone rings.
-   - **Call screens.** iOS decides which screens you see, the same for every calling app:
-     - On a locked phone: slide to answer, then iOS's own call screen.
-     - On an unlocked phone: Accept and Decline, then the app's own call screen.
+If something stops the voice but no words are recognised, as with a cough, the voice carries
+on from the start of the sentence it was in (once in a row).
 
-     Ours copies iOS's style (timer above the name, round glass buttons) with only Audio
-     (iOS's route picker), End and Mute. End and Mute go through CallKit, so iOS and
-     AirPods stay in step.
-   - **If the app is closed during a call** (killed or crashed), the call is recorded as
-     ended at the last heartbeat, which is saved every 2 s, and reported to the
-     switchboard at the next launch.
-   - **Like the Phone app** (Stage 5, step 1; built, tried in a simulator, not yet on the
-     phone). The app has two tabs, as the iPhone's Phone app has in its classic layout:
-     **Recents** (`clock.fill`), the call history, a standard list, and **Sessions**
-     (`terminal.fill`; Contacts until 2026-10-30), the sessions you can call, a card each,
-     in light and dark. Its settings are in the Settings app (below). Above the calls, Recents
-     shows a banner only while something's wrong: microphone access is off, the app isn't
-     set up, or calls can't reach the phone (the connection check). `tools/app-screens`
-     screenshots both tabs, the details screens, the banners and the Settings page in a
-     simulator, with sample calls a debug build can show (`Seed.swift`; release builds have
-     none of it).
-   - **Microphone access** is asked for when you open the app, because a locked phone in a
-     call can't show the prompt. While access is off, a banner links to Ringback's page in
-     Settings.
-   - **Connection check.** Nebula on the phone can go off without you noticing (it did
-     once, with Always On set), and then calls ring but can't connect. So the
-     switchboard's background push every 30 min wakes the app, which calls the switchboard
-     back over Nebula, the way a call reaches the Mac. If three tries in about 25 s fail,
-     the app shows a notification: "Claude can't call you: Ringback can't reach your
-     switchboard over Nebula. Check that Nebula is on." It comes again after 3 h if the
-     problem stays. Until the switchboard is reachable again, a banner at the top of
-     Recents says the same, with Try Again, because tapping the notification removes it.
-     Notifications are asked for when you open the app.
-     - On the phone (one test each): unlocked and locked, the app checked in within 2 s of
-       the push. With Nebula off and the phone locked, the warning came, but later than
-       35 s after the push; how much later wasn't timed.
-   - **Recents:** the whole call history, most recent first, with the calls that wait at the
-     top. The history is stored on the phone for now and will move to iCloud later.
-     - Each row is two lines, as in the Phone app's Recents. The first is the caller, the
-       project's name ("Claude from \<project\>" until 2026-10-30): red for declined,
-       missed, busy or couldn't ring, and for a call you made that didn't connect; orange
-       for a waiting call; otherwise primary. A call you made (a call back, a call from
-       Sessions, a waiting call you called now) has a small `phone.arrow.up.right` in
-       secondary before the name, in a column of its own so every name starts in the same
-       place. The second line is the call's 3–8 word subject in secondary, cut to one line;
-       the session writes it with its briefing, and the push carries it. On the right: the
-       time today, "Yesterday", the weekday within a week, or the date; then ⓘ
-       (`info.circle`, in the accent colour).
-     - ⓘ opens the call's details, as the Phone app's call info: a monogram of the
-       project's name, the name, a "call" button, then the call under its day ("Today"):
-       when, what kind ("Incoming Call", "Missed Call", "Declined Call", "Called Back",
-       "Called from Sessions", "Called While Waiting", "Didn't Connect"…), how long, and
-       "While on another call"; then its whole subject.
-   - **Calling a call** (Stage 5, step 1; built, tried offline, not yet on the phone).
-     Tapping any call calls its session straight away, without ringing, as in the iPhone's
-     Phone app, answered calls too (until then only a red one, within a day). Its voice has
-     the call's briefing: for a call you missed, it opens with what it was about; for one you
-     took, with what's changed since, or says nothing has and asks what you want (calling
-     back, in the voice server's session side). If the session has moved on since, it says
-     what changed first. If the session isn't listening any more, the call still connects,
-     and the voice says it can't act on it.
-     - It's an outgoing CallKit call (`CXStartCallAction`), with the same caller name as a
-       call that rings, the in-call screen, Mute and End. CallKit shows it connecting, then
-       connected once its audio connects.
-     - Its audio goes as a call's does: the app reaches the voice server (`/ping`), then
-       offers with the call's ID and `"back": true`, not ringing. The voice server
-       answers it at once.
-     - It's a new record in the history, with its own ID, and keeps the ID of the call it
-       calls back. Its events go to the switchboard under its own ID: called back (with the
-       earlier call's ID in a note), then ended with its duration, or audio failed. A call
-       back whose audio never connected is red, and tapping it calls the same call back
-       again.
-     - If the voice server no longer knows the call (forgotten after a day, or after a
-       restart without its state), the app fetches the sessions, and if the call's session is
-       there, the call goes on as a call to it from the Sessions tab, under the same ID ("called
-       contact" to the switchboard). The push and the waiting calls now carry the session's
-       ID for this; for a call from before, the app takes the only session of that project
-       on that Mac. Otherwise the call ends, and an alert says the Mac no longer remembers
-       the call and the session isn't in Sessions now.
-     - A call from before calling back, whose push didn't name its voice server, calls its
-       session from the Sessions tab if it's there; otherwise its row can't be tapped.
-     - A voice server from before calling back answered calls takes their call back as
-       one you missed: its voice says you didn't answer then. Not refused, since that voice
-       server remembers answered calls too.
-   - **Waiting calls** (Stage 5; built, not yet tried on the phone). The calls that wait,
-     held outside your work hours (and from Stage 7 queued), show at the top of the call
-     history under "Waiting", above the rest under "Calls" (2026-10-31: on the phone the
-     orange was too close to the red of missed calls next to it), the caller in orange,
-     and on the second line when they ring and the subject
-     ("Rings tomorrow at 08:00 · Parser fix ready", "Question · rings at 08:00 · …" with a
-     question); ⓘ shows when it rings, whether it asks a question, the subject, and buttons
-     to call it now and, with a question, to send it to the Claude app. The app fetches them
-     from the switchboard when you open it, after it registers, and with each connection
-     check. Tapping one calls it now, as a call back does: an outgoing CallKit call, no
-     ringing, and its offer carries the call's ID and `"now": true`, so the voice picks
-     up. It's then a record in the history under the call's own ID, shown as an outgoing
-     call ("Called · 1:05"), and reported to the switchboard as "called now", then
-     ended or audio failed. If the voice server refuses it (403) or can't be reached, the
-     call ends, an alert says "This call isn't waiting any more." or that the Mac can't be
-     reached, and the list is fetched again. Not done: a call that didn't connect stays
-     red, and tapping it calls it back (`back`), which the voice server refuses while it
-     still holds the call.
-     - **With a question** (Stage 3 step 7; built, not yet tried on the phone), a waiting
-       call says "Question · rings at 08:00 · …", and has a trailing swipe action, "Claude
-       App" (SF Symbol `arrow.up.forward.app`, no full swipe), as Mail's and Messages' rows
-       have theirs, in indigo; its details have a "Claude App" button too. A tap sends the question to the Claude app,
-       where Remote Control (on with ringback) shows it: the app reaches the voice
-       server (`/ping`, as a call does, for up to 20 s), then posts `/claude-app` with the
-       call's ID. Taken, the call leaves the list and the app reports "claude app" to the
-       switchboard; refused, an alert says why ("This call isn't waiting any more.", "The
-       session isn't listening any more…", or that the Mac can't be reached), and the list
-       is fetched again. Waiting calls without a question have no swipe action. (Until
-       ringback turned Remote Control on itself, the action was grey while the session said
-       it was off. Not `.disabled`: on a swipe action that blocks the tap but doesn't grey
-       it out, `tools/swipe-check`, iOS 26.5 and 27.1 simulators.)
-       While the app is open, iOS shows no banner for the switchboard's notification (the
-       app has no notification delegate); the list is fetched when you open the app.
-   - **Held calls** (Stage 7). While all calls are held after a final decline, the app
-     says so and shows which call to call back. Calling it back releases them.
-   - **Sessions** (Stage 5, step 1; built, tried offline, not yet on the phone; called
-     Contacts, as standard list rows, until 2026-10-30): your sessions with ringback on, on
-     every Mac, by project, as the switchboard lists them (`/contacts`, the switchboard's
-     contacts, a name the protocol keeps). There are a handful, not the Phone app's
-     hundreds, so each is a card: the project's initials on a circle in a colour taken from
-     its name, the project, its latest briefing's subject (two lines at most; "No briefing
-     yet"), when it was briefed or since when ringback has been on, a call of the session's
-     that waits ("Question waiting", "Call waiting", in orange), and a green phone on the
-     right. While the tab shows and the app is in front, the app fetches them, and the
-     waiting calls, every 3 s, and on pull to refresh. A voice server tells the switchboard
-     within a second of a session starting or stopping to listen, so a new session shows
-     within about 4 s. (Until 2026-10-30 they were fetched only when the tab showed, so a
-     session that started meanwhile didn't show until you switched tabs.)
-     - Tapping one calls it at once: an outgoing CallKit call, as a call back is. Its offer
-       carries a new ID made on the phone and `"contact": <session ID>`, and `"back": true`
-       too, so a voice server from before the Sessions tab refuses it as a call back it doesn't
-       know rather than taking it for a call rung by hand. The voice server answers with a
-       new call for that session, whose voice has the session's latest briefing (calling
-       from the Sessions tab, in the voice server's session side). It talks with the session as any
-       call does, and shows in Recents as an outgoing call, caller the project. Its events
-       go to the switchboard as "called contact", then ended or audio failed.
-     - Refused because the session isn't listening any more (its list is a little old), the
-       call ends and an alert says so; refused by a voice server from before the Sessions
-       tab, an alert says that Mac's voice server is from before it. The sessions are
-       fetched again.
-     - Holding a card offers Call and Details (a context menu); Details, also a VoiceOver
-       action, opens the session's details: its project, a "call" button, its latest
-       briefing's subject and when, since when ringback has been on, its Mac and the start of
-       its ID. (Until 2026-10-30, ⓘ on the row opened them.)
-   - **The hold switch** (Stage 5 step 2; built, tried in a simulator, not yet on the
-     phone). One switch holds every call until you let them through (the switchboard's hold
-     switch, with your work hours setting it at their edges). It's a pill of Liquid Glass
-     floating beside the tabs, on both tabs, as wide as a tab and as tall as the capsule the
-     tabs are pills in (`BottomBar`, after your sketch; it replaces the system tab bar, which is hidden:
-     its only button of its own beside the tabs is round, and for Search). Its symbol is what
-     pressing does, as in a media player: pause while taking calls, play while on hold; its
-     word is the state, "Taking calls" or "On hold". On hold it's indigo, the colour of iOS's
-     Focus, apart from the red of missed calls and the orange of waiting ones, with how many
-     calls wait in an orange badge, and it breathes: an indigo halo behind its glass swells and
-     fades every 4.6 s, about 13 times a minute, as the sleep light of Apple's laptops did
-     (resting, not off). The pill is the light source, and the whole app takes up a faint share
-     of its light: an indigo wash over the content, under the bar, strongest near the pill and
-     fading with distance, light on dark backgrounds and a tint on light ones. Both read one
-     clock (`Breath`), so they beat at the same period and phase. With Reduce Motion or in Low
-     Power Mode the light stands still at a middle level. VoiceOver reads what's next too ("On hold, 2 waiting,
-     takes calls tomorrow at 08:15"). Pressing shows the new state at once, then sets it at
-     the switchboard (`/hold`); taking calls, the app fetches the waiting calls and posts
-     `/reask` to their voice servers, so they ring now. If the switchboard can't be reached,
-     it goes back and an alert says so. The app gets the switch with the waiting calls, and
-     asks again when the hours would change it.
-     - The same switch is a control (`app/Controls`, a WidgetKit extension) for Control
-       Center, which you can also put on the Lock Screen or the Action button: on, in indigo,
-       holds calls. Its action (`SetHoldIntent`) runs in the extension, without opening the
-       app, and does what the pill does. It shows the switch as the switchboard has
-       it, or as last heard. The app shares the switchboard's address, the push token and the
-       switch with it in a keychain group (and how many calls wait, for the widget below),
-       rather than an App Group: the team's provisioning
-       profiles already allow any of its keychain groups, while an App Group needs a
-       capability added to each App ID, which Xcode can't do without an account signed in.
-     - The hold also shows outside the app: the app's icon has the number of waiting calls as
-       its badge (set whenever the app fetches them, so it can be stale while the app doesn't
-       run; the app asks for notifications with badges), and a Lock Screen widget in the same
-       extension (`HoldWidget`; rectangular, circular and inline) says "Calls on hold · 2
-       waiting · until 08:15" or "Taking calls · Holds calls at 19:00". It asks the switchboard
-       when iOS refreshes it, at least every 30 min, or when the app hears of a change, and has
-       an entry ready for when the hours change the switch.
-     - Chosen (2026-11-02) from five placements, each drawn taking calls and on hold: the
-       bar above the tabs, a button in the top corner with the state under the title, a
-       status card at the top of Recents (as Uber Eats Orders shows "Paused"), a round
-       button beside the tab bar, and Control Center with a Lock Screen Live Activity. The
-       bar above the tabs went first, as the only one on both tabs, under your thumb, with
-       room to say the state in words, and Control Center joined it; the Live Activity is
-       left out. Seen on the phone, you chose the button beside the tabs instead, as a pill
-       rather than round, with the tabs as pills (2026-11-02), and the switch as tall as their
-       capsule. The state is
-       one word now, and what's next only for VoiceOver. How the app looks while on hold came
-       from two more rounds of six looks each: first recolouring or covering the screen (an
-       edge glow, frosted edges, a dusk backdrop, tinted bars, a banner, muted history), none of
-       which you liked; then other principles (the app stepping back, the glass morphing, held
-       calls piling up as cards, a breathing light, a hold screen, the icon and the Lock
-       Screen). You chose the breathing light with the icon and the Lock Screen, and added the
-       faint wash in step with it.
-   - **Icon** (2026-11-02): a terminal prompt with the arcs of a ringing phone, a session that
-     speaks, on near-black, the prompt in iOS's green. Chosen from ten directions, none using
-     Anthropic's Claude mark, so the app can't be taken for an official one. Its SVGs are in
-     `app/Icon`, one each for the default, dark and tinted (grayscale, which iOS colours)
-     appearances, and `app/Icon/make.sh` renders them to the 1024-point PNGs in the app's
-     asset catalog.
-   - **Settings** live in the Settings app (Settings → Apps → Ringback), from the app's
-     `Settings.bundle`; the app has no settings screen any more. Groups, each with a footer
-     that says what the app's sections said:
-     - **Switchboard:** its Nebula address, as you'd type it ("10.0.0.1", port 8787 unless
-       you add one). The app registers its push token there.
-     - **Work Hours:** a switch, off by default, and From and To below it (08:00 and 20:00
-       to start), each a list of times in 15-minute steps: the Settings app has no time
-       picker, and you chose lists (2026-10-30). The Settings app can't hide them while the
-       switch is off. Claude calls only between them; a call outside them waits until they
-       start (they set the hold switch at their edges), so a session that finishes at 2 am calls at 8 am. From later than To wraps past
-       midnight (22:00–06:00), and equal times mean any time. They're kept as times of day,
-       read in the phone's time zone. They go to the switchboard with `/register` and
-       `/check`, when the app becomes active, and when they change while it runs
-       (`UserDefaults.didChangeNotification`). Changed in Settings while the app isn't
-       running, they reach the switchboard when it next runs, at the latest with the next
-       connection check (every 30 min), so a call meanwhile can still be held or ring by the
-       old hours. Days of the week aren't covered.
-     - **Interruption Sensitivity:** a slider, less to the left and more to the right, as
-       its footer says: sliders in the Settings app have no words at their ends. More stops
-       the voice at shorter, less certain speech, which suits quiet places. Less needs
-       clearer, longer speech, which suits noisy ones. On the Mac it sets the confidence and
-       length thresholds of voice-activity detection (`voice/ringback_voice/hearing.py`). The
-       middle is Pipecat's defaults, which all calls so far used. The ends need 0.35 s or
-       0.1 s of speech, with confidence to match. Only the low end has been tried,
-       offline (Stage 2). The Settings app's slider has no steps, so any value between goes.
-     - **Ignore Background Noise:** the background filter, the level gate above: a switch,
-       on by default, and a Strength slider, gentle to the left and strong to the right. On
-       the Mac it sets the volume threshold of voice-activity detection, on Pipecat's scale:
-       0.6 when off (-50 LUFS, Pipecat's default, which all phone calls so far used), and
-       from 0.62 to 0.8 (-30 LUFS) when on, 0.7 in the middle (the default). The strongest
-       would ignore some of your own quieter speech.
-     - The keys are those the app's own screen used, so values carry over. Once, at the
-       first launch of this version, work hours off the 15-minute steps move to the nearest
-       one (09:40 becomes 09:45), and a switchboard address kept as a URL becomes the
-       address alone. The app registers the same defaults the Settings app shows, at launch.
-       It reads the sensitivity and the filter when it makes each call's offer, so a change
-       applies from the next call.
-7. **Nebula** carries only the call; the push reaches the phone through Apple. The
-   lighthouse must be a relay (`relay.am_relay: true`) and the Mac must list it in
-   `relay.relays`. On mobile data the phone reaches the Mac only through that relay:
-   direct tunnels to the phone fail, and Mobile Nebula (0.12.0) has no setting to list
-   relays of its own.
+### Acting on the call
 
-## Rejected alternatives
+On a call for a session, Haiku has three tools, served by a small MCP server the agent starts
+with each `claude -p`: `pass_to_session` for what you want the session to do or know, and
+`answer_permission` and `answer_question` for what the session asks you. Every call also has
+`better_model`.
 
-Each entry says why it lost and what would make it worth retrying.
+- Haiku says what it's passing on, or what it will answer, then calls the tool. The message
+  is held until you've heard the voice say so, and dropped if you cut it off before; Haiku is
+  then told, and passes it again if you still want it. A tool called before any words waits
+  for the sentence after it. If Haiku reaches for a tool before saying anything, the voice
+  says "Okay." at once, so you aren't left in silence.
+- What Haiku writes after a tool isn't spoken if it said something before: it tends to repeat
+  itself.
+- Before you've said anything, `pass_to_session` passes nothing: an opening written while the
+  phone rings has nothing of yours to pass on.
+- The voice does no work itself. Whatever you want written, changed, run or looked up goes to
+  the session, even something short. It answers from the briefing only what the briefing
+  says.
+- When several things need your answer, it says how many, asks them one at a time, and passes
+  the answers on together.
+- A permission: Haiku says in plain words what the session wants to do, and whether it
+  deletes, overwrites, pushes or spends anything, and takes only a clear yes or no. A
+  question: it reads it and its options, and takes your choice or your own words; it never
+  chooses for you.
 
-- **Calling through the phone network (e.g. Twilio) instead of an app.** Per-minute and
-  number costs are hard to justify for a personal tool. Retry if those costs become
-  negligible. As a fallback where data is too weak, it's still worth pricing (Stage 8):
-  - **Gained:** it needs neither the app nor Nebula, and works where there's voice
-    coverage but no usable data.
-  - **Lost:**
-    - Narrowband phone audio makes speech recognition worse, especially for accented
-      English; wideband needs VoLTE end to end.
-    - Calls over a provider stream their audio to a public internet address, which ringback
-      doesn't have to open today.
-  - **Cheaper routes to look at:**
-    - providers cheaper than Twilio, such as SIP trunks from a local operator;
-    - an LTE modem with an ordinary SIM at the lighthouse, which costs only the SIM's plan,
-      but needs a modem whose call audio macOS can reach (Linux supports such modems
-      better).
-- **The Mac opening the Nebula tunnel to the phone.** It can't reach a phone on mobile
-  data, and Mobile Nebula 0.12.0 can't list relays of its own (Stage 0). Retry if Mobile
-  Nebula gains `relay.relays`.
-- **Speech-to-text on the phone (Apple SpeechTranscriber).**
-  - It takes no vocabulary.
-  - It was weaker on accented English in the one published comparison.
-  - Whether it runs on a locked phone during a call is undocumented.
+The voice's instructions are in `agent/texts.go`. Its style: short sentences, rounded
+numbers, nothing read out that's meant to be seen (tables, lists, code), detail offered
+rather than recited, and your words read in context, since speech recognition gets
+similar-sounding words wrong, technical ones especially.
 
-  Retry if Apple adds vocabulary biasing to SpeechTranscriber, or it beats Parakeet on
-  your own recordings (`tools/stt-eval`).
-- **Whisper large-v3-turbo.** It was about as accurate as Parakeet v2, but about 12×
-  slower (about 0.5 s per utterance), and it invented words on short clips. Retry if a
-  build without the per-clip overhead appears.
-- **Qwen3-ASR 1.7B and Parakeet v3.** Neither did better on the test voice, and v3's extra
-  languages aren't needed for English-only calls. Retry for speakers of other languages.
-- **Granite Speech 5.0 2B.** Untested: mlx-audio 0.6.2 doesn't expose its keyword list,
-  which was the reason to try it. Retry once it does.
-- **Apple's voices for speech, and Pocket TTS.** In a listening test the standard Apple
-  voices sounded poor, and Kokoro `af_heart` was preferred over Pocket TTS. Apple's
-  Premium voices weren't tried. Retry with a Premium voice.
-- **Pipecat's own Kokoro service (kokoro-onnx).** On the CPU, its default, it ran 8×
-  faster than real time, against 27× for MLX: 1.54 s for 12 s of speech, against 0.45 s
-  (`tools/tts-speed`). Pieces longer than about 7 s of speech would leave gaps, and the
-  first sentence would start about 0.35 s later. CoreML made it no faster, because it
-  took only about half of the model's operations. Retry if kokoro-onnx gets much faster
-  on Apple silicon.
-- **One sentence per Kokoro piece.** It left about 0.75 s of silence between sentences.
-  It's replaced by growing pieces.
-- **Trimming the silence between Kokoro pieces.** It sounded worse than untrimmed pieces.
-  Retry only with crossfades or a gentler trim.
-- **Pipecat's default end-of-turn wait (3 s).** When Smart Turn judged a short turn
-  ("mm-hmm", "wait") unfinished, the reply came about 4.9 s after it. Replaced by 1.5 s
-  (Stage 2). Retry if calls show the voice answering the first half of your sentences.
-- **A 1 s end-of-turn wait.** It split none of the recorded turns, but leaves little room
-  over pauses of up to 0.74 s in free speech. Retry if short turns still feel slow and
-  calls show no pauses over 1 s.
-- **A one-off `claude -p` call per turn.** It took about 3.2 s, 1.7 s of it start-up.
-  It's replaced by a Claude Code session that stays open for the call.
-- **Haiku through the API.** Calls run on the Claude subscription instead, because this
-  is a personal tool. Retry if replies through Claude Code prove too slow in Stage 2.
-- **Pipecat's iOS client.** It always takes over the audio session (speaker, mixing),
-  which clashes with CallKit. It's replaced by Google's WebRTC in manual-audio mode.
-  Retry if the client gains a CallKit or manual-audio mode.
-- **Changing interruption sensitivity during a call.** The in-call screen covers the app's
-  settings, so it would need a fourth button or a slider on the call screen, and a WebRTC
-  data channel to the Mac. You chose to change it between calls. Retry if calls show you
-  need it mid-call, for example when moving from a quiet room to the gym.
-- **VoxLock: removing other people's voices on the Mac.** Parked on the branch `voxlock`,
-  with the app's recording of your voice and `tools/voxlock-delay`. You recorded your
-  voice once in the app, and each call sent 3 s of it with the offer. VoxLock then passed
-  only your voice to voice-activity detection and Parakeet. Offline, with another voice
-  talking 6 dB below yours, none of its words got through. Without VoxLock, that call
-  derailed (Stage 2). It lost because, with AirPods, other people are far from the
-  microphone and arrive quieter, so a level gate (the background filter) keeps them out
-  without a model. Offline, it alone kept out a voice 20 dB below yours (Stage 2).
-  VoxLock, by contrast, costs something on every call:
-  - an interruption stops the voice about 0.1 s later (a median 80 ms of buffering, over
-    187 starts of speech, plus 23 ms of computing per 80 ms chunk);
-  - Parakeet got 7.0% of words wrong instead of 5.9%, on your recordings with nobody else
-    talking;
-  - it can mute you for a whole call. Without a recorded sample, it learned the voice of
-    whoever spoke first, and offline that was the other person. A sample recorded through
-    the app's audio path rather than the call's might also not match how you sound on
-    calls (untested).
+### Call transcripts
 
-  Retry if calls show other people's voices stopping the voice or heard as yours when
-  they're too close or loud for a level gate to tell apart from you.
-- **Settings on the app's own screen** (until Stage 5 step 1). The app outgrew one screen,
-  and you chose the Settings app, as iOS apps keep theirs, with the app as the Phone app.
-  What the app's screen had that the Settings app lacks: time pickers (now lists in
-  15-minute steps), words at the ends of the sliders (now in the footers), hiding From and To
-  while work hours are off, and new hours reaching the switchboard at once (now when the app
-  next runs, within the 30 min of a connection check). Retry if testers find those a real
-  problem.
-- **Ending a call as "busy" during another call.** You want to choose, so it's replaced by
-  call waiting and "not now" (requirement 3).
-- **The switchboard in Python** (aiohttp, run with uv). On an old Intel Mac it used
-  about 50 MB of memory, and uv, its cache and the virtual environment took about 280 MB
-  of disk on top of Python. The Swift binary uses about 4 MB and 470 KB. Retry if the
-  switchboard needs a library that only Python has.
-- **The switchboard in C.** Swift already brings it down to about 4 MB of memory. C would
-  also need hand-written JSON and HTTP parsing on a network port, and its own decoding of
-  the APNs key; macOS gives Swift all of these. Retry if a few MB on the always-on Mac
-  ever matter.
-- **A switchboard on every Mac.** That gives no single queue, so calls from two Macs could
-  overlap.
-- **The switchboard pinging the phone to check its connection.** A locked, idle phone
-  stopped answering over Nebula within 30 s (Stage 0), so pings would raise false alarms
-  while the phone is fine. It would also test the direction calls don't use, and need an
-  inbound rule in Mobile Nebula for the lighthouse. Replaced by the connection check, in
-  which the app calls the switchboard. Retry if background pushes prove too unreliable.
-- **A connection check on a timer in the app.** iOS doesn't run apps on a timer. It runs
-  background refresh when it decides, which for a rarely opened app can be a few times a
-  day or never.
-- **The voice pipeline on the always-on Mac.** It would load that Mac. The calling Mac
-  must be awake anyway.
-- **Settings hooks and an MCP channel in each session** (the plan until Stage 3). A Stop
-  hook and a Notification hook would have started calls, and a channel would have
-  delivered your replies and relayed permission prompts. But a custom channel loads only
-  when the session starts, behind `--dangerously-load-development-channels` and its
-  warning screen every time, so calling couldn't be switched on mid-session; and channels
-  are a research preview. The ringback mod does all of it from inside Claude Code:
-  `/ringback`, the line under the prompt, prompts for the session, and holding tool calls.
-  Retry if mods lose prompt submission or tool approval.
-- **Calling when the session has been idle for 60 s** (Claude Code's `idle_prompt`). It
-  needs no switch, but every call would come a minute late. You chose a switch you turn
-  on when you leave.
-- **The session's last message as the voice's context.** Too little to talk its work
-  through.
-- **A fork of the whole session as the voice** (`--resume <id> --fork-session`). More
-  than a call needs: the first turn slows down with a long history, and every call uses
-  more of the subscription. The briefing the session writes is the middle ground. Retry
-  if briefings prove too thin for the voice to answer from.
-- **Tags in the voice's reply for messages to the session** (`<session>…</session>`,
-  taken out before the reply is spoken). Nothing ends Haiku's turn after a tag, so it
-  goes on and imagines the conversation. In an offline call (`tools/call-check`), one
-  instruction became three messages in one reply, and between them Haiku wrote the
-  session's answers itself ("Pushed fix-parser and opened the pull request") before the
-  session had done anything. A tool call ends Haiku's turn until its result comes back.
-- **Passing a message as soon as Haiku writes it.** In the same call you cut the reply
-  off before hearing any of it, but its messages had already gone, one of them wrong: it
-  was written before the second half of your turn arrived. Messages are now held until
-  you've heard them announced.
-- **Holding permission requests at `tool.check`.** Claude Code's first verdict there,
-  "ask", doesn't mean you'd be asked: in auto mode its classifier settles most such calls
-  itself, so the mod would have rung you for routine commands. `PermissionRequest` fires
-  only when you would be asked.
-- **Holding a tool call in the opening until a voice exists.** Haiku's opening is written
-  while the phone rings, and once it called `pass_to_session` there: holding that call
-  stalled the opening 8.7 s, and then passed the session a message nobody had said.
-  Before you've spoken, the tool now passes nothing.
-- **Asking the briefing for what the session didn't check.** It led the session to say it
-  couldn't confirm the call would reach you: 6 of 8 briefings about ringback work said
-  so (`tools/briefing-check`), and scoping the question to the session's work didn't
-  stop it. Without the question, 1 of 14 did. The session is now told afterwards how the
-  call went (call outcomes). Retry if briefings prove too thin on what wasn't verified.
-- **Handing what a missed call asked to the terminal at once.** Until Stage 3 step 5, a call
-  you didn't answer settled its permissions and questions as none, so a question showed in
-  the terminal as soon as the call was forgotten, and a call back couldn't answer it. They
-  now wait for the next call with the session you answer, within the mod's 15 min.
-  Permission prompts show in the terminal meanwhile anyway. Retry if questions waiting
-  15 min hold sessions up while you're at the terminal with ringback still on.
-- **Questions outside your work hours going to the terminal at once** (Stage 3 step 7 as
-  first built, 2026-10-30). The mod gave a question to the terminal as soon as its call was
-  held, so Remote Control could show it in the Claude app overnight, and the morning call's
-  voice could only say it waited there: the dialog takes no answer from a hook. You chose
-  instead to have it wait for the call, be told by a notification, and decide from the app
-  whether it goes to the Claude app. Retry if held questions keep sessions waiting overnight
-  that you'd rather have answered at once.
-- **A call back within the missed call's 90 s as that call itself**, with the Haiku that
-  wrote its opening while it rang. That opening was written for a call the session placed,
-  not one you made, and its session would be told the call was answered rather than
-  called back. The call back replaces it with a fresh Haiku instead, which costs about 2 s
-  more before the voice starts.
-- **Unsigned call-outcome notes.** Claude Code adds a note to the next prompt's message,
-  so Haiku took the note for your words and said it had been told nothing (2 of 2
-  sessions). Notes now say they're from ringback.
-- **A separate Haiku call for each call's subject.** The session writes the subject with
-  its briefing instead, so nothing extra runs.
-- **Running the voice's Haiku in the project folder, to keep Claude Code's own transcript
-  of the call there.** It would load the project's CLAUDE.md into the voice and add the
-  call to the project's `/resume` list, and that transcript is mostly the voice's
-  instructions and call notes. The voice server writes a plain transcript into the
-  project instead (call transcripts).
+The agent writes each call's transcript into the calling session's project, under
+`.ringback/calls/`: the briefing, your words as recognised, what the voice said and where you
+cut it off, and what went to the session. The folder holds its own `.gitignore` of `*`, so
+git ignores it without a change to the project. Each message from the call ends with the
+transcript's path, and reading a file inside the project needs no permission prompt, which
+while you're away would mean another call.
 
-## Open questions
+## Where a call's speech runs
 
-- **Showing you things.** Sometimes talking isn't enough and you need to see what a
-  session is doing: images sent over iMessage, or a way to inspect large geometric
-  models, perhaps screen sharing. This comes after the calling stages. Claude Code's
-  official iMessage channel plugin (a research preview) can send images and relay
-  permission prompts, but not AskUserQuestion questions. It needs macOS, Bun, Full Disk
-  Access, and Messages signed in on the Mac where the session runs.
-- **The lighthouse after a reboot.** With FileVault on and no automatic login, nothing
-  runs on it after a restart, not even Nebula, until someone logs in, so no call can ring.
-  It runs on battery through power cuts. Making it start by itself is a separate task,
-  already noted on that machine.
+Each call uses the first of these:
 
-## Risks (unverified)
+1. **A speech node linked to the hub.** If several are linked, the hub picks one; for a call
+   that rings, it warms them all. Between calls a node holds nothing on the GPU: a small
+   process keeps its link (16 MB), and a worker process with the models (2.8 GB of memory,
+   2.9 GB of the GPU's) starts when a call is coming and exits after 60 s without one
+   (`speech/README.md`).
+2. **The phone itself**, if On-device Voice is on in the Settings app. The hub refuses the
+   call's offer for want of a node (503, `"no speech node"`), and the app opens its own link
+   to the hub for the call instead (`/phone-speech`, `docs/protocol.md`). The app hears you
+   with Apple's on-device recognition (SpeechTranscriber) and a level detector of its own,
+   and speaks with the best English voice installed on the phone, through the same audio
+   engine, so echo cancellation hears it. Only text crosses the network, and the hub counts
+   what you've heard from what the phone says it played.
+3. **Neither:** the call doesn't ring. It waits, as a held call does, with the reason; the
+   phone gets one notification ("\<project\> wants to talk"), and the app lists the call as
+   ringing when the speech computer is back. When a node links, or the phone's own voice is
+   turned on, the hub has the agents ask again, and the call rings.
 
-- Right after the phone leaves Wi-Fi, its first packets once took about 16 s to reach
-  the Mac, and on 2026-10-29 its offer didn't reach the Mac within the app's 15 s at all.
-  The Mac's Nebula log showed no new handshake from the phone during the call, and its
-  only tunnel to the phone was hours old, from when the phone was on the same Wi-Fi. The
-  app now tries to reach the Mac from the moment it rings (reaching the Mac first). When
-  it met a stale tunnel later that day, the call worked, but the Mac answered only the
-  fourth try, 12.2 s into ringing, and audio started 10.5 s after you answered: you can
-  wait that long, up to the 45 s the app waits.
-- On mobile data the phone reaches the Mac only through the lighthouse's relay: it tries
-  the addresses the Mac gives the lighthouse first, which include those of other VPNs on
-  the Mac, and they fail ("no route to host"). On 2026-10-30, after the lighthouse had
-  dropped its tunnel to the idle phone and the phone had made a new one, the phone's
-  tunnel to the Mac still pointed through the old one ("unable to find host with relay"):
-  it gave up on it only 15 s into the next call, and a call you hang up before then never
-  reaches the Mac. The lighthouse drops the locked phone's tunnel about a minute after a
-  call; the phone's Nebula has punchy (keeping that tunnel alive) off. Calls then wait up
-  to about 20 s for the tunnel. Not changed: both are Nebula settings on your devices
-  (punchy on the phone, `lighthouse.local_allow_list` on the Mac).
-- Every placed call now costs a Haiku opening on the subscription, even if you decline
-  it, and a declined call keeps its Haiku and the Mac awake until it's forgotten after
-  90 s.
-- If the voice server crashes mid-call, that call's Claude Code session stays in
-  `~/.claude/projects`; nothing cleans it up at the next start (one folder for the call on
-  during a kill, `tools/restart-check`).
-- Pipecat expects a WebRTC data channel and logs a warning without one. Nothing needs one
-  yet: the interruption settings go with the offer.
-- The voice server replaces parts of aiortc at start, by name (`voice/ringback_voice/opus.py`):
-  its Opus encoder and decoder, its audio jitter buffer and its Opus parameters, and loads
-  the libopus that PyAV ships. An upgrade of aiortc or PyAV can break that; if libopus
-  doesn't load, the server says so at start and keeps aiortc's buffer and decoder. It
-  also replaces aioice's consent check (`patient_consent`), copied from aioice 0.10.2.
-- Xcode needs device support for the phone's iOS version to install development builds.
-- Only the phone's processing and the background filter keep other sounds out, so:
-  - gym noise or other people's voices near you could still stop the voice, or be heard
-    as yours. Offline, with the filter off, someone talking even 20 dB below you was heard
-    as clearly as you (Stage 2). The filter's default kept them out, but it's absolute,
-    and how loud each microphone delivers your voice on a call isn't measured. Neither is
-    how well the phone's voice processing and Voice Isolation remove other people's
-    voices;
-  - the filter or voice processing could swallow your own quiet speech: the default
-    leaves about 5 dB under your quietest speech in your AirPods recordings.
+Apple's recognition is the fallback, not the default, because it gets more words wrong: 10.3%
+of the words on your own recordings, against Parakeet's 5.9% (`tools/speech-trial`,
+`tools/stt-eval`), answers to permission prompts among them ("allow it once" as "I love it
+once"). It did hear in the background with the screen locked, with its final words 0.15 s
+after they were asked for, and the app stayed at about 30 MB: the model runs in a system
+service.
 
-  Stage 2 tests this with real noise.
-- Mods are new, so their API may change. That the terminal prompt shows while the mod
+Nothing about speech nodes is set in the app. A node links to the hub by itself, with its
+token; adding one, or forgetting one that's gone for good, is done on the hub's portal.
+
+## When calls ring
+
+**The hold.** Each phone has a hold switch, kept by the hub: on hold, or taking calls. While
+every phone is on hold, no call rings, whatever speech there is: calls wait instead. You set
+it with the pill beside the app's tabs, with its control in Control Center (also for the Lock
+Screen or the Action button), or on the portal, which sets every phone's at once. On hold the
+pill breathes in indigo with the number of calls waiting, the app's icon shows that number,
+and a Lock Screen widget says when calls are taken again.
+
+**Work hours** are set in the Settings app (From and To in 15-minute steps; From later than
+To runs past midnight, and the same time means any time). They set the hold switch at their
+edges: on hold when they end, taking calls when they start. Between edges, what you set
+stands, as a scheduled Focus you turn off by hand stays off until its next start. The app
+sends its hours and time zone with each registration and connection check, so a change
+reaches the hub within half an hour at most. Days of the week aren't covered.
+
+**A held call.** The hub answers that the call is held, and until when, if work hours will
+end the hold. The agent keeps the call, without starting Haiku, and asks again then, or
+after 10 min if that's sooner, so hours you widen apply within 10 min; it waits on the wall
+clock, so a Mac that slept still asks on time, and keeps its Mac awake meanwhile
+(`caffeinate`). A new briefing from the same session replaces the held call's subject and
+briefing rather than placing a second call. The hub keeps the calls that wait, and drops one
+whose agent hasn't asked about it for 25 min, so a call from a Mac that's gone doesn't wait
+forever. When you take calls, the app asks the hub to have them ask again (`/reask`), and they
+ring at once, together.
+
+**Waiting calls in the app** show at the top of Recents, under Waiting, in orange, with when
+they ring ("Rings tomorrow at 08:00"). Tapping one calls it now: an outgoing call that
+doesn't ring, whose voice opens with the briefing and knows you called while it waited.
+
+**A call you don't answer.** The agent forgets it after 90 s and tells its session. The hub's
+log tells a decline from a missed call; the agent can't. Calls aren't retried yet, and two
+sessions calling at once both ring (Next).
+
+**Calling back.** Tapping any call in Recents calls its session straight away, without
+ringing, answered calls too. The agent remembers each call for a day, across restarts, and
+the call back gets a fresh Haiku with that call's briefing: for a call you missed, it opens
+with what it was about; for one you took, with what changed since, or says nothing has and
+asks what you want. If the session wrote a newer briefing since, that follows. If the session
+isn't listening any more, the call still connects, but the voice can't pass anything on and
+says so. Work hours don't apply: you called. If the agent no longer knows the call, the app
+calls the session from Sessions instead, if it's there.
+
+**During another call** (phone, FaceTime, WhatsApp), a ringback call rings as call waiting,
+with iOS's own Hold & Accept, End & Accept and Decline.
+
+**The connection check.** If the phone can't reach the hub (its VPN off, say), calls ring
+but can't connect. So every 30 min the hub wakes the app with a background push, and the app
+checks in with the hub. If three tries in about 25 s fail, the app shows a notification
+("Claude can't call you"), again after 3 h if the problem stays, and a banner in Recents until
+the hub is reachable.
+
+## What a session asks
+
+**Permissions.** When Claude Code is about to ask your permission while ringback is on, the
+mod puts it to you on a call as well (`PermissionRequest`, which fires only when you'd be
+asked, so auto mode's own approvals never ring). The prompt shows in the terminal at the
+same time, and whichever you answer first decides. On a no, the session reads your words; a
+yes shows as a dim line.
+
+**Questions.** When the session asks you something with options (AskUserQuestion), the mod
+holds the question, puts it to you on a call, and gives your answer back as the dialog's own,
+so the dialog doesn't show.
+
+**Where it goes:** to the call you're on with that session, as a note; to its call that's
+ringing, once you answer; or else to a new call whose briefing asks it. If you don't answer
+the call, it waits for the next call with that session you do answer, a call back or the
+session's next call. After 15 min without an answer, or when you hang up without one or
+switch ringback off, the terminal asks instead.
+
+**Outside your hours** a question waits for the held call, and its 15 min count from when the
+call rings. Meanwhile the phone gets one notification ("\<project\> has a question"), as an
+ordinary notification your Focus can silence, and the waiting call shows it ("Question ·
+rings at 08:00"). Swiping it ("Claude App") sends the question to the Claude app instead: the
+agent tells the mod to let the session's dialog show, Remote Control shows it in the Claude
+app, and the held call is forgotten and never rings. A permission's prompt shows in the
+terminal anyway, and through Remote Control in the Claude app too.
+
+**Remote Control.** Switching ringback on also runs `/remote-control`, and the rest takes it
+as on: no mod API says whether it is, and the variable Claude Code gives hooks while it is
+doesn't reach a mod (`tools/env-check`). Switched off since, a question sent to the Claude app
+waits in the terminal's dialog.
+
+## A better model on the line
+
+When you ask ("can I get a better model on the line?"), Haiku says so and calls `better_model`,
+which is held until you've heard it, like the other tools. Then Haiku's process is closed and
+its session resumed with Opus (`claude -p --resume <id> --model opus`), with the same tools, so
+Opus has the whole conversation, tool calls included. Opus is told it's taking over and speaks
+first. From your request to Opus's first words took 6–7 s offline (`tools/handover-check`, in
+git history): Haiku's short line, then a few seconds of silence. Opus's first turn is mostly
+uncached and costs about as much of your usage as ten later turns, once. If Opus isn't
+available (a usage limit, or a plan without it), the voice goes silent; there's no way back to
+Haiku.
+
+The call's Claude Code session runs in a private folder of the call's, and that folder, with
+Claude Code's own record of it under `~/.claude/projects`, is deleted when the call ends, so
+calls don't pile up there or show in `/resume`.
+
+## The Sessions tab
+
+The app's Sessions tab lists your sessions with ringback on, on every Mac, a card each: the
+project, its latest briefing's subject and when, or since when ringback has been on, and a
+call of the session's that waits. A session listens while its mod collects from the agent,
+once a second; one that hasn't for 30 s isn't listening. Each agent tells the hub which of its
+sessions listen whenever that changes, and every 30 s; the hub drops an agent's sessions when
+its link drops, as when its Mac sleeps. The app fetches them every 3 s while the tab shows.
+
+Tapping a card calls the session at once, with a call ID made on the phone. The voice has the
+session's latest briefing and opens with what's new; with no briefing yet, it says it knows
+nothing of the session's work and asks what you want. A session that stopped listening
+meanwhile refuses the call, and the app says so.
+
+## Staying up
+
+- **The agent** writes what it keeps to `voice-state.json` beside its socket
+  (`~/.local/state/ringback/`), readable only by you, on every change, and reads it at start:
+  held calls with their briefing and what they ask, calls to call back, what missed calls
+  asked, what sessions asked and wait for (under the same IDs, so a mod's long poll carries
+  on), and the messages and notes waiting for each session. A call that was ringing or on
+  during a restart has ended: its session is told so, and it can be called back.
+- **The hub** keeps its state in `~/.local/state/ringback/`: the phones (`devices.json`), the
+  calls that wait (`waiting.json`), the sessions you can call (`contacts.json`), the calls'
+  events (`events.jsonl`), the parts it has seen (`seen.json`) and the portal's account
+  (`portal-user.json`). A restart ends the calls that are on, and signs everyone out of the
+  portal. What each call is about is kept in memory, so the portal shows calls from before a
+  restart without their project.
+- **The links** come back by themselves: the agent and the speech node link again after 1, 2,
+  4… up to 30 s.
+- **The mod** keeps ringback on through a reload of the mod, and when you resume the session
+  after Claude Code restarts (`claude --resume`), for 30 days. While the agent is down, it
+  offers a briefing again every 30 s for up to 30 min, a newer one taking its place, and the
+  line under the prompt says "☎ waiting for the ringback agent…"; what the session asks is
+  tried again every 5 s within its 15 min.
+- **As services:** `docs/setup.md` runs the hub and the agent as launchd agents, and the
+  speech node as a systemd user unit, each started again if it stops.
+
+## Weak signal
+
+On a weak signal, lost and late packets hurt more than bandwidth, so the call's audio is set
+up to lose little and recover the rest (`hub/opus.go`, `hub/call.go`):
+
+- **Opus in 20 ms packets.** The hub sends mono at 24 kbps with Opus's forward error
+  correction (FEC: a rougher copy of each packet in the next), set for 10% loss. Its answer
+  asks the phone for the same: 24 kbps, only the band speech recognition uses (it hears at
+  16 kHz), and FEC (`useinbandfec=1;maxaveragebitrate=24000;maxplaybackrate=16000`). Limited
+  to that band, Opus adds FEC from 1% loss on.
+- **Recovering your packets.** A jitter buffer passes each packet on as soon as those before
+  it have come, and gives up on a missing one once 3 later ones have. libopus rebuilds a lost
+  packet from the next one's FEC, or else conceals it; a gap over a second is left out.
+- **Patient connection checks.** WebRTC checks during a call that the other side is still
+  there; the hub ends the call only after 15 s without an answer. With tighter limits, a call
+  on a network slower than about 0.5 s round trip ended half a minute in (`tools/ice-check`,
+  in git history).
+- **Few addresses.** The hub offers only the address it listens on, over UDP and IPv4, and the
+  phone only its VPN's addresses (all its addresses if the VPN gives none), so WebRTC doesn't
+  try pairs that can't connect. With every address offered, audio connected 2.1–2.4 s after
+  the offer; with only the VPN's, 0.94 s (one call on mobile data).
+- **Reaching the hub.** After the phone moves from Wi-Fi to mobile data, its VPN tunnel can
+  stay stale for 10–20 s. The app's tries to reach the hub while it rings send fresh packets,
+  which bring the tunnel back sooner, and wait longer each time (3, 6, 12 s), so a slow network
+  still gets through.
+- **Measured.** The headers alone cost about 50 kbps each way (36 bytes of RTP and SRTP and
+  about 88 of UDP, IP and the VPN per packet, counted, not measured), most of the traffic: a
+  call is about 0.9 MB a minute. Each call's "ended" report from the phone carries its WebRTC
+  stats (bytes, packets, loss, jitter, how much of the voice it made up, round trip), kept in
+  the hub's `events.jsonl`.
+
+These settings were chosen by measuring an earlier implementation of them in Python
+(`tools/opus-check` and `tools/ice-check`, in git history). Offline, with 5% and 15% of your
+packets lost, 1.7% and 1.9% of your words were heard wrong (1.4% with none lost), against
+21.9% and 73.3% without FEC and concealment. On the phone, calls held up on 3G and on the
+Network Link Conditioner's Very Bad Network (about 10% lost each way, a 1 s round trip). The
+hub's implementation hasn't been tried on a weak network yet (Status).
+
+## The network
+
+Every part reaches the hub at one address on a private network: the phone, from anywhere and
+on mobile data too; each Mac's agent; and each speech node. The hub listens there for HTTP
+and its links (`listen` in `hub.toml`, with its port: 8787 in the examples, and the app's
+default), and the call's audio uses the
+same address on UDP ports it picks. The hub also needs the internet, to reach Apple's push
+service.
+
+| From | To | What |
+|---|---|---|
+| phone | hub | requests (`docs/protocol.md`, "The phone"), the call's audio (WebRTC over UDP), or with On-device voice its text link |
+| agent | hub | one WebSocket (`/agent`) with the agent token |
+| speech node | hub | one WebSocket (`/speech`) with the speech token |
+| hub | Apple | pushes (HTTPS) |
+| Apple | phone | VoIP pushes that ring, background pushes for the connection check, notifications |
+| mod | agent | HTTP over a Unix socket on the same Mac |
+
+**Nebula** is what ringback is tested on, with the hub's machine and the phone on the same
+Nebula network, and a lighthouse that acts as a relay (`relay.am_relay: true`). Only the
+phone can start a tunnel to itself: nothing can open one to a phone on mobile data, and
+direct tunnels to it failed, so the phone's traffic goes through the relay. That's why the
+phone always dials the hub, and never the other way. Another VPN with the same property (the
+phone reaches the hub from anywhere) should work, but hasn't been tried.
+
+**A public address isn't supported.** The hub speaks plain HTTP, so the portal's password,
+the links' tokens and the calls' IDs would cross the internet unencrypted, and some of its
+endpoints take requests without a token (Security). A public hub with TLS and pairing is
+planned (Next).
+
+## Security
+
+The private network is the outer wall: anything on it can reach the hub. Inside it:
+
+- **The links.** An agent or a speech node links only with its token (`[tokens]` in
+  `hub.toml`, sent as `Authorization: Bearer`); anything else gets 401.
+- **The phone has no token.** A call's ID is the call's secret: random, at least 16
+  characters, and it reaches the phone through Apple's push. The hub accepts an offer only
+  for a call the agent that owns it knows. A session's ID is a secret of the same kind: with
+  it, a call to that session can pass it messages, which it takes as prompts.
+- **Three endpoints let anything on the private network in without a token.** The hub lists
+  the IDs of waiting calls and sessions (`/waiting`, `/contacts`) only for a registered phone,
+  named by its push token, but `/register` takes any token without proof, so anything can
+  register one and read them. `/call` rings every phone for any project, with the call's
+  audio sent to whatever URL the request names, and `/sessions` adds sessions to the app's
+  list (Limits and risks).
+- **The portal** has one account, made on the hub's machine (`ringback-hub portal-user NAME`):
+  a password of at least 10 characters, hashed with PBKDF2-SHA256 at 600,000 iterations and
+  a random salt, then a one-time passcode from an authenticator app (TOTP, RFC 6238: 6 digits,
+  30 s, one step either way, no step used twice). The account is saved only once a passcode
+  from the app matches, in `portal-user.json`, readable only by you. A sign-in is a random
+  32-byte ID in a cookie (`HttpOnly`, `SameSite=Strict`, `Path=/portal`), kept in memory by its
+  hash and ended after 12 h unused; every form carries a CSRF token; five failed sign-ins from
+  an address shut it out for a minute. The pages allow no outside scripts or framing.
+- **In transit.** The VPN encrypts everything between the parts. Inside it, the call's audio
+  is encrypted anyway (SRTP), while HTTP and the links' WebSockets are not.
+- **On the hub's machine:** the APNs key (`.p8`) sits beside `hub.toml`, which also holds the
+  links' tokens.
+- **On each Mac:** the agent's socket and its state file (which holds call IDs) are readable
+  only by you. Any program running as you could use the socket as a mod does. Transcripts stay
+  in each project's `.ringback/calls/`.
+- **The call's model.** Haiku and Opus run with no tools but the call's own, no other MCP
+  servers, no slash commands and no settings files (whose hooks could start another call), in
+  a folder of the call's outside your project, so the project's `CLAUDE.md` doesn't reach
+  them.
+
+## The hub's portal
+
+Pages the hub serves under `/portal/` on its address, for setting up and for the rare times
+something's wrong. They're plain HTML and SVG from templates in the hub's binary, refreshed
+every 5 s by a small script, with no framework; light and dark, and laid out for a phone too.
+
+- **Status** leads with a sentence on what a call would do now (ring which phone, with which
+  speech, or wait and why), what to do if something's wrong, and a map of the system: the
+  Macs with their sessions counted, the hub, the speech nodes (models loaded or idle), Apple
+  push and the phones (with On-device voice). Each part and link is working, a problem, gone
+  or not set up. A Mac that's gone is shown asleep, quietly; a speech node that's gone is a
+  problem; a part you haven't set up is drawn dashed, with a link to Setup, and isn't a
+  problem. A live call lights its path. To tell "gone" from "not set up", the hub remembers
+  the nodes and Macs it has seen (`seen.json`); one gone for good can be forgotten. Under the
+  map: the hold, the calls live and waiting, the sessions with their Macs, the phones' facts
+  (last check-in, last push, work hours, On-device voice, read-only) and the nodes and Macs.
+- **Calls:** the last 50, waiting ones first, grouped by day, with their events.
+- **Log:** the hub's last 500 lines, newest first.
+- **Setup:** how to add a speech node, a Mac, the phone and Apple push, with each link's
+  address and token from `hub.toml` (hidden until shown, with a copy button).
+
+The portal changes two things: **the hold**, on every phone at once, so the app shows it too
+(work hours still end it at their next start, as they end the app's); and **forgetting** a
+node or a Mac that's gone for good. Everything else has one home: secrets and addresses in
+`hub.toml`, what the phone owns on the phone (shown on the portal, read-only).
+
+Signing in is described under Security. Passkeys would be better, but browsers offer them only
+on HTTPS, and need a domain name rather than an IP address (not checked): a name of your own
+with a certificate, or a private certificate authority installed on each device (Next).
+
+## Choices, and what was turned down
+
+**The shape of the system**
+- **One hub, a speech node, an agent on each Mac.** The phone reaches one machine, never the
+  Macs, which only dial out; the models run only where there's a GPU, and nothing heavy runs
+  on the always-on machine. Turned down: the voice on every Mac (it needs Apple silicon and a
+  phone that reaches each Mac), the voice on the always-on machine (it has no GPU), and a hub
+  on every Mac (calls from two Macs couldn't queue).
+- **Go for the hub, the agent and the speech node:** small, compiled, and needing nothing
+  installed. A Python environment for the voice took 1.7 GB of disk, and a small Python service
+  about 50 MB of memory, against the hub's few MB; C would need its own HTTP, JSON and key
+  handling.
+- **Natively on the speech node,** not in Docker, to keep its footprint small on a machine
+  that runs other work. A Coral Edge TPU can't run Kokoro or Parakeet.
+- **Claude Code stays on the session's Mac,** not on the hub: the hub needs no login, and the
+  call's model runs on your subscription where Claude Code already is.
+
+**Ringing and reaching the phone**
+- **An app, not the phone network** (Twilio and the like): per-minute and number costs are
+  hard to justify for a personal tool, narrowband audio hurts recognition, and the call's
+  audio would need a public address. Kept as a fallback for weak data (Next).
+- **The phone dials the hub,** since nothing can open a tunnel to a phone on mobile data.
+- **The connection check comes from the hub as a push,** and the app answers it. Pinging the
+  phone raised false alarms (a locked, idle phone stops answering within 30 s) and tests the
+  wrong direction; iOS doesn't run apps on a timer.
+- **Call waiting** when you're on another call, rather than refusing the call as busy: you
+  choose.
+
+**Hearing and speaking**
+- **Parakeet v2** for speech-to-text: about 6% of words wrong on accented English at about
+  40 ms an utterance (`tools/stt-eval`). Whisper large-v3-turbo was about as accurate but
+  12 times slower, and invented words on short clips; Qwen3-ASR 1.7B and Parakeet v3 did no
+  better; Granite Speech wasn't tried (its keyword list wasn't exposed). Apple's on-device
+  recognition got 10.3% wrong and takes no vocabulary, so it's the fallback only.
+- **Kokoro `af_heart`** for the voice: preferred over Pocket TTS and Apple's standard voices
+  in a listening test (Apple's Premium voices weren't tried). Pieces play as made: trimming
+  the silence between them sounded worse.
+- **A 1.5 s end-of-turn wait.** At 3 s, a short "mm-hmm" that Smart Turn judged unfinished
+  took about 5 s to answer; at 1 s little room is left over the pauses in free speech (up to
+  0.74 s on your recordings).
+- **A level gate for other people's voices,** not a model. A model trained on a sample of
+  your voice (VoxLock, parked on the branch `voxlock`) kept a voice 6 dB below yours out
+  entirely, but slowed every interruption by about 0.1 s, raised Parakeet's errors from 5.9% to
+  7.0%, and could mute you for a whole call. With AirPods, other people arrive quiet enough
+  for a gate.
+- **Settings between calls,** not during: the in-call screen covers the app.
+
+**The voice**
+- **Haiku on your subscription through Claude Code,** not the API, for a personal tool; in a
+  session that stays open for the call, not a `claude -p` per turn (3.2 s each, 1.7 of it
+  start-up).
+- **The session's briefing as the voice's context.** The session's last message is too
+  little; a fork of the whole session is slow to start and costs more on every call.
+- **Tools for acting,** not tags in the reply: nothing ends Haiku's turn after a tag, and it
+  went on to imagine the session's answers. Messages are **held until heard,** since one passed
+  as soon as it was written had to be taken back when you cut the voice off.
+- **The session writes the subject** with its briefing, rather than a separate model call.
+- **The voice's model runs outside your project,** so your `CLAUDE.md` doesn't load into it
+  and calls don't fill your `/resume` list; the agent writes a plain transcript into the
+  project instead.
+- **A call back gets a fresh Haiku,** not the missed call's, whose opening was written for a
+  call the session placed.
+
+**The session's side**
+- **A mod,** not settings hooks and an MCP channel: a custom channel loads only at a session's
+  start, behind a warning screen every time, so calling couldn't be switched on mid-session.
+  The mod does it all from inside Claude Code: `/ringback`, the line under the prompt, prompts
+  for the session, and holding tool calls.
+- **A switch you turn on when you leave,** not a call after a minute idle, which would make
+  every call a minute late.
+- **Permissions from `PermissionRequest`,** which fires only when you'd be asked; at
+  `tool.check`, auto mode's routine approvals would have rung you.
+- **Told afterwards how the call went,** rather than asking the briefing what it didn't check:
+  that led 6 of 8 briefings to say they couldn't confirm the call would reach you
+  (`tools/briefing-check`).
+- **What a missed call asked waits** for the next call you answer, within 15 min, rather than
+  going to the terminal at once; and outside your hours it waits for the morning call, with a
+  notification, rather than going to the Claude app at once. You choose from the app.
+
+**The app**
+- **Like the Phone app:** Recents and Sessions, with settings in the Settings app, which
+  costs time pickers (lists in 15-minute steps instead), words at the ends of sliders (in the
+  footers instead), and new settings reaching the hub at once (within half an hour instead).
+- **Google's WebRTC library** in manual-audio mode, so CallKit owns the audio session; a
+  WebRTC client that takes the audio session over clashes with CallKit.
+- **One hold for the whole hub,** not a pause on a speech node: with a node paused, the
+  phone's own voice would still take calls.
+
+## Limits and risks
+
+- **Anything on the private network can ring you,** through the hub's `/call`, which takes
+  no token and names where the call's audio goes; add to the app's Sessions through
+  `/sessions`; and, by registering a made-up push token, read the IDs of the waiting calls and
+  the sessions, and with a session's ID call it and pass it prompts (Security). The private
+  network is the only wall: keep it to your own devices.
+- **Calls don't queue or retry.** Two sessions calling at once both ring, and a call you
+  don't answer is forgotten after 90 s with only a note to its session (Next).
+- **A stale tunnel delays a call.** After the phone changes network, the VPN can take 10–20 s
+  to reach the hub again; the app keeps trying, for up to 45 s after you answer.
+- **Every placed call costs a Haiku opening** on your subscription, even if you decline it,
+  and keeps Haiku and the Mac awake until it's forgotten after 90 s.
+- **Other people's voices and noise.** The background filter's default is an absolute level,
+  and how loud each microphone delivers your voice on a call isn't measured; it leaves about
+  5 dB under your quietest speech on your recordings. Gym noise or someone talking near you
+  could still stop the voice or be heard as you, and the filter could swallow your own quiet
+  speech. If that proves fragile, the next step is a gate set relative to your own level on
+  the call.
+- **Very short words can go unheard:** a recorded "Great." (about 0.3 s) never started a
+  turn, and once on a call "wait" said while the voice talked wasn't heard (Silero needs
+  0.2 s of speech).
+- **Mods are new,** so their API may change. That the terminal prompt shows while the mod
   waits on `PermissionRequest`, and that whichever answers first decides, was seen in one
-  interactive run on one build; neither the hooks docs nor the mods types say it.
-- Where Claude Code's built-in guard mod loads (managed settings, or a Team or Enterprise
-  login), an installed mod's classic-event hooks don't run, so permissions wouldn't reach
-  the phone; the terminal prompt still works.
-- The app takes Remote Control as on in every session with ringback on, because ringback
-  turns it on (Stage 3 step 7). Switched off since, or without a claude.ai subscription, the
-  "Claude App" action still sends the question to the terminal's dialog, but the Claude app
-  doesn't show it.
-- The held call's question notification is an APNs alert push the switchboard hasn't sent
-  before; only the phone shows whether APNs takes its headers and how iOS shows it.
-- Calls are protected only by Nebula and the call's secret: any device with a
-  certificate from your Nebula CA can reach the switchboard and ring you, and any program
-  running as you on the calling Mac can reach the voice server's session side. The
-  switchboard also gives out the IDs of waiting calls (Stage 5), but only for a registered
-  phone's push token, which travels only between the phone, Apple and the switchboard. The
-  voice server's state file holds call IDs too, readable only by you. Since the Sessions tab (Stage
-  5 step 1), a session's ID is a secret of the same kind: with it, any device on Nebula can
-  call a session that listens from its voice server, and pass the session messages, which it
-  takes as prompts. The switchboard keeps the IDs in `contacts.json` and gives them only to a
-  registered phone, and they go to the phone in the call's push too, through Apple; on the
-  Mac, Claude Code names files after them, readable only by you.
-- The Sessions tab is as fresh as the voice servers' last word to the switchboard (the app
-  asks every 3 s while it shows): a session switched off can show for up to about a minute
-  (its voice server waits 30 s for its mod to collect again), and calling it then
-  gets "isn't listening any more"; a Mac that went to sleep shows its sessions for up to
-  90 s.
-- Development builds use the APNs sandbox, and provisioning profiles expire.
-- The connection check relies on background pushes, which iOS treats as low priority: it
-  delivers at most a few an hour, sometimes late, and none after you swipe the app away,
-  until you open it again. So a warning can come late or not at all. Without notification
-  permission, only the banner shows, when you open the app.
-- Nebula on the phone went off by itself once (2026-10-29, between 10:26 and 10:42), with
-  Always On set. It wasn't killed for memory: its extension was running in all of the
-  phone's memory-pressure reports that morning, the last at 10:26 (read from a paired Mac
-  with `xcrun devicectl device info files --device <UDID> --domain-type systemCrashLogs`).
-  Mobile Nebula's log starts afresh with each connection, so the cause is unknown.
+  run; the docs don't say it. Where Claude Code's built-in guard mod loads (managed settings,
+  or a Team or Enterprise login), an installed mod's classic-event hooks don't run, so
+  permissions wouldn't reach the phone.
+- **Remote Control is taken as on** in every session with ringback on; switched off since, or
+  without a claude.ai subscription, a question sent to the Claude app waits in the terminal.
+- **The Sessions tab lags a little:** a session switched off can show for up to about a
+  minute, and calling it then is refused.
+- **The connection check relies on background pushes,** which iOS delivers at most a few an
+  hour, sometimes late, and none after you swipe the app away until you open it again. So its
+  warning can come late or not at all.
+- **The VPN on the phone can go off by itself:** Nebula did once, with Always On set, cause
+  unknown. The connection check is there for this.
+- **Opus unavailable** leaves the voice silent, with no way back to Haiku.
+- **A crash mid-call** may leave that call's Claude Code session under `~/.claude/projects`
+  (not checked).
+- **Several speech nodes aren't balanced:** a call goes to any one of them, and for a call
+  that rings, all of them load their models.
+- **Nothing starts after a reboot** unless the parts run as services, and with FileVault and
+  no automatic login, not before someone logs in.
+- **Development builds** use Apple's sandbox push environment, and their provisioning profiles
+  expire; Xcode needs device support for the phone's iOS version.
 
-## Stages
+## Status
 
-Verify each stage on the real phone (locked, on mobile data, with headphones) before the
-next. A simulator run or a unit test isn't evidence for ringing, push or audio.
+Ringback is a working prototype. Here is what has been tried on the real phone with the
+current code, and what has only been checked offline.
 
-0. **Nebula** (done). With the phone on mobile data, the phone loads a page served by the
-   Mac at its Nebula IP, then `tools/nebula-check` pings the phone from the Mac.
-   Mobile Nebula drops all inbound traffic by default, so the ping needs an inbound ICMP
-   rule for the Mac. Results:
-   - the Mac can't open a tunnel to the phone, whether it's locked or not;
-   - when the phone sends to the Mac, a tunnel comes up through the lighthouse relay in
-     about 0.2 s, and the Mac can then reach the phone (about 60 ms round trip);
-   - that tunnel stopped answering within 30 s of locking the phone, so a locked, idle
-     phone can only be reached by push. The cause is unconfirmed: iOS suspending Nebula,
-     or the carrier's NAT timing out.
-1. **Ring + audio** (done). A VoIP push rings the locked phone, you answer from the
-   headphones, and audio flows both ways over Nebula. Results:
-   - **Ringing:** a locked phone on mobile data rang as "Claude from \<project\>" and was
-     answered from AirPods.
-   - **Two-way audio:** a test pipeline greeted you and played your words back a second
-     later. The sound in AirPods was clear.
-   - **Answer to two-way audio:**
-     - 2.6 s on a locked phone on mobile data, just after Wi-Fi was turned off (one call);
-     - 1.2–1.8 s on Wi-Fi (five calls).
-   - **After leaving Wi-Fi:** in an early test the phone's first packets took about 16 s
-     to reach the Mac. In the final test, the ringing report arrived 4 s after the push.
-   - **Call waiting during a real phone call:** the call-waiting screen stayed until you
-     declined. (The first version ended the call by itself after about a second; that's
-     replaced by "not now", requirement 3.)
-   - **Closing the app during a call:** the call is recorded as ended within 2 s of the
-     real end, and reported at the next launch.
-   - **Swift switchboard on an old Intel Mac** (the lighthouse): a locked phone on mobile
-     data rang 5 s after the push and was answered from AirPods; two-way audio came up
-     2.7 s after answering, and ringing, answered, audio connected and ended all reached
-     the switchboard (one call).
-2. **Conversation** (works; the tests under "Not yet tested" are left open). To pick
-   speech-to-text for a new voice, record `tools/stt-eval/sentences.txt` and score the
-   candidates (see `tools/stt-eval/README.md`).
-   Then interrupt mid-sentence, measure how quickly speech stops when you start talking
-   and how long a reply takes, and test with gym-like noise. Results so far:
-   - **The conversation works** on a locked phone on mobile data, with AirPods (two
-     calls). The voice opened with the report in pieces. It stopped whenever interrupted,
-     Haiku knew which words had been heard, and it answered a lone "mm-hmm".
-   - **Answer to first words:** 2.9 s. Haiku writes its opening while audio connects
-     (2.8 s), so the voice started 0.09 s after connecting. In the first call, which
-     started Haiku only once audio was connected, it took 6.1 s.
-   - **After your turn:** the voice answered 1.5–2.4 s after Pipecat noticed you'd
-     stopped, with Haiku's first words after 1.1–1.5 s. A short turn ("mm-hmm", "wait")
-     took about 4.9 s instead (on the phone and offline): Pipecat's end-of-turn model
-     (Smart Turn v3) sometimes judges it unfinished and then waits its full 3 s for more.
-     With that wait cut to 1.5 s (below), the second call answered "okay", "mm-hmm",
-     "wait" and a short sentence in 1.4–1.8 s.
-   - **Waiting for the end of your turn** (offline, `tools/call-check`, your own
-     recordings): Smart Turn kept two 18–19 s stretches of free speech, with pauses of
-     up to 0.67 s, as one turn whether it waited 3, 1.5 or 1 s. In five minutes of free
-     speech, no pause was longer than 0.74 s, apart from one 3.2 s hesitation. So the
-     voice now waits 1.5 s, which halves the wait after a turn Smart Turn misjudges.
-     A pause after a complete sentence ends the turn, as it should. If you then go on,
-     the reply is dropped before it's spoken, and Haiku is told you heard none of it
-     (on the phone, and offline with pauses of 0.5–1 s).
-   - **Very short words can go unheard.** Your recorded "Great." (about 0.3 s) never
-     triggered voice-activity detection offline. On the phone, one "wait" said while the
-     voice talked wasn't heard either; said again, it was. Unknown: whether that was its
-     length alone, or the phone's echo cancellation softening speech over the voice.
-   - **Stopping when you talk:** 0.36–0.44 s after your speech starts, measured offline
-     with `tools/call-check` (two calls), so without the network and the phone's buffer.
-   - **Noise:** coughing and clapping while the voice talked didn't stop it (one call).
-   - **Someone else talking**, offline (`tools/call-check --background`, one call each),
-     with another Kokoro voice talking under the whole call, mixed in without the phone's
-     voice processing or Voice Isolation. Levels are while there's sound:
-     - with your recorded turns, interrupting twice, and the other voice 6 dB below you,
-       Parakeet took its sentences as yours about 25 times, and the voice answered them.
-       With nobody else talking, both interruptions stopped the voice, 0.40 and 0.59 s
-       after you started;
-     - with two Kokoro turns, one interrupting, and the other voice 20 dB below you, it
-       still stopped the voice 3 times and was taken as you 4 times, word for word. At
-       9 dB below, with the sensitivity at 0.3, it did the same and once replaced your own
-       words: Parakeet heard only its sentence in a turn where you said "Wait, stop for a
-       second."
+**Tried on the phone** (locked, on mobile data, with AirPods, unless it says otherwise):
+- A call placed through the agent as a session's mod places it, by hand rather than from a
+  Claude Code session: it rings, the audio connects while it rings, and the voice starts
+  0.1–0.4 s after you answer. You talk it through and interrupt it (Haiku knew what you'd
+  heard), and what you ask to pass on goes once you've heard it announced. Parakeet took
+  0.07–0.09 s to write down each of your turns, and the voice answered 1.7–2.6 s after each.
+- A call with no speech node waits instead of ringing, with its notification, the app's banner
+  and the call under Waiting; when the node links again, the call rings within a second, and
+  the node loads its models in 2.1 s (unlocked, on Wi-Fi).
+- The portal on a real hub, from the phone's Safari: signing in, the map, and taking calls.
+- In the app, apart from the hub, with an earlier build whose code for them hasn't changed:
+  ringing as call waiting during another call, a call recorded as ended when the app is
+  closed mid-call, the call screens.
 
-     These calls ran with the volume threshold at Pipecat's default, the background filter
-     off. So a quieter voice is heard as clearly as yours unless something gates by level.
-     With the other voice 20 dB below you:
-     - at sensitivity 0, which then also raised the volume threshold to 0.7, none of it got
-       through and both your turns were heard. The interruption stopped the voice 0.54 s
-       after you started (0.35–0.59 s in the other calls here); that end also needs
-       0.35 s of speech instead of 0.2;
-     - with only the volume threshold raised to 0.7 (about -40 LUFS), now the background
-       filter's default, it started no turn and no stop, and the interruption stopped the
-       voice after 0.35 s. But where it overlapped a turn of yours, Parakeet heard its last
-       words too ("around six. Wait, stop for a second."): the gate decides when a turn
-       starts, not what's heard in it;
-     - at the app's defaults, with your four recorded turns from the 6 dB call above and
-       the other voice 20 dB below you, none of it got through in 70 s. All your turns
-       were heard word for word, and both interruptions stopped the voice, 0.45 and
-       0.63 s after you started;
-     - the margins are small. On Pipecat's volume scale (0 to 1 for -110 to -10 LUFS, so
-       0.1 is 10 dB), the other voice measured 0.63–0.68 in half-second windows, against
-       the gate's 0.7. The first minute of your scripted AirPods recording measured
-       0.75–0.89 (median 0.84). So a gate at 0.7 keeps out voices roughly 15 dB or more
-       below yours, with about 5 dB to spare under your quietest speech.
-   - **VoxLock** was tried offline and parked: see rejected alternatives. Its full results
-     are in `docs/design.md` on the branch `voxlock`.
-   - **Not yet tested:** the sensitivity and the background filter on the phone, the
-     sensitivity's high end (1), the filter's strong end, gym-like noise, and someone
-     talking near you on a call. Tuning the filter waits until testers report other
-     people's voices getting through, or their own being missed.
-   - **Left until testers report them as real problems**, because the calls so far went
-     fine: very short words going unheard (above), and a stop where no words are
-     recognised (the voice should carry on; the cough and clap didn't cause one).
-3. **One session** (in progress). The session finishes and calls, you reply, it acts and
-   calls again. Approve a permission prompt by voice. Steps, each tried offline before
-   the phone:
-   1. The call: `/ringback`, the briefing, the call ID and the switchboard's `/call`. The
-      phone rings with the session's subject, and the voice talks about its briefing.
-      Built, and tried offline (`tools/session-check`, three runs, Haiku as the
-      session's model): each call was placed 6 s after the session's first prompt, with a
-      5-word subject and a briefing of 132–161 spoken words, and an offer for an unknown
-      call was refused.
+**Built, checked offline only** (Go tests in each part, `hub/smoke-test.sh`, `tools/hub-check`
+with a stand-in phone, agent and node, `tools/line-check` with the real hub, agent and node
+and a stand-in phone, `claude plugin test mod`, `tools/app-screens` and `tools/portal-screens`
+for how things look):
+- a real Claude Code session calling through the mod and the agent, and its answer coming
+  back to the call;
+- held calls, work hours, and the hold set from the app's pill or Control Center, or put on
+  from the portal, with the pill's breathing light, the icon's badge and the Lock Screen
+  widget;
+- the connection check's push, and the app checking in with the hub;
+- calling back, calling a waiting call now, and calling from the Sessions tab;
+- permissions and questions on a call, and a held call's question sent to the Claude app;
+- Opus on the line;
+- the weak-signal settings in the hub;
+- Interruption Sensitivity and Ignore Background Noise, with real noise or someone talking
+  near you;
+- On-device voice in a real call (Apple's recognition was tried on the phone on its own,
+  `tools/speech-trial`, but not in the feature);
+- calls, asks and messages surviving a restart of the agent or the hub;
+- a stop with no words making the voice carry on.
 
-      On the phone (2026-10-29, an interactive session in a throwaway folder, the phone
-      locked on mobile data, AirPods): the first call rang with the session's subject,
-      but its audio never connected (reaching the Mac first, above). The second rang as
-      "Claude from ringback-trial" with the subject "Second stanza added to the autumn
-      poem", audio connected 2.8 s after answering, and the voice talked the briefing
-      through and asked its one decision. In between, the session stopped silently at a
-      permission prompt for a shell command until you switched it to auto mode: until
-      step 3, a session with ringback on can't reach you about a prompt.
-   2. Replies: what you say reaches the session, questions and answers go both ways, and
-      when the session is done it calls again, or tells the call you're on. Each call's
-      transcript is saved in the project for the session to read. Built, and tried
-      offline, not yet on the phone:
-      - The voice (`tools/call-check --session`, a scripted call run four times while
-        this was refined): you answer the briefing's question, the session's news
-        arrives, you wrap up. Each time, Pipecat split your answer ("Yes, push it and
-        open the pull request." / "Don't backport it.") into two turns. Haiku's message
-        for the first half wrongly said the backport was still undecided, and was
-        dropped, because you'd cut that reply off unheard. One combined message then
-        went to the session as soon as its announcement had been heard, and Haiku's first
-        words on the session's news came 1.3–1.5 s after it arrived. In the last run
-        the voice didn't repeat itself after passing the message.
-      - The session (`tools/session-check`, one run): a message left for it was answered,
-        and with no call live, the session wrote a new briefing and called again 5 s
-        after the message was left.
-      - On the phone (the second call above): you asked the voice to read you the whole
-        poem. It said its briefing had only the new stanza and that it would ask the
-        session, and passed that on 6.5 s later, once you'd heard it say so. The session's
-        answer came back 6 s after that, and the voice read the poem until you stopped it.
-        You found the call good. Haiku's first words came 2.4–3.2 s after your turns,
-        against 1.1–1.5 s in Stage 2; why isn't measured.
-      - On the phone, calling again: in a later call you asked for a third stanza and a
-        call back, and hung up 2 s after the request went to the session. The session
-        wrote the stanza and called again 27 s after it got the request, with the subject
-        "Third stanza added, poem finished"; audio connected 2.5 s after answering.
-      - **A faster start, and call outcomes** (built after these phone tests; tried
-        offline, not yet on the phone):
-        - Silence after you answer (`tools/phone-check`, the phone's side played on this
-          Mac with aiortc, 6 s of ringing): with the offer made while ringing, a median
-          0.58 s (0.53–0.67 s, eight runs); with Haiku started at the offer, as before, a
-          median 2.6–2.8 s. Here WebRTC connects in about 0.06 s; on the phone it took
-          2.5–2.8 s, and the silence was 3.3–4.0 s. Connecting while ringing should take
-          both parts out of the silence on the phone too; untested.
-        - Call outcomes (`tools/session-check`, five runs): both calls' outcomes, not
-          answered, reached the session within 40 s, started no turn and no call, and
-          asked at the prompt, the session quoted them.
-        - On the phone (2026-10-29, on mobile data, AirPods, two calls): both connected
-          while ringing, only over Nebula (0.94 and 0.38 s after the offer, 2.1 and
-          1.5 s before you answered), and the voice started 0.18 and 0.37 s after the
-          Mac heard you'd answered. On the first you heard it about 2 s late and garbled:
-          the Mac had sent silence while the phone rang. With that held until you answer,
-          the second started very quickly and sounded clean. Both calls' "answered"
-          outcomes were queued for the session; whether the dim line showed wasn't
-          checked. Not tried: answering the instant it rings, before audio connects.
-   3. Permissions by voice, and the session's questions. Built, tried offline, and on the
-      phone:
-      - The voice (`tools/call-check`, scripted calls): a clear yes was allow and a clear
-        no deny; "what does that do exactly?" got an explanation and the question again;
-        cutting the voice off while it announced a verdict dropped it, twice; a question
-        was answered with an option, and with your own words. When Pipecat split an own-
-        words answer into two turns, the voice asked again instead (two runs), which ends
-        as none, so the terminal prompt shows.
-      - The voice server (`tools/ask-check`, one run, 22 checks): placing, a live call, a
-        ringing call, two asks sharing one call, none on hang-up and when unanswered,
-        withdrawing.
-      - A real session (`tools/session-check --asks`, two runs, 5 checks each, about
-        28 s): in default mode a command that needed permission reached the voice server,
-        and the voice's yes let it run; another was refused, didn't run, and the session
-        quoted your "No, don't."; in auto mode a routine command asked nothing.
-      - The mod (31 tests, against stand-ins). In interactive sessions driven with
-        `expect`: the terminal prompt showed at once, the phone's allow dismissed it, and
-        an Esc in the terminal withdrew the call's question; a question was answered with
-        no dialog shown. The session's questions can't be tried in `claude -p`, which
-        doesn't offer that tool.
-      - On the phone (2026-10-29, a session in default mode, the phone on mobile data,
-        AirPods, two calls):
-        - A permission: the call was placed as the prompt appeared, and the voice asked
-          "…a command that writes the current date into a file called now.txt…, then
-          shows you what it wrote. Is that okay, yes or no?". "Uh yes, it's okay." allowed
-          it once you'd heard the voice confirm, the command ran, and the session's
-          answer came back to the call.
-        - A question came to the call instead of the terminal. Speech recognition heard
-          "color.txt" as "Colour Jxty"; the voice worked out what you meant, explained,
-          and asked again, and "Okay, blue." went to the session as the answer. Writing
-          the file then asked a permission, which reached the call you were on 1.2 s
-          later. "Okay, bye" wasn't taken as an answer; "yeah, you can write" allowed it,
-          and the file held "blue".
-        - The voice once told you how answers reach the session ("The answer goes to it
-          once you've heard this."); its instructions now say not to, and three scripted
-          calls after had no such line.
-        - The first call met a stale Nebula tunnel: the phone reached the Mac after 4
-          tries, 12.2 s into ringing, and audio started 10.5 s after you answered.
-      - Open: the split-answer case above. Answering took longer when Haiku called the
-        tool before speaking, 2.1–3.6 s after your words on the phone; the voice now says
-        "Okay." at once then (acting on the call).
-      - Fixed: once (`tools/ask-check`, 2026-10-30), Haiku answered a question with its
-        text as the id, was told nothing waited, and answered again with the right id after
-        the "Okay.". That "Okay." counted as having spoken, so the rest of its reply wasn't
-        spoken ("not spoken, after passing a message"), and the answer, which waits for the
-        sentence after the "Okay.", went only with the next note, 40 s later. Now only words
-        after the "Okay." count, and it's said once per reply (`tools/reply-check`, 5/5; 4/5
-        before the fix).
-   4. A better model on the line. Built, tried offline (see "A better model"), and on the
-      phone (2026-10-30, one call, the phone on mobile data, AirPods): "Can I get a better
-      better model mo can I get a better model on the line?" (as recognised) got "Sure,
-      I'll put Opus on.", Haiku closed and Opus started on its session in 0.49 s, and Opus
-      said "Hi, it's Opus now." 5.3 s after Haiku's line, with a correct recap of the
-      task. It answered your next turn 1.7 s after you stopped. Not tried on the phone:
-      asking Opus about something said only before it took over.
-   5. Call back from the app's call history (calling back, in the voice server's session
-      side and the iPhone app). Built, and tried offline, not yet on the phone:
-      - The voice server (`tools/phone-check --back`, five runs, 22 checks each, about
-        2.5 min each, unanswered calls forgotten after 8 s): every check passed but one
-        that wasn't the call back's (below). An unknown call was refused; the voice opened
-        every call back with what the missed call was about, and with what changed when the
-        session had a newer briefing; a session that wasn't listening got nothing passed on,
-        and the voice said it couldn't; a permission from an unanswered call was answered on
-        its call back; and called back within its time, a call's session was told only that
-        you called back. From the offer to the voice's first audio took a median 2.72 s
-        (2.13–3.48 s, 25 call backs), as on a call rung by hand: Haiku starts only then,
-        and its first words came 1.5–2.5 s after.
-      - Openings, as said: "Hi, I called about the config parser fix. It crashed on empty
-        lines between sections, and the fix is two lines plus a new test… Shall I push it to
-        a branch and open a pull request?"; moved on, "The parser fix is done. I pushed it to
-        the fix-parser branch and opened pull request 42…". Before the lead told it not to
-        say it was calling, one opened "Hi, I'm calling about the version 2.4 release
-        notes", as if it had placed the call; in the four runs after, none did.
-      - In one run, a session folder of a voice process was left at the end, and gone
-        minutes later. The check's own voice server was already stopped by then, so it was
-        likely another voice server's on this Mac; the check now counts only its own
-        server's sessions.
-      - What a missed call asked (`tools/ask-check`, two runs): its permissions stayed
-        pending after the call was forgotten, a long poll waited on through it, and the next
-        call you answered asked the one left. All 43 checks passed after merging with work
-        hours; the run before had the "Okay." problem under step 3.
-      - The mod (34 tests with work hours): a question stays held through 10 min of
-        `pending`, and an answer that comes then is the dialog's.
-      - On the phone (2026-10-30, one call): you declined a call, and tapped it in the
-        history 18 s later, while the voice server still had it placed. The phone reached
-        the Mac 0.4 s after the tap, audio connected 1.4 s after it, and the voice started
-        1.8 s after the Mac had the call, with "I called about the header file…" and that
-        call's briefing. The session's note: "The developer called back about "Header
-        added for hello world function" and it lasted 30 s." Not tried on the phone: a call
-        back after the 90 s, after the session called again, to a session not listening,
-        and the "can't take this call back" alert.
-      - The voice once told you to "call back whenever you've decided" at the end of an
-        answered call, which couldn't be called back then: only unanswered calls could.
-        Decided 2026-10-30: any call can be called back, answered ones too (Stage 5,
-        step 1).
-   6. Work hours: Claude calls only between the times you set in the app, and a call
-      outside them waits until they start (the app's Settings, the switchboard, held calls
-      on the voice server). Built, and tried offline, not yet on the phone:
-      - The switchboard (`switchboard/smoke-test.sh`, 34 new checks, 54 in all, about
-        2.4 s): a call outside the hours answers `held_until` and rings nobody, inside them
-        or with no hours it rings; a range past midnight; equal times mean any time; with
-        two phones it rings while either is inside, and holds until the earlier start when
-        both are outside; an unknown time zone, a time that isn't HH:MM and hours without a
-        zone are a 400, and leave the hours as they were; a connection check brings a new
-        time zone, and one it can't read is left out with a 200; `ring` pushes anyway.
-      - The voice server (`tools/ask-check`, one run, 19 new checks): a held call starts no
-        Haiku and keeps the Mac awake, its offer is refused, a new briefing and a question
-        go to it, and it's asked again at the switchboard's time, after the longest wait,
-        and after a 503, each within 0.01 s of when it was due (the waits shortened to 4 s).
-        Once it rang, Haiku started at once, and on the call the voice asked you the
-        permission the old briefing had asked. An unanswered one
-        was forgotten 10 s after it rang, not after it was placed.
-      - The mod (two new tests, 33 in all): the dim line, today and another day; a
-        permission held 20 min isn't given up, and its 15 min count from when the call
-        rings.
-      - On the phone (2026-10-30): changing the hours in Settings re-registered the app
-        each time (08:00, 09:00, then 09:40 to 20:00, with the phone's time zone). A
-        session that finished at 09:37:16 got "held until 09:40" from the switchboard; the
-        voice server asked again and the call rang at 09:40:00.08. You answered, and the
-        voice started 0.43 s later. You expected to see the waiting call in the app,
-        which is Stage 5.
-      - Not tried: a call held overnight on a Mac that sleeps or a laptop with its lid
-        closed, and a time zone change while travelling.
-      - Left: when the hours start, every session's held call rings at once, until Stage
-        7's queue lets them wait their turn. Days of the week aren't covered: the same
-        hours hold every day. If a phone is inside its hours, every phone rings, including
-        those outside theirs.
-   7. Questions outside your work hours wait for the call, and the phone is told (decided
-      2026-10-30; it replaces questions going to the terminal at once, built earlier that
-      day: see rejected alternatives). The mod holds a question on a held call as it holds
-      a permission, so the session waits, and when your hours start the call rings and the
-      voice asks it. The first time a held call has a question, the switchboard sends the
-      phone one notification, and the app lists the call as waiting with a question. Its
-      swipe action, "Claude App", sends the question to the session's own dialog instead,
-      which Remote Control shows in the Claude app (ringback turns it on), and the held call
-      is forgotten. See "The session's
-      questions", the voice server's held calls, the switchboard's "a held call's question"
-      and the app's waiting calls. Built, and tried offline, not yet on the phone:
-      - The mod (54 tests): a question on a held call waits past the 15 min, and the call's
-        answer when it rings is the dialog's; a `terminal` answer shows the dialog at once,
-        with "You sent it to the Claude app from the phone, so it's asked here.", and leaves
-        a permission to its prompt; switching ringback on runs `/remote-control` (again each
-        time it's switched on, and for a resumed session, not for a reload), and ringback is
-        on all the same if that fails.
-      - The voice server (`tools/ask-check`, two runs, 61 checks each, 11 of them new, all
-        passed, 3 min 58 s and 3 min 15 s with the models loading): a question that joins a
-        held call has the switchboard asked again 0.00 s later, with `"question": true`, and
-        waits for the call; answered when it rang, the voice took the permission first ("You
-        have two things to decide, and I'll take them one at a time."), and hung up, both
-        were `none`. To the Claude app: refused for a call that doesn't wait (403), a
-        session not listening and a call without a question (409); then the question's
-        and the permission's waiting long polls got `terminal` 0.01 s after the request,
-        the call was never asked about again, an offer for it and a second try got 403,
-        its session was told, and the Mac could sleep again. `tools/restart-check` still
-        passed all 19 checks (one run, 2 min 13 s).
-      - The switchboard (`switchboard/smoke-test.sh`, 17 new checks, 92 in all): a held call
-        with a question tells the phone with a notification token once (logged, without an
-        APNs key), and not one without a token; asked again, and after a restart, it isn't
-        told again; `waiting.json` keeps `notified`; a held call without a question isn't
-        told until a question joins it; the list says whether each has a question; the
-        "claude app" event takes a call off the list.
-      - The app builds with no Swift warnings. The list, the swipe action, its alerts and the
-        notification are untried: they need the phone. The alert push's headers are as Apple documents them; APNs hasn't been seen
-        to take one.
-      - First tried as the mod telling whether Remote Control is on and the app greying the
-        action while it's off. A mod doesn't get the documented variable (`tools/env-check`),
-        so it read Claude Code's undocumented file for the session instead; you chose to have
-        ringback turn Remote Control on and assume it, rather than rely on that.
-      - Left for the phone: `/ringback` turning Remote Control on, the notification (shown,
-        its sound, Focus), the listing and the swipe action, the question reaching the Claude app and
-        being answered there, the call never ringing after, and a held question answered on
-        the morning call.
-   8. On the phone, in one sitting (done 2026-10-30, three calls and a call back, results
-      under each step): a better model on the line (step 4), calling back a declined call
-      (step 5) and work hours (step 6) worked. Not tried on the phone: questions outside
-      the hours (step 7, as first built, and rebuilt since; the last call's three questions
-      came from its briefing, not from AskUserQuestion). Found:
-      - The voice put all three of a briefing's open choices in one turn; you want them one
-        at a time, each answered before the next. Its instructions now say so, for a
-        briefing's choices and for the session's questions. In three scripted calls
-        (`tools/call-check --session`, the phone call's briefing) the voice then said there
-        were three and asked only the first, but passed each answer on as it came and
-        wrote the next question after the tool, where it isn't spoken: six questions were
-        lost. So it now keeps the answers and passes them on together once it has them
-        all, or when you want to stop. In three more runs it asked each in turn, confirmed
-        each answer, and passed all three in one message; one opening asked the first
-        question and then "Shall I go on to the first question?".
-      - At the start of a held call, Haiku tried to pass the session a message before you'd
-        said anything ("The developer answered the call but has not yet given a choice…").
-        Nothing passed in the opening goes, so nothing reached the session.
-4. **Staying up** (built, tried offline, not yet on the phone). Restarts lose nothing that
-   matters:
-   - The voice server keeps its state in a file and reads it at start (see "Staying up"
-     under the voice server's session side), and runs as a launchd agent (`docs/setup.md`;
-     installing it on your Mac asks you first).
-   - The mod remembers `/ringback` for each session, through a reload and
-     `claude --resume`.
-   - When the voice server is down or has lost what a session asked, the mod tries again
-     instead of giving up: a briefing is sent again when it's back, and a question or
-     permission is asked again.
-   - Checks: restart the voice server with a held call, a call to call back and a
-     missed call's question waiting, and each carries on; reload the mod and resume a
-     session, and ringback is still on.
-   - Built, and tried offline, not yet on the phone:
-     - The voice server (`tools/restart-check`, two runs, 19 checks each): see "Staying
-       up". The held call, the calls to call back, the waiting permissions and long polls,
-       and the messages and outcomes for sessions all carried on through a SIGTERM and a
-       SIGKILL; the call that was on got its note; the killed server's Haiku processes
-       ended 0.4 s after it, but left their sessions' folders (Risks). With the state file
-       in use,
-       `tools/ask-check` passed all 45 checks (and Stage 5's 6). `tools/phone-check
-       --back` passed 21 of 22: one call back opened "Hi, I'm calling about the release
-       notes…", as one did once before the lead told it not to. Plain `tools/phone-check`
-       passed all but its last check, which counts every voice server's Haiku folders and
-       caught another voice server's live call on this Mac.
-     - The mod (15 new tests, 50 in all; 11 of the new ones fail on the mod before the
-       change, the other 4 guard what shouldn't change): switched on, the session is kept
-       by its ID in the store, and switched off, forgotten; after a reload (`$.state` on),
-       ringback is on and a finished turn asks for a briefing; a session resumed within 30
-       days is on again, with a dim line, and collects, while older ones are forgotten; a
-       briefing the voice server can't take is offered again every 30 s until it can, a
-       newer one taking its place, and given up after 61 tries in 30 min; a 400 isn't
-       offered again; a long poll that can't connect is asked again every 5 s and carries
-       on with the same id; one that never reconnects goes to the terminal after 15 min; a
-       404 still ends the wait.
-     - `claude --resume` keeps the session's ID (see "Remembered").
-     - The launchd agent's file was written and checked with `plutil -lint`; it wasn't
-       loaded, so starting at login and after a crash isn't tried.
-   - Left: the switchboard on the lighthouse starting by itself after a reboot (Open
-     questions); the option of loading the speech models only for calls. A briefing
-     waiting for the voice server is lost if the mod reloads meanwhile.
-5. **Waiting calls in the app** (built, tried offline, not yet on the phone). The
-   switchboard keeps the waiting calls (see "waiting calls" under the switchboard), the app
-   shows them in orange at the top of the call history, and tapping one calls it now,
-   without ringing (`"now": true` in the offer).
-   It's the base of Stage 7's queue. A waiting call with a question is told to the phone,
-   and its question can be sent to the Claude app (Stage 3 step 7). Checks: the
-   switchboard's smoke test (a held call is listed, survives a restart, leaves when it rings
-   or is called, and is dropped when its voice server stops asking), the voice server
-   answering a `now` offer (`tools/phone-check`), and on the phone: a call held outside your
-   hours shows, and tapping it talks. Built, and tried offline, not yet on the phone:
-   - The switchboard (`switchboard/smoke-test.sh`, 21 new checks, 75 in all, about 8.6 s,
-     5 s of it waiting for a call to go stale): an unregistered token or none gets 403; two
-     held calls are listed soonest first, with project, subject, voice server and when they
-     ring; both survive a restart; asked again, a held call stays; one that rings leaves,
-     and so does one the phone reports "called now"; one not asked about for the stale
-     time (4 s here, `RINGBACK_WAITING_STALE`) is dropped, and each is logged.
-   - The voice server (`tools/ask-check`, two runs, 6 new checks, 51 in all, about 3.5 min;
-     in that tool rather than `tools/phone-check`, which has no held calls): a `now` offer
-     for an unknown call gets 403; a held call is answered at once, voice heard 2.5 s after
-     the offer, and no longer asked about at the switchboard; its voice opened "The config
-     parser fix is done. It crashed on empty lines between sections…", without saying it
-     was calling, and its session was told you called it from the app; a call that rang
-     meanwhile was answered as any offer is.
-   - The app builds with no Swift warnings. Its list, the tap, the alerts and the events
-     are untried: they need the phone.
-   1. **The app as a Phone app: Recents, Contacts, Settings app** (2026-10-30; built, tried
-      offline and in a simulator, not yet on the phone). The app outgrew one screen, so it's
-      now two tabs, as the Phone app's: Recents, the call history with the waiting calls on
-      top, in rows of two lines with ⓘ for a call's details; and Contacts, the sessions with
-      ringback on, on every Mac. Tapping any call calls its session, answered calls too
-      (calling back, in the voice server's session side), and tapping a contact calls that
-      session (calling from the Sessions tab). Each voice server tells the switchboard which of its
-      sessions listen (the switchboard's contacts). The settings moved to the Settings app.
-      See the iPhone app's "Like the Phone app", "Recents", "Calling a call", "Sessions" and
-      "Settings". Checks:
-      - The switchboard (`switchboard/smoke-test.sh`, 19 new checks, 111 in all, about 15 s):
-        `/contacts` for an unregistered token or none gets 403; `/sessions` without a voice
-        server, or a session without a project, gets 400; two voice servers' sessions are
-        listed by project, then since when, each with its voice server, project, latest
-        subject and when; a voice server's new list replaces its old one; they survive a
-        restart; one not heard from in the stale time (3 s here, `RINGBACK_CONTACTS_STALE`)
-        is dropped; a held call keeps its session in the waiting list; each list is logged
-        once, when it changes, and so is a drop.
-      - The voice server (`tools/phone-check --contacts`, three runs, 23–24 checks, 2–3 min
-        each; see its README): the switchboard heard the session listen with its project,
-        its briefing's subject at once, the same again every 3 s (30 in use), and that it
-        stopped listening 3.6 s after its mod stopped (4 s here, 30 in use); a call from
-        Contacts to a session that isn't listening, or with a short ID, got 403; with no
-        briefing, the voice said so and asked what you want ("The session hasn't written a
-        briefing yet, so I don't know what it's working on. What would you like to ask or tell
-        it?"); called back, an answered call's voice never said you'd missed it ("Nothing new
-        has come in since we last spoke…", three runs of three); from Contacts, what you
-        asked reached the session as one message; a call from Contacts could be called back.
-        Called from Contacts with a briefing you'd already heard, the voice retold it in two
-        runs; with a firmer lead, the third said "Nothing new has come in since that call…".
-        In that run Haiku took 20–22 s for the first three openings, while another check ran
-        its own Haiku sessions, so the phone hung up before hearing them (3 of 24 failed); the
-        offers were answered in 0.14 s at most. A fourth run, alone, after merging with main:
-        all 24 passed, the heard briefing's call opening "Nothing new has come in since that
-        call…". From the offer to the voice: a median 2.7–3.9 s, as a call back's.
-      - Calling back missed calls as before (`tools/phone-check --back`, one run after the
-        merge, 22 checks): 21 passed; one opening said "I'm calling about…", the slip seen
-        before with that unchanged lead. `tools/ask-check` (one run after the merge): all 60
-        passed, in 3 min 45 s.
-      - The voice server through a restart (`tools/restart-check`, one run, 19 checks, 2 min
-        26 s): all passed, with the state file now keeping each remembered call's `talked`
-        and `contact`; the call answered before the restart and called back after got the
-        lead for a call you answered.
-      - The mod (55 tests, one new): collecting says the session's project and folder; the
-        test fails on the mod before the change.
-      - The app builds with no Swift warnings, debug and release; the release binary has no
-        trace of the sample calls. `tools/app-screens` showed every screen in light and dark
-        (iPhone 17 Pro, iOS 26.5; three runs, the last after the merge): Recents, its swipe
-        action, the details, Contacts, the banners and Ringback's page in the Settings app.
-      - Left for the phone: tapping an answered call and a contact, and their voices; a call
-        back the Mac no longer remembers going on as a call from Contacts; the alerts; "Open
-        Settings" landing on Ringback's page (in the simulator it opened Settings' first
-        page); hours changed in Settings reaching the switchboard on return to the app;
-        the values carried over from the app's own settings screen, and the hours moved
-        onto 15-minute steps once.
-      - Not handled: calling from Contacts a session whose call is held outside your work
-        hours leaves that call held; its voice has the session's latest briefing, which may
-        be the held call's, but can't answer what that call asks.
-      - Then (2026-10-30, after a first look on the phone): with the tab open, a session
-        that turned ringback on didn't show until you switched tabs and back; the switchboard
-        had it in the same second. So the tab now fetches every 3 s while it shows. Contacts
-        became **Sessions**, and its rows cards, larger, for a handful of sessions; holding
-        one offers its details instead of ⓘ (the iPhone app's "Sessions"). The app builds
-        with no Swift warnings; `tools/app-screens` showed every screen in light and dark,
-        the cards and their menu included (one run, 2 min 20 s). The fetching every 3 s and
-        the cards on the phone are untried.
-      - On the phone (2026-10-31): a session that turned ringback on showed on the open
-        Sessions tab at once, and the cards looked right; calls from a card connected in
-        0.6 s and opened with "I don't have a briefing from the session yet", one passed "Tell
-        the session to say hello" on, and the session's answer came back on the call; a call
-        back from Recents of a call you'd answered opened "Nothing new has come in since we
-        last spoke", without saying you'd missed it. Each session was told how long the call
-        lasted, as the phone showed it (31 s). Left: the alerts, and Open Settings.
-   2. **A hold switch** (2026-11-02; built, tried offline and in a simulator, not yet on the
-      phone). One switch holds every call until you let them through, in a pill beside the
-      tabs and in Control Center; work hours set it at their edges (the switchboard's and the
-      iPhone app's "hold switch", the voice server's held calls). Checks:
-      - The switchboard (`switchboard/smoke-test.sh`, 29 new checks, 139 in all, 16 s): `/hold`
-        without a token or for one that isn't registered gets 403; outside its hours a phone
-        is on hold until they start, and with both phones on hold a call is held until the
-        earlier start; taken off hold on the phone, it takes calls until its hours end, and a
-        call rings outside them; on hold again, calls are held again; paused inside new
-        hours, it stays on hold until they next start, tomorrow; paused before they started
-        today, they let calls through; taking calls since before they last ended, it's on
-        hold; without hours a phone takes calls, and on hold has no time to come off it; one
-        phone taking calls lets a call ring; both on hold without hours, a call is held with
-        no time, listed without one, and `/waiting` has the switch; taking calls again, it
-        rings; `devices` shows the switch and when it was set, and setting it and a call held
-        until you take calls are logged. The answers to held calls now have `"held": true`.
-      - The voice server (`tools/ask-check`, 6 new checks, 66 in all, 227 s): held with no
-        time, the mod hears `{"ok": true, "held": true}` and the log says "held until you
-        take calls"; it asks again after `--reask` s (4.01 s); `/reask` with its ID and an
-        unknown one answers `reasked: 1`, a body without `call_ids` 400; it asks the
-        switchboard again at once, with the same ID; then it rings and Haiku starts.
-      - The mod (`claude plugin test mod`, 55): the dim line is "Your phone holds calls: the
-        call rings at 08:00." (it said "Outside your work hours", wrong for a pause), and "…
-        rings when you take calls." with no time.
-      - The app and its extension build with no Swift warnings, both signed with the shared
-        keychain group. `tools/app-screens` showed the bar on hold over the waiting calls and
-        taking calls over the connection banner, in light and dark (one run, 2 min 23 s); then,
-        with the pill beside the tabs instead, the pill on hold with its badge, and taking
-        calls, the tabs as pills and no system tab bar, in light and dark (one run, 2 min 18 s).
-      - The breathing light (`tools/app-screens/breath_check.py`, recorded in the simulator in
-        dark mode, 12 s, one run, 20 s): the halo above the pill swung 0–76 in blue with a period
-        of 4.47 s; the background mid-screen swung 37% as much, the far corner 14%, both at
-        4.50–4.57 s, 0.00 s behind the pill, correlation 0.99. The badge and the widget build;
-        they need the phone.
-      - Left for the phone: the pill, the tabs' pills, the breathing on a real screen, the
-        badge, the Lock Screen widget, the alert, the switch changing by itself at an edge, `/reask` reaching a Mac over Nebula (the app
-        reaches it only as an offer does, with no first `/ping` for a stale tunnel), the
-        Control Center control and its action from a locked phone, and held calls ringing
-        together when you take calls.
-6. **Weak signal.** Measure, then send less and recover more (see "Data and weak signal"
-   in the iPhone app). Built and tried offline (`tools/phone-check --signal`,
-   `tools/opus-check`): each call's "ended" report carries the phone's WebRTC stats, and
-   the voice server logs its own; the Mac sends mono at 24 kbps with forward error
-   correction, and its answer asks the phone for 24 kbps in wideband with forward error
-   correction; a jitter buffer and decoder of our own on the Mac rebuild or conceal your
-   lost packets, where aiortc's lost several more around each. Offline, with 5% and 15% of
-   your packets lost, words heard wrong fell from 21.9% and 73.3% to 1.7% and 1.9% (1.4%
-   with none lost, before and after), your words reached speech recognition 0.3–0.6 s
-   sooner, and a call went from about 1.1 to 0.9 MB a minute. On the phone (2026-10-30;
-   "On the phone" in "Data and weak signal"): the stats arrive, the voice sounds the same,
-   3G worked, and Very Bad Network worked after two fixes for slow networks (the Mac's
-   consent checks, the app's tries to reach the Mac); about 10% lost each way, two of 111
-   words heard from you look wrong. Left: Edge.
-- **The Go port** (decided 2026-11-02; in progress). One hub, a speech node and an agent on
-  each Mac, as in "Moving to one hub, in Go" under Architecture, replacing the Python voice
-  server and the Swift switchboard, which keep running until it matches them. In order:
-  1. **The hub as the switchboard** (done 2026-11-02; `hub/`): today's endpoints, state
-     files and log lines in Go, push over HTTP/2 with one token cached for 50 min (the
-     Swift one signs a new token for every push, which APNs refuses more than once per 20
-     min on one connection). `switchboard/smoke-test.sh` passed all 139 checks against it
-     (`RINGBACK_HUB`, 17 s), as against the Swift build. It runs on the always-on Intel Mac
-     in the Swift switchboard's place, with the same config and state: an 8 MB
-     binary using about 5 MB of RAM. APNs took its pushes (200), and the phone's
-     connection check reached it. Not yet tried through it: a ring, a held call, the hold
-     switch and the app's lists, from the phone.
-  2. **The speech node:** sherpa-onnx on CUDA, with Silero, Smart Turn v3, Parakeet v2 and
-     Kokoro; speed, RAM and VRAM measured on the workstation (`speech/README.md`). Between
-     calls it frees the GPU and its memory (2026-11-02): a small process keeps the hub's link
-     (16 MB, nothing on the GPU), and a worker process loads the models when the hub says a
-     call is coming (`warm`, sent as a call that rings is placed and on every offer) and exits
-     after 60 s without a call (2.8 GB and 2.9 GB of GPU memory while it runs). Loading takes
-     2.1–2.3 s, while the phone rings: through `tools/line-check` the models were loaded 2.11
-     s after the call was placed, and the voice was heard 0.57–0.67 s after answering, as
-     with the models always loaded (0.62 s).
-  3. **The agent** (built 2026-11-02, checked with stand-ins; `agent/`, an 11 MB binary with
-     no cgo): the mods' socket with the same routes and answers, the calls' state and its
-     state file (read and written both ways with the voice server's Python), what sessions
-     ask, Haiku and Opus through `claude -p`, held-until-heard, cut-off notes, transcripts, and
-     the link to the hub. Its texts are generated from the Python modules, and its answers
-     match the Python functions' on every case `agent/testdata/golden.py` writes (outcomes,
-     durations, instructions, ask texts, sentence ends, Haiku replies cut at 90 points).
-     Scenario tests drive the socket as the mod does, against a stand-in hub and a stand-in
-     `claude`: 11 tests, 8 s; one real Haiku call (`RINGBACK_REAL_CLAUDE=1`) passed, its first
-     words 0.90 s after the turn. A stop with no words is answered only if it cut the voice off
-     or came before the voice first finished speaking, once in a row, as Pipecat's empty user
-     turns were. Not ported: calls rung by hand (`--report`), whose place is the hub now.
-  4. **The call in the hub** (built 2026-11-02, checked with stand-ins): WebRTC (Pion) and
-     Opus (libopus) with forward error correction, the jitter buffer and concealment
-     (`opus.py`), the links (`docs/protocol.md`), the phone's endpoints, the reply cut into
-     pieces, interruptions, and what you'd heard. `tools/hub-check` runs the hub with a stand-in
-     phone, agent and speech node: all 27 checks passed (three runs, 9–10 s each), the voice heard
-     0.15 s after the offer. Replies are numbered, so a reply cut off while it's still being
-     written is dropped as more of it comes. `hub/build.sh` makes it one universal binary with
-     libopus linked in, which passed natively on the Intel Mac (the smoke test, 139).
-  5. **Switching over:** the offline checks (`tools/phone-check`, `ask-check`,
-     `call-check`, `restart-check`) against the Go parts, then the phone. First,
-     `tools/line-check` places a call through the real hub, agent and speech node with a
-     stand-in phone: all 11 checks passed (44 s); the voice heard 0.62 s after answering, your
-     reply recognised word for word in 0.11 s, and the voice answering 2.02 s after your last
-     word (Haiku's first words after 1.53 s).
-     The first call on the phone (2026-11-02, locked, on mobile data, with AirPods; the hub on
-     the always-on Intel Mac, the node on the GPU workstation, the agent on an Apple silicon Mac)
-     worked end to end. The app made its offer 4 s after the push, and the audio connected
-     over Nebula 2.8 s before you answered; the voice started 0.31 s after you answered. You
-     cut the opening off and Haiku was told what you'd heard. All three of your turns were
-     recognised exactly, in 0.07–0.09 s. The voice answered 1.70–2.56 s after each turn,
-     Haiku's first words taking 1.43–2.37 s of that. What you asked to pass on went to the
-     session once you'd heard it announced, and hanging up ended the call at once (35.2 s
-     at the hub, 35.5 s on the phone). You found the voice clear and the delay small but
-     noticeable. Not tried on the phone yet: held calls, call backs, Sessions, asks, Opus,
-     a weak signal.
-- **Status and the hub's portal** (decided 2026-11-02; built but for passkeys, checked
-  offline; "Status, the hub's portal and speech on the phone" under Architecture). In order:
-  1. `/status` on the hub, and the app's banner. A call with no speech goes to the waiting
-     calls instead of ringing. Built 2026-11-02, checked offline (`tools/hub-check`, the
-     agent's tests) and on the phone (2026-11-02, unlocked, on Wi-Fi): with the speech node
-     stopped, a call placed waited instead of ringing; the phone got its notification ("ringback
-     wants to talk"), and the app showed the speech banner and the call under Waiting, "Rings
-     when the speech computer is back". The node linked again 7 min later: within the same
-     second the call asked again and rang, the node's worker loaded its models in 2.14 s on
-     the warm-up, and the voice started 0.13 s after answering. Not watched: the banner going
-     away once the node was back.
-     - The status comes with the waiting calls (`status` in `/waiting`'s answer), which the
-       app fetches on opening, on pull to refresh, and now also when a call fails: speech
-       (ok while a node is linked, or while no Mac is linked and no call waits for one), the
-       last push to this phone (ok, or why not: Apple refused the hub's key, Apple no longer
-       knows the phone, the hub couldn't reach Apple, or something else), and the Macs
-       linked.
-     - A call an agent places while no node is linked waits, with the reason "no speech";
-       the phone gets one notification ("<project> wants to talk"), and the app lists it as
-       ringing when the speech computer is back. A node linking has the hub ask the agents
-       to ask again, and it rings.
-     - The app shows the most serious problem as a banner (not set up; the hub can't be
-       reached; calls can't ring this phone; Claude can't talk on calls; the microphone is
-       off), with "1 More Problem" for the rest; `tools/app-screens` shows it (`speech-banner`,
-       light and dark). An offer the hub refuses for want of speech
-       (503) ends the call with "The speech computer is offline".
-     - Not tried: a push Apple refuses for the phone's registration ("phone"), which needs
-       APNs to answer so.
-  2. The portal's pages, read-only. Built 2026-11-02 (`hub/portal.go`, templates in
-     `hub/portal/`, `docs/setup.md` step 3), checked offline only: under `/portal/` on the hub's
-     address, plain HTML from templates in the binary, refreshed every 5 s by a small script
-     that swaps the page's content (no framework), light and dark, laid out for a phone too.
-     Status shows the speech nodes (since when, models loaded or not), the Macs and their
-     sessions, the calls live (from the hub's registry) and waiting (with why and when they
-     ring), and each phone (its last check-in, the last push, and its work hours, hold switch
-     and On-device voice, read-only); Calls the last 50 calls in `events.jsonl`, with their
-     outcome, length and events; Log the last 500 lines, kept in a ring in the hub. (Status
-     was redesigned in step 5.)
-     - A node now says whether its models are loaded (`models`, `docs/protocol.md`): its link
-       process sends it when its worker has loaded them and when the worker exits. Checked
-       only with the link process's code in a scratch test, not on the speech node.
-     - `/register` keeps `on_device` when the app sends it; the app doesn't yet.
-     - Looked at in headless Chrome, light and dark, at 1280 and 390 px wide, with a
-       throwaway hub, a fake phone, a stand-in agent and two stand-in nodes, a live call from
-       `tools/phone-check`'s stand-in phone, waiting calls and reported events. What looked
-       off was fixed: the sessions' times crushed their names on a phone, the calls' titles
-       took the setup page's link colour and indent, and a wrapped log line ran under the
-       times.
-     - What a call is about (its project and subject) isn't kept with the call, so the hub
-       keeps it in memory as it's placed: calls from before the hub last started show
-       without their project.
-  3. Its login: password and passcode first, then passkeys once the portal has a name and a
-     certificate. The passcode built 2026-11-02 (`hub/portal_auth.go`): `ringback-hub
-     portal-user NAME` makes the account (the password asked twice without echo, at least 10
-     characters, hashed with PBKDF2-SHA256 at 600,000 iterations and a random salt; a TOTP
-     secret, printed as an `otpauth://` link and a setup key; kept only once a passcode from the
-     authenticator app matches, so the command can't end with a key you didn't get), in
-     `portal-user.json`, mode 600.
-     Signing in is the password, then the passcode (RFC 6238: SHA-1, 6 digits, 30 s, one step
-     either side; none at or before the last taken works again). A session is a random
-     32-byte ID in a cookie (`HttpOnly`, `SameSite=Strict`, `Path=/portal`), kept in memory
-     by its hash and ended after 12 h unused (the pages' own refreshes don't count) or by a
-     new account; every form carries a CSRF token; five failed sign-ins from an address
-     refuse it for a minute. Checked with Go tests (`hub/portal_test.go`, 10 tests, 1 s;
-     race-free over 3 runs): RFC 6238's vectors, the password hashing, the whole sign-in
-     through the pages (a wrong password, a wrong code, a reused and an older code, signing
-     out), forged and missing CSRF tokens, the rate limit, every page refusing without a
-     session, and idle expiry (then also paused nodes, since taken out: step 5). Each
-     protection was broken in turn and its test failed (9 of 9). Also signed in through
-     headless Chrome on a phone-sized window, and the account made in a pseudo-terminal, which
-     showed no password. Not built: passkeys.
-  4. Setup on the portal: adding a node or a Mac. Built 2026-11-02: Setup shows each link's
-     address and token (from `hub.toml`, hidden until shown, copied with a button) and the
-     commands from `docs/setup.md`. A node could be paused at first (`nodes.json`); step 5 took
-     that out for the hold, which stops calls whatever their speech.
-  5. The portal redesigned (2026-11-02), after you found it hard to read: the open tab didn't
-     show, Macs and sessions were mixed, and pausing one speech node suggested calls would
-     still go through the phone's own voice.
-     - **One hold for the hub**, instead of pausing a node: the app's hold switch, set on
-       every registered phone at once (`holdEveryPhone`, `POST /portal/hold`), so the app
-       shows it the next time it asks the hub. While every phone is on hold no call rings,
-       whatever speech there is; taking calls has the calls held ask again (the agents' calls;
-       a voice server of the earlier stack asks by itself within 10 min). It shows on every
-       page, as a pill in the bar like the app's (its word the state, its symbol what pressing
-       does), and as a card on Status that says no call rings, the phone's own voice included.
-       `nodes.json`, `nodeUsable` and `pauseNode` are gone.
-     - **A map of the system** leads Status, drawn by the hub as SVG (`hub/portal_map.go`): the
-       Macs (with their sessions counted), the hub (with the hold), the speech nodes (models
-       loaded or idle), Apple push between the hub and the phones, and the phones (with
-       On-device voice); and the links between them. Each part and link is working, a
-       problem, gone or not set up. Not set up (no node ever linked, no APNs key in the
-       config, no phone registered) is drawn dashed and quiet, with a link to its section of
-       Setup, and isn't a problem. Telling it from gone needs the hub to remember what it has
-       seen: `seen.json` in the state folder, the speech nodes and Macs by name, when each
-       first and last linked. A Mac that's gone shows as asleep, quietly; a node that's gone
-       is offline, a problem. One gone for good can be forgotten on Status. Above the map, a
-       sentence says what a call would do now: ring which phone, with which speech (a node,
-       the phone's own voice, or none, so calls wait); a live call lights its path. The map
-       has two shapes, wide (1000 units) and tall (360, below 860 px), for 0 to 3 Macs, 0 to
-       2 nodes and 1 to 2 phones; more show as "and 1 more". Apple push counts as set up when
-       the config has a team, a bundle ID and a key it can read for each environment a phone
-       uses (`pushSetup`).
-     - Under the map: the calls live and waiting, the sessions (each with the Mac it runs
-       on), the phones' facts, and the speech nodes and Macs. Calls are grouped by day, as in
-       the Phone app; the log has its times in a column; Setup gained the phone and Apple
-       push; signing in has the app's icon. On a phone, the tabs and the hold move to a
-       floating bar at the bottom, as in the app.
-     - Checked with Go tests (`hub/portal_status_test.go`, 4 new, 13 in the hub, 1.3 s;
-       race-free over 3 runs): the hold on every phone, the app's `/hold` answer and a call
-       placed while held (with a phone that speaks itself), the held calls asking again, the
-       parts seen, offline, asleep and forgotten, Apple push's setup, and the map's layout. The
-       new forms need the session and its CSRF token: each check was broken in turn for each
-       form and a test failed (4 of 4). The layout test places every count of parts with long
-       names and fails if a part, a name, a line or a tag overlaps another, or a link runs
-       through one; a link moved through a node made it fail (480 points). In headless Chrome
-       (`tools/portal-screens`, 10 states, 85 screenshots, 43 checks passed, 143 s), every
-       state looked at, in light or dark and on a desk or a phone. What that found and was
-       fixed: the icons drawn black (a sprite's styles don't reach a `use`), the tall map's
-       links through a node's name with two nodes, the phone's dock pinned to the bar (its
-       backdrop filter made the bar the dock's containing block), a key that can't be read
-       said twice, Apple push's label crossed by a link with two phones, and long Mac names
-       squeezing the sessions. `tools/hub-check` failed one check in 2 of 5 runs at first: a
-       call placed just as a node went still found it, because noting the node as seen came
-       before taking it off the registry; moved after, 8 runs of 8 passed (46 checks each).
-     - Second round (2026-11-02), from a review of the design and one of the code:
-       - The hold's words promise no more than it does: with work hours, their start ends a
-         hold as it ends the app's switch, so Status says "On hold until 08:00 tomorrow, when
-         your work hours start", and "until you take calls" only without them. A phone that
-         registers while you've held every other (their switches on hold) starts on hold, as
-         of when they were set; a reinstall or a second phone ended the hold before. One held
-         only by its work hours leaves a new phone to its own.
-       - One control: the bar on every page shows the hold only (a chip linking to Status,
-         hidden with no phone); the switch is on Status, whose card describes only the hold.
-         Setup no longer refreshes itself, so its tokens are fetched once.
-       - Each fact once or twice: what's wrong is said in the headline, with what to do under
-         it, and the list under it has only the rest; the hub shows its hold only when held;
-         the phone's facts lost the hold, which isn't the phone's; the lists of nodes and Macs
-         say only what the map doesn't. One colour for the hold, indigo; one for each
-         severity, the headline's dot matching the map.
-       - What a live call shows is what the hub knows: ringing is "Ringing" on the phones,
-         their links from Apple push lit; answered lights the phone only if there's one,
-         since neither the offer nor the phone's link says which phone answered.
-       - The map: the push links run round the outside of the Nebula links with two phones;
-         on a phone the nodes sit beside the hub and push between the phones, every link
-         meeting its tiles, a part's words drawn over the links into it with a halo (a copy
-         of them, outlined, drawn first: an outline under their own letters Safari drew letter
-         by letter, each over the one before, 2026-11-03); captions over each group; "and 1 asleep" for a Mac not shown. Apple push not yet tried is
-         grey, not green.
-       - The Calls page lists the calls waiting first; a call without its project is titled
-         by its Mac, or a grey "Project unknown"; one still going is "Live now"; lengths are
-         as everywhere ("3 min 12 s"). The log is newest first.
-       - The code: `seen.json` says whether each part is linked, and at start those still
-         linked count as gone since then; Forget takes any name it has; a null device in
-         `devices.json` is dropped, and the locks around the phone's requests and the portal's
-         hold are let go even if they panic; the agent names its Mac by its local host name on
-         macOS (`scutil --get LocalHostName`), which stays put: with no host name set, as on the
-         Mac this was built on, macOS takes one from each network it joins.
-       - Checked with Go tests (`hub/portal_status_test.go`, 10 there, 19 in the hub, 1.4 s;
-         race-free over 3 runs), each fix taken out in turn making a test fail (10 of 10), and
-         in headless Chrome (`tools/portal-screens`, 12 states, 51 checks passed, 97
-         screenshots, 162 s). The switchboard's smoke test, run on the hub, found the first
-         version of the joining phone wrong: it joined a hold that only work hours had set, and
-         stayed on hold once they were gone; it now joins only a hold you set (139 checks
-         passed).
-     - Not tried on the phone or with the real hub: the app showing a hold set on the portal
-       (it reads the hold with the waiting calls, on opening and pull to refresh), and Safari
-       on the iPhone (the screenshots are Chrome's; the map's words, which overlapped in
-       Safari, were checked in the Mac's own WebKit, light and dark, 1440 and 390 px wide).
-- **Speech on the phone** (decided 2026-11-02; trial done, `tools/speech-trial`, and its code taken out of the app after commit `a89043e`). First a trial on an older iPhone (4 GB)
-  with Apple's on-device recognition, measured: how soon your words come after you stop,
-  their accuracy on `tools/stt-eval`'s recordings, the app's memory, battery over a
-  10-minute call, and whether it hears on a locked phone during a call. If it holds up: the
-  phone as the call's speech node, the "On-device voice" switch in the Settings app, and the
-  choice of voice.
-  - What Apple's documentation says (checked 2026-11-02, WWDC25 session 277 and the Speech
-    framework's pages): the model runs outside the app's memory, in a system service that
-    installs it once (`AssetInventory`) and shares it between apps; results come tentative and
-    fast, then final; its `SpeechDetector` gives no end of speech, so a call keeps its own
-    (Silero) and asks for the final words through there (`finalize(through:)`); custom
-    vocabulary is only for the older DictationTranscriber. Nothing says whether it runs in the
-    background on a locked phone.
-  - Accuracy (2026-11-02, on the phone, `tools/speech-trial`): Apple's SpeechTranscriber got
-    10.3% of words wrong on `tools/stt-eval`'s recordings, Parakeet v2 5.9%; repaired by Haiku,
-    8.2% and 4.6%. Its errors are technical words and answers to permission prompts ("allow
-    it once" as "I love it once"). Each utterance took a median of 0.09 s on the phone.
-  - Live in a call (the first run, 1.4 min): in the background, the screen locked, all the audio
-    arrived and every final result came; the final words came 0.15 s after they were asked
-    for (median); the tentative ones came in bursts every 3.7 s; the app stayed at 27–32 MB.
-    Locked with its data protection on (no Face ID glance), it got no speech to hear; a second
-    run stayed in the foreground (0.09 s to the final words). The tentative words come in bursts
-    every 3.7–3.8 s in the foreground too: how the model reports without `fastResults`.
-  - So far: it hears in the background with the screen locked, as fast as a call needs, in the
-    app's 30 MB, but gets about 1.8 times Parakeet's words wrong, answers to permission prompts
-    among them, which suits a fallback for when the speech node is down. Untried: a phone
-    locked in a pocket (data protection on) through a call, and the battery over a long call.
-  - The fallback (2026-11-02, being built): with no node linked and the phone's own voice on,
-    a call rings, and the phone hears and speaks it over its own link to the hub, which carries
-    only text (`docs/protocol.md`, "The phone as the speech node"). The hub's side is built: it
-    rings such a call, takes the phone's link once the agent accepts the call, and runs the
-    call as with a node, counting what you've heard from the phone's `playing` and `played`;
-    `tools/hub-check` runs it with a stand-in phone (45 checks, all passed). The app's side:
-    hearing with SpeechTranscriber and a level detector, speaking with Apple's voices through
-    the same audio engine, so echo cancellation sees them.
-7. **Several sessions + retries.** A second session waits for the first call to end.
-   "Not now" retries on schedule while the queue waits. A final decline holds all calls
-   until a call back releases them.
-8. **Later.** A phone-network fallback for when data is too weak: price SIP trunks and an
-   LTE modem with a SIM at the lighthouse first (Rejected alternatives). Showing you
-   things, such as images over iMessage (Open questions).
+## Next
+
+- **Several sessions in turn, with retries.** One queue for every Mac's calls: a second call
+  waits for the first to end. A call you decline or miss tries again 5 min, 20 min, 1 h, 2½ h
+  and 6 h after its first ring, with the queue paused in between; after the last, every call
+  waits until you call that session back.
+- **A public hub,** with TLS and a way to pair the phone and the Macs, so no private network is
+  needed; then passkeys for the portal.
+- **On-device voice on a weak signal,** even with a speech node linked, since only text crosses
+  the network.
+- **A phone-network fallback** for where data is too weak: SIP trunks from a local operator,
+  or an LTE modem with an ordinary SIM on the hub's machine, priced first.
+- **Showing you things:** sometimes you need to see what a session did, such as an image or a
+  large model. Claude Code's iMessage channel plugin can send images, but not the session's
+  questions.
+- **The call history in iCloud,** rather than on the phone only.

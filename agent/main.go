@@ -1,6 +1,5 @@
-// The ringback agent, on each Mac that runs Claude Code sessions: what the voice server did
-// for the sessions' side, ported to Go (the Go port, under Stages in docs/design.md). The
-// sessions' mods give it briefings and ask it things over a Unix socket (sessions.go, api.go);
+// The ringback agent, on each Mac that runs Claude Code sessions ("The parts" in
+// docs/design.md). The sessions' mods give it briefings and ask it things over a Unix socket (sessions.go, api.go);
 // it places their calls through the hub, and on a call Haiku (Opus on request) talks it
 // through as `claude -p`, on this Mac (voice.go, haiku.go). The hub does the call's audio and
 // speech; the agent's link to it carries the call's text both ways (hub.go,

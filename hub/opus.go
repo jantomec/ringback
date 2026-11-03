@@ -19,8 +19,7 @@ import (
 	"unsafe"
 )
 
-// The call's Opus on the hub, set up for weak signal, as the Python voice was (see "Data and
-// weak signal" in docs/design.md):
+// The call's Opus on the hub, set up for weak signal (see "Weak signal" in docs/design.md):
 //   - the voice goes out mono at 24 kbps, with Opus's forward error correction (FEC: a rougher
 //     copy of each packet in the next), set for 10% loss;
 //   - the answer to the phone's offer asks the phone for 24 kbps, only the band speech

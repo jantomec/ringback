@@ -1,4 +1,4 @@
-"""A call through the Go port's real parts: the hub and the agent on this Mac, the speech node
+"""A call through ringback's real parts: the hub and the agent on this Mac, the speech node
 on its machine, and the stand-in phone (`tools/stand-in-phone`). The session's side is played
 through the agent's socket, as a mod does. See README.md.
 

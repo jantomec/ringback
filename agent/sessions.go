@@ -4,7 +4,7 @@ package main
 // between a call and its session.
 //
 // Each Mac's sessions reach their agent over a Unix socket that only you can open (see
-// "Voice server's session side" in docs/design.md, and api.go). For each briefing it makes a
+// "When calls ring" and "What a session asks" in docs/design.md, and api.go). For each briefing it makes a
 // random call ID, the call's secret, and asks the hub to ring the phone with it. The ID
 // reaches the phone only through Apple's push, and the phone's offer must carry it. Haiku
 // starts on the call's opening as soon as the hub takes the call, so it's written while the

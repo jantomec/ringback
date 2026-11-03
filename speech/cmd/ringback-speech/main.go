@@ -1,7 +1,7 @@
 // The ringback speech node: hears and speaks for the hub's calls, on a machine with the
 // horsepower (Silero, Smart Turn v3, Parakeet v2 and Kokoro, on CUDA or a CPU). It dials out
-// to the hub over a WebSocket (docs/protocol.md, "The speech node"); see "Moving to one hub,
-// in Go" in docs/design.md.
+// to the hub over a WebSocket (docs/protocol.md, "The speech node"); see "The parts" in
+// docs/design.md.
 package main
 
 import (

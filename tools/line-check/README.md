@@ -1,13 +1,13 @@
 # Line check
 
-A call through the Go port's real parts (`docs/design.md`, "The Go port"), without the phone:
+A call through ringback's real parts ("The parts" in `docs/design.md`), without the phone:
 the hub and the agent run here, built from this checkout, and the speech node on its own
 machine, started over ssh from its install directory and linked to this hub. Only the phone
-is a stand-in: `tools/phone-check`'s, an aiortc peer making the offer as the app does. The
+is a stand-in: `tools/stand-in-phone`, an aiortc peer making the offer as the app does. The
 session's side is played through the agent's socket, as a mod plays it.
 
-It places a call for a session with phone-check's briefing, makes the phone's offer while it
-rings, answers 6 s after placing, and once the opening has played says phone-check's reply
+It places a call for a session with the stand-in phone's sample briefing, makes the phone's
+offer while it rings, answers 6 s after placing, and once the opening has played says its reply
 ("Yes, push it and open the pull request.", spoken by another Kokoro voice). It checks:
 - the speech node and the agent link to the hub, with their tokens;
 - the node loads its models when the call is placed (the hub's `warm`), before you answer;

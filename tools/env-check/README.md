@@ -1,18 +1,18 @@
 # Env check
 
 Checks what a mod sees of its session's environment, for telling whether Remote Control is on
-(Stage 3 step 7 in `docs/design.md`). No mod API says so. Claude Code's docs (env-vars,
+("What a session asks" in `docs/design.md`). No mod API says so. Claude Code's docs (env-vars,
 hooks) say that from 2.1.199 `CLAUDE_CODE_BRIDGE_SESSION_ID` is set in the Bash tool's and
 hooks' commands while the session has an active Remote Control connection, and removed when it
 ends. Whether a mod's own `$.env`, or a command it runs with `$.process.run`, sees it isn't
 documented. The ringback mod tries both.
 
-A small mod (`mod/`) writes, when the session starts and each time a turn ends, the variables
-its `$.env.get` reads (`CLAUDE_CODE_BRIDGE_SESSION_ID`, and others the docs say Claude Code
-gives the Bash tool and hooks, such as `CLAUDE_EFFORT`) and the `CLAUDE` variables that
-`printenv` run with `$.process.run` gets, to the file `$ENV_CHECK_OUT` names. `run.sh` runs
-one `claude -p` session (Haiku) with it, which also runs `printenv` with the Bash tool, and
-prints both. It uses your Claude subscription, one short turn:
+A small mod (`tools/env-check/mod/`) writes, when the session starts and each time a turn ends,
+the variables its `$.env.get` reads (`CLAUDE_CODE_BRIDGE_SESSION_ID`, and others the docs say
+Claude Code gives the Bash tool and hooks, such as `CLAUDE_EFFORT`) and the `CLAUDE` variables
+that `printenv` run with `$.process.run` gets, to the file `$ENV_CHECK_OUT` names. `run.sh`
+runs one `claude -p` session (Haiku) with it, which also runs `printenv` with the Bash tool,
+and prints both. It uses your Claude subscription, one short turn:
 
     tools/env-check/run.sh [--inherited] [OUT_DIR]
 
@@ -47,4 +47,4 @@ to have Remote Control.
 So ringback's mod doesn't use the variable. Claude Code's undocumented file for each
 session, `~/.claude/sessions/<process>.json`, has a `bridgeSessionId` while Remote Control
 is on (seen 2026-10-30), but the developer chose not to rely on it: `/ringback` turns Remote
-Control on itself, and the rest takes it as on (`docs/design.md`, Stage 3 step 7).
+Control on itself, and the rest takes it as on ("What a session asks" in `docs/design.md`).

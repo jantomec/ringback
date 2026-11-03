@@ -2,11 +2,13 @@
 
 Ringback's speech node ("The parts" in `docs/design.md`): it dials out to the hub over a
 WebSocket (`docs/protocol.md`, "The speech node") and does all the hearing and speaking for
-calls, natively on a machine with a GPU (or a CPU):
+calls, natively on a Linux machine with an NVIDIA GPU (its config can name the CPU instead,
+`provider = "cpu"`, which `install.sh` doesn't set up and which hasn't been tried):
 
 - **Hearing**, per stream: Silero VAD v5 and Smart Turn v3.2 through ONNX Runtime's C API,
   Parakeet TDT 0.6B v2 through sherpa-onnx. It decides "speech started", "speech stopped"
-  and "turn" as Pipecat 1.14.0 does: the same thresholds from the app's sensitivity and
+  and "turn" as Pipecat 1.14.0 does (the voice framework whose hearing these settings were
+  tuned with): the same thresholds from the app's sensitivity and
   background filter (`internal/hearing/params.go`), the same volume gate (BS.1770 loudness of
   the last 400 ms), the same state machine and model resets, Smart Turn on the same Whisper
   features, and the turn wait (1.5 s). One transcription per stretch of speech, with 1 s
@@ -64,17 +66,17 @@ speech/build.sh                     # into its bin/
 . ~/ringback-speech/env.sh && ~/ringback-speech/bin/ringback-speech serve
 ```
 
-`install.sh` needs only curl (or wget), tar, unzip and sha256sum: no pip, Python or Docker
-(a wheel is a zip, fetched from PyPI by its URL). It checks each download against a SHA-256
-pinned in it, and each part of the folder against a SHA-256 of its files, pinned from the
-first install, which was made by hand, so every file is the same as there. Run again, it
+`install.sh` needs only curl (or wget), tar, bzip2, gzip, unzip and sha256sum: no pip, Python
+or Docker (a wheel is a zip, fetched from PyPI by its URL). It checks each download against a
+SHA-256 pinned in it, and each part of the folder against a SHA-256 of its files, pinned from
+the first install, which was made by hand, so every file is the same as there. Run again, it
 hashes what's there and fetches only what's missing or different; a part that differs is
 replaced, and nothing outside the folder is touched. One run at a time (`.installing`); a run
 that fails or is stopped keeps what it fetched in `download/` for the next. It stops on the
 wrong machine (not x86-64 Linux, no NVIDIA driver, a driver older than 580, a GPU older than
 Turing) and warns of a driver older than CUDA 13.3's (610.43.02), whose libraries these are:
-CUDA 13's minor version compatibility should cover it, but that's untried. sherpa-onnx's
-model releases are tags whose files can be uploaded again (Kokoro's was, 2026-10-26); then
+CUDA 13's minor version compatibility should cover it, but that's untried. sherpa-onnx's model
+releases are tags whose files can be uploaded again (Kokoro's was, 2026-10-26); then
 `install.sh` stops at its SHA-256 and the pin needs a look.
 
 Measured on the speech node (2026-11-02, 2.7 GB to download): the first run took 69 s, the

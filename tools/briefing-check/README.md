@@ -8,8 +8,7 @@ For each revision, it takes `mod/` as it is there, points its socket at a path t
 exist, so no call can be placed, and runs `--runs` sessions (`claude -p`, 4 at a time):
 `/ringback`, then the session check's work, "Say in one sentence that the session check
 works." When that turn ends, the mod asks for the briefing. The session's work is about
-ringback itself, as in `tools/session-check`, which is where briefings said the call might
-not reach you.
+ringback itself, which is where briefings said the call might not reach you.
 
 Run from the repo root; it uses your Claude subscription. `.` is the working tree (the
 default):

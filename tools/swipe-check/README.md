@@ -1,9 +1,9 @@
 # Swipe check
 
-Checks what `.disabled` does to a SwiftUI swipe action (`.swipeActions` on a List row), for
-the app's "Claude App" action on a waiting call with a question, which works only while
-Remote Control is on in that call's session (Stage 3 step 7 in `docs/design.md`). Apple's
-docs don't say whether a disabled swipe action greys out, or whether its tap is blocked.
+Checks what `.disabled` does to a SwiftUI swipe action (`.swipeActions` on a List row):
+whether a disabled action greys out, and whether its tap is blocked. Apple's docs don't say.
+It was made for the app's "Claude App" action on a waiting call with a question ("What a
+session asks" in `docs/design.md`).
 
 A small app in a simulator shows three rows like the app's waiting calls, in a Form, each a
 Button with a trailing swipe action "Claude App" (`allowsFullSwipe: false`, as in the app):

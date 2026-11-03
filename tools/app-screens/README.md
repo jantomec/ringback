@@ -1,14 +1,14 @@
 # App screens
 
-Screenshots the iPhone app in a simulator, with sample calls, in light and dark, to review
-how it looks (Stage 5 step 1 in `docs/design.md`: the app as the Phone app, with Recents,
-Sessions and its settings in the Settings app). A simulator is fine for this: it's SwiftUI's
-drawing, not ringing, push or audio.
+Screenshots the iPhone app in a simulator, with sample calls, in light and dark, to review how
+it looks (`docs/design.md`, "When calls ring" and "The Sessions tab": the app as the Phone app,
+with Recents, Sessions and its settings in the Settings app). A simulator is fine for this:
+it's SwiftUI's drawing, not ringing, push or audio.
 
 The project is the app's own sources (`app/Ringback`, `app/Settings.bundle`), built for a
 simulator without signing, and a UI test. The app shows the samples only in a debug build,
 when launched with `-RingbackSeed calls`, `problem`, `speech` or `setup` (`app/Ringback/Seed.swift`);
-then it doesn't reach a switchboard and asks for no permissions. The test saves, for each
+then it doesn't reach a hub and asks for no permissions. The test saves, for each
 appearance:
 - `recents`: waiting calls (one with a question, one without) under Waiting, and under
   Calls, calls answered, missed, declined, called back, called from Sessions, one that
@@ -18,7 +18,7 @@ appearance:
 - `call-details`, `call-details-outgoing`, `waiting-details`: a call's details from its ⓘ;
 - `sessions`, cards with two sessions in one project and both kinds of waiting call,
   `session-menu`, a card held, and `session-details`, from its Details;
-- `banner`: Recents while the switchboard can't be reached, with Try Again, and the hold
+- `banner`: Recents while the hub can't be reached, with Try Again, and the hold
   switch taking calls until 19:00;
 - `speech-banner`: no speech computer linked, a call waiting for it, and the microphone off:
   the speech banner with "1 More Problem", then `speech-banner-all` with both;
@@ -66,7 +66,7 @@ screenshot build in a booted simulator: it launches the app on hold, in dark mod
 screen, and reads the blue channel just above the pill, mid-screen and in the far corner of
 every frame. It prints each one's range and period, and how far the background lags the pill,
 their correlation and its share of the pill's swing (the wash should beat with the pill, at the
-same period and phase, faintly). Needs the voice project's Python:
+same period and phase, faintly). Needs the tools' Python environment (`uv run --project tools`):
 
     uv run --project tools tools/app-screens/breath_check.py [SECONDS] [--keep VIDEO]
 

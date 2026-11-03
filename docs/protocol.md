@@ -9,8 +9,9 @@ socket only you can open (`~/.local/state/ringback/voice.sock`).
 
 The app posts JSON and gets JSON back, on the hub's `listen` address. What lets it act on a
 call is the call's ID, a random string of 16 to 128 characters that the push brings; what
-lets it read the waiting calls and the sessions is its own push token. Each request gets at
-most 5 s.
+lets it read the waiting calls and the sessions is its own push token, which `/register` takes
+without proof ("Security" in `docs/design.md`). Each request gets at most 5 s, or 15 s for
+`/offer`, `/answered`, `/claude-app` and `/reask`.
 
 | Endpoint | What it's for |
 |---|---|
@@ -20,7 +21,7 @@ most 5 s.
 | `/waiting` | the calls that wait, for Recents, and the hold switch |
 | `/contacts` | the sessions listening on every Mac, for the Sessions tab |
 | `/hold` | reads or sets the phone's hold switch |
-| `/offer` | the call's WebRTC offer, made while the phone rings, for a waiting call called now (`now`), a call back (`back`) or a session called from Sessions (`contact`); the agent that owns the call accepts or refuses it, and the hub answers with its SDP. With no speech node linked: 503 `no speech node` |
+| `/offer` | the call's WebRTC offer, with the call's ID: made while the phone rings (`"ringing": true`), or for a waiting call called now (`"now": true`), a call back (`"back": true`) or a session called from Sessions (`"contact"`: the session's ID); the agent that owns the call accepts or refuses it, and the hub answers with its SDP. With no speech node linked: 503 `no speech node` |
 | `/answered` | you answered a call whose offer came while it rang |
 | `/claude-app` | sends a waiting call's question to the session's own dialog, which Remote Control shows in the Claude app |
 | `/reask` | you took calls: the held ones among them ask again now |
@@ -67,7 +68,7 @@ Hello: `{"type": "hello", "version": 1, "name": "…", "hearing": true, "speakin
 | Direction | Message |
 |---|---|
 | hub → node | `{"type": "warm"}`: a call is coming: load the models now. The node also loads them on `hear`, and lets them go when it has had no stream for a while (`idle` in its settings, 60 s) |
-| hub → node | `{"type": "hear", "stream": 7, "sensitivity": 0.5, "gate": 0.5}` opens it, with the app's interruption sensitivity and background filter (0 = off), mapped to Silero's thresholds as `voice/ringback_voice/hearing.py` does |
+| hub → node | `{"type": "hear", "stream": 7, "sensitivity": 0.5, "gate": 0.5}` opens it, with the app's interruption sensitivity and background filter (0 = off), mapped to Silero's thresholds as `speech/internal/hearing/params.go` does |
 | hub → node | binary: stream 7, then 20 ms of your audio at 16 kHz (320 samples) |
 | node → hub | `{"type": "speech_started", "stream": 7}` when Silero hears you start (the hub interrupts the voice on it) |
 | node → hub | `{"type": "speech_stopped", "stream": 7}` when you pause |
@@ -125,7 +126,7 @@ written can be told from the next.
 | agent → hub | `{"type": "said", "call_id", "reply": 3}` at the end of a reply; a reply with nothing to say (only a tool call) is just this, and the hub says `idle` once the voice is |
 | hub → agent | `{"type": "heard", "call_id", "reply": 3, "text": "…"}` as reply 3 plays: everything of the current reply you've heard so far (for what's held until you've heard it announced) |
 | hub → agent | `{"type": "interrupted", "call_id", "reply": 3, "heard": "…"}` when you cut the voice off: what you'd heard of reply 3; the rest is never spoken, and the hub drops whatever more comes of it, so the agent stops writing it. You also cut off a reply to your turn that hasn't come yet: `reply` is then the next number and `heard` is empty |
-| hub → agent | `{"type": "turn", "call_id", "text": "…", "interrupted": true}`: your words, for the next reply, which the agent starts at once. `interrupted` says you cut the voice off since your last turn (or a reply that hadn't come yet), or it hadn't finished speaking once yet. Empty when a stop held no words the recogniser caught: if it interrupted, the voice carries on (the `NOISE` prompt), once in a row; otherwise it goes unanswered, and its reply is just `said` |
+| hub → agent | `{"type": "turn", "call_id", "text": "…", "interrupted": true}`: your words, for the next reply, which the agent starts at once. `interrupted` says you cut the voice off since your last turn (or a reply that hadn't come yet), or it hadn't finished speaking once yet. Empty when a stop held no words the recogniser caught: if it interrupted, the voice carries on (the `noise` prompt in `agent/texts.go`), once in a row; otherwise it goes unanswered, and its reply is just `said` |
 | hub → agent | `{"type": "speaking", "call_id"}` when the voice's audio starts playing; the first one is the opening, which the session's notes wait for |
 | hub → agent | `{"type": "idle", "call_id"}` when the voice has finished speaking and you aren't speaking. A note from the session (`[The session: …]`, a new ask) waits for it, then runs the next reply |
 | agent → hub | `{"type": "hang_up", "call_id"}` when the call should end from the voice's side (none yet) |
@@ -160,3 +161,22 @@ as for an offer, so there's no token. Messages are the speech node's, with no st
 
 The link closing ends the call; the hub tells the agent how long you talked, from when the
 link was welcomed or you answered, whichever came last.
+
+## The mod and the agent (the socket)
+
+Each session's mod talks to the agent on its own Mac over HTTP on a Unix socket,
+`~/.local/state/ringback/voice.sock`, which only you can open (the host in URLs is `voice`).
+JSON bodies; `agent/api.go` has the details.
+
+| Request | What it's for |
+|---|---|
+| `POST /calls` | places a call with a session's briefing: `session_id`, `project` and `briefing`, and the session's `cwd` and the call's `subject`. Outside your work hours the answer has `held_until`, when it can ring |
+| `GET /sessions/{id}/messages?project=…&cwd=…` | collects what waits for the session, once a second, which also tells the agent the session listens: each message has a `kind` (`message`, what the voice passed on; `outcome`, how a call went), its `text`, and the call's `transcript` if there is one |
+| `POST /sessions/{id}/news` | the session's answer: `{"live": true}` if the voice told the call you're on, false if the session should call you |
+| `POST /sessions/{id}/permissions`, `POST /sessions/{id}/questions` | asks your permission for a tool call, or asks you questions with their options. It's put to the call you're on with the session (`"call": "live"`), to one placed to ask it (`"placed"`), or held outside your work hours (`"held"`, with `held_until`), and answered with its `id`; 502 if no call can be placed |
+| `GET /sessions/{id}/{permissions\|questions}/{ask}?wait=S` | waits up to S seconds (at most 25) for the answer: a permission's `verdict` (`allow`, `deny`, `none`, `terminal` or `pending`), or the questions' `status` (`answered`, `none`, `terminal` or `pending`) and `answers`, with what you `said`, and `"held": true` while its call is held. `none`: you hung up without answering. `terminal`: you sent the held call's question to the Claude app, so the session asks in its own dialog |
+| `DELETE /sessions/{id}/{permissions\|questions}/{ask}` | withdraws it: the session no longer waits for an answer |
+
+`POST /sessions/{id}/messages` and `POST /sessions/{id}/{permissions|questions}/{ask}` leave a
+message or record an answer as the voice would, for tools.
+

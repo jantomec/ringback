@@ -43,7 +43,7 @@ no API key, and no server of ours in between.
 - **It rings like a phone call.** Locked phone, headphones in, through CallKit. The voice is
   ready the moment you answer.
 - **You can interrupt.** Start talking and the voice stops, the way a person would. It answers
-  you in a second or two.
+  you in about two seconds.
 - **You say what's next.** "Run the tests again", "what did you change in the parser?". It
   passes instructions on, answers from the briefing, and tells you when the session replies.
 - **You approve by voice.** A permission prompt or a question from the session comes to the
@@ -67,7 +67,7 @@ no API key, and no server of ours in between.
 Built like the Phone app, with one switch of its own: the pill beside the tabs holds every call
 until you let them through, and breathes while it does. It's in Control Center too, and the
 app's icon counts the calls that wait. When something calls need is down (your hub, the speech
-computer, Apple's push), a banner at the top says what, in plain words, and goes once it's back.
+node, Apple's push), a banner at the top says what, in plain words, and goes once it's back.
 
 ## How it works
 
@@ -98,13 +98,14 @@ How each part works and why, and what's been tried on the phone so far, are in
 
 You need:
 
-- an always-on Mac for the hub, Intel or Apple silicon (it needs nothing installed);
-- for the speech node, a Linux machine with an NVIDIA GPU: 3–3.5 GB of GPU memory and 3 GB of
-  RAM during calls, next to nothing between them, and 4 GB on disk. It's optional: without one,
+- an always-on Mac for the hub, Intel or Apple silicon (it needs nothing installed but your
+  VPN);
+- for the speech node, a Linux machine with an NVIDIA GPU: about 3 GB of GPU memory and 3 GB
+  of RAM during calls, next to nothing between them, and 4 GB on disk. It's optional: without one,
   the iPhone hears and speaks calls itself, and gets more of your words wrong;
 - Claude Code on each Mac that runs sessions, on a Claude subscription that includes Opus;
 - a Mac with Xcode, and Go, CMake, XcodeGen and pkg-config from Homebrew, to build the app, the
-  hub and the agent;
+  hub and the agent; Go and a copy of this repository on each Mac that runs sessions;
 - an iPhone on iOS 26 or later, and a paid Apple Developer account, for VoIP pushes;
 - a private network all of them reach, the phone too on mobile data: Nebula, with a lighthouse
   that relays, is the one it's tested on.
@@ -119,24 +120,24 @@ claude --plugin-dir path/to/ringback/mod
 
 ## Status
 
-Ringback is a working prototype, built in stages and tested on real calls.
+Ringback is a working prototype. Everything here is built and passes its offline checks; a
+tick means it has also been tried on a real phone, locked, with the current code.
 
-- [x] A locked iPhone rings, and you talk with the voice
-- [x] Sessions call when they finish, and what you say reaches them
-- [x] Permission prompts and questions, answered on the call
-- [x] Opus on the line, missed calls called back, work hours
-- [x] Weak signal: 3G, and the Network Link Conditioner's Very Bad Network
-- [x] Recents and Sessions: call any session, or a recent call back
-- [x] One hub, a speech node and an agent on each Mac, in Go, in place of a voice server on every
-      Mac: calls on the phone, the GPU freed between calls, and banners for what's down
-- [ ] The rest on the Go stack on the phone (held calls, call backs, Sessions, asks, Opus, weak
-      signal): tried offline, and on the earlier stack
-- [ ] Calls and asks that survive a restart of the agent or the hub: built, tried offline
-- [ ] The hold switch, its breathing light, and the Lock Screen widget: built, partly tried on the phone
-- [ ] Speech on the iPhone itself, without a speech node: a trial with Apple's recognition is
-      under way (it hears in the background, and gets more words wrong than Parakeet)
-- [ ] The hub's portal, to see and set up everything, behind a password and a passcode: built, tried offline (passkeys later)
-- [ ] Several sessions calling in turn, with retries: planned
+- [x] A locked iPhone rings, and you talk with the voice, interrupting it, and what you ask to
+      pass on goes once you've heard it announced (a call placed through the agent by hand)
+- [x] A call waits while no speech node is linked, and rings once one links
+- [x] The hub's portal, from the phone
+- [ ] A session calling when it finishes, and its answer coming back to the call
+- [ ] Permission prompts and questions, answered on the call
+- [ ] Work hours, the hold switch, its breathing light and the Lock Screen widget
+- [ ] Calling back, calling a waiting call now, and the Sessions tab
+- [ ] Opus on the line
+- [ ] Weak signal: 3G, and the Network Link Conditioner's Very Bad Network
+- [ ] Speech on the iPhone itself, without a speech node (On-device Voice)
+- [ ] Calls and asks that survive a restart of the agent or the hub
+
+Planned: several sessions calling in turn, with retries, and a public hub that needs no
+private network ("Next" in [docs/design.md](docs/design.md)).
 
 <details>
 <summary><b>Repository and development</b></summary>
@@ -153,7 +154,8 @@ Ringback is a working prototype, built in stages and tested on real calls.
 | `docs/` | The design, the protocol between the parts, the setup guide, and the images here |
 
 Before every commit, these show that everything builds and passes its offline checks, in about
-a minute and a half:
+a minute and a half. They need `app/Config/Local.xcconfig` (step 7 of the setup) and
+Homebrew's `opus` (`brew install opus`), which a plain `go build` of the hub links:
 
 ```sh
 (cd app && xcodegen generate && xcodebuild -project Ringback.xcodeproj -scheme Ringback \

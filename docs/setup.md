@@ -20,23 +20,30 @@ say where else. Replace the example addresses (`10.0.0.1` for the hub) with your
 
 - **A Mac with Xcode** that can build for your phone's iOS version (Xcode 27 for iOS 27),
   with **XcodeGen**, **Go**, **CMake** and **pkg-config** (`brew install xcodegen go cmake
-  pkgconf`), to build the app, the hub and the agent; and **uv** (`brew install uv`) for the
-  checks in step 9.
+  pkgconf`), to build the app, the hub and the agent; and for the checks in step 9, **uv**
+  and **opus** (`brew install uv opus`): a plain `go build` of the hub links Homebrew's
+  libopus, while `hub/build.sh` builds its own. The checks in `tools/` need an Apple silicon
+  Mac: some of their Python packages (MLX for Kokoro, and `cryptography`) come built for it
+  only.
 - **A paid Apple Developer Program account.** VoIP pushes need it.
 - **An iPhone** on iOS 26 or later.
 - **An always-on Mac** for the hub, Intel or Apple silicon, on macOS 13 or later. It needs
-  nothing installed.
+  nothing installed but your VPN.
 - **A Linux machine with an NVIDIA GPU** for the speech node, if you want one (step 4):
   x86-64, a GPU from the Turing generation (2018) or later, and a driver of the 580 series or
-  later, for CUDA 13 (it's tried on 610). A call takes 3–3.5 GB of its GPU memory and 3 GB of
-  RAM; between calls it takes 16 MB and no GPU memory. Its install takes 4 GB of disk. While
+  later, for CUDA 13 (it's tried on 610). A call takes about 3 GB of its GPU memory and 3 GB
+  of RAM; between calls it takes 16 MB and no GPU memory. Its install takes 4 GB of disk. While
   it runs, it also holds its downloads (2.7 GB) and their unpacked files until each part is in
   place, so keep about 10 GB free (the peak isn't measured).
+- **On each Mac that runs sessions:** a copy of this repository, which the mod loads from, and
+  **Go**, to build the agent (step 5).
 - **Claude Code** on each Mac that runs sessions, version 2.1.287 or later, signed in to a
   Claude subscription that includes Opus: the voice is Haiku through `claude`, and Opus when
   you ask for a better model on the line.
 - **A private network** that the phone, the hub, the speech node and the Macs all reach, the
-  phone also on mobile data. Ringback is tested on **Nebula** (Mobile Nebula on the phone):
+  phone also on mobile data. Ringback is tested on **Nebula**
+  ([github.com/slackhq/nebula](https://github.com/slackhq/nebula); Mobile Nebula on the
+  phone):
   - the lighthouse is a relay (`relay.am_relay: true`), and each machine lists it in
     `relay.relays`: on mobile data, the phone reaches the hub only through that relay (see
     "The network" in `docs/design.md`);
@@ -71,7 +78,8 @@ On the always-on Mac, fill in `~/.config/ringback/hub.toml`:
   uses the same address, on UDP ports it picks.
 - `[tokens]` are what the speech node and the agents link with: make each a long random
   string, such as `openssl rand -hex 32` prints.
-- `[apns]` is your team ID, the app's bundle ID, and the key.
+- `[apns]` is your team ID and the app's bundle ID, and `[apns.sandbox]` the key: its key ID
+  and the path of its `.p8` file.
 
 Then start it:
 
@@ -226,7 +234,7 @@ while the phone rings, in about 2 s. A minute after the call, it lets go of the 
 memory again.
 
 To run it as a service, from boot and again if it fails, use the systemd user unit in
-`speech/`:
+`speech/` (checked with `systemd-analyze` and run once, but not yet run enabled):
 
 ```sh
 mkdir -p ~/.config/systemd/user
@@ -249,7 +257,9 @@ cp agent/agent.example.toml ~/.config/ringback/agent.toml   # the hub's address 
 ~/.local/bin/ringback-agent serve
 ```
 
-Sessions on this Mac reach it through a socket only you can open,
+In `agent.toml`, set `hub` to the hub's address and port, as in its `listen`, and `token` to
+`[tokens] agent` in the hub's `hub.toml`; the portal's Setup page shows both. Sessions on this
+Mac reach the agent through a socket only you can open,
 `~/.local/state/ringback/voice.sock`. It needs `claude` on its `PATH`: on a call, it runs Haiku
 as `claude -p`, on this Mac, and Opus when you ask for a better model. It links to the hub
 ("linked to the hub" in its log, and "agent … connected" in the hub's) and tells it which

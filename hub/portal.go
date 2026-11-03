@@ -18,7 +18,7 @@ import (
 )
 
 // The hub's portal: pages under /portal/ for setting up and for the rare times something's
-// wrong ("Status, the hub's portal and speech on the phone" in docs/design.md). It shows a
+// wrong ("The hub's portal" in docs/design.md). It shows a
 // map of the system, the calls, the phones and the log, and changes only what's kept in the
 // hub's state: the hold, on every phone at once, and the parts it remembers having seen;
 // secrets stay in hub.toml. Plain HTML and SVG from templates in the binary, which refresh

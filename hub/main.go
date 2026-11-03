@@ -1,7 +1,6 @@
-// The ringback hub: rings the phone, holds calls while it's on hold, and lists the calls
-// that wait and the sessions you can call. It's the Swift switchboard, ported to Go so it
-// runs on macOS and Linux alike; the call's audio and conversation join it later (the Go
-// port, under Stages in docs/design.md).
+// The ringback hub: rings the phone, holds calls while it's on hold, lists the calls that
+// wait and the sessions you can call, carries each call's audio and runs its timing, links
+// the speech nodes and the agents, and serves the portal ("The parts" in docs/design.md).
 package main
 
 import (
@@ -21,7 +20,7 @@ const usage = `usage: ringback-hub serve | ring [--project NAME] [--subject TEXT
            rings without audio (an agent places a session's calls)
              --project NAME  shown as the caller (default: ringback)
              --subject TEXT  a few words on what the call is about
-             --voice URL     a voice server of the earlier stack, e.g. http://10.0.0.1:8788
+             --voice URL     where the phone offers the call's audio (its /offer)
   check    ask every phone to check its connection now; one that can't reach the
            hub shows a warning
   devices  list registered phones, when each last checked in, their work hours and

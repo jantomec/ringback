@@ -1,11 +1,11 @@
 // The ringback mod: `/ringback` switches calling on or off for this session. While it's on,
-// each finished turn has the session write its call briefing, and the voice server on this
-// Mac rings your phone with it. During the call, what you say for the session reaches it as
+// each finished turn has the session write its call briefing, and the ringback agent on
+// this Mac rings your phone with it. During the call, what you say for the session reaches it as
 // a prompt, and its answer goes back to the call; if you've hung up, it calls again. After
 // each call, the session is told how it went, in a note that starts no turn. A permission
-// prompt, or a question the session asks you, is put to you on a call first (see "Ringback
-// mod" in docs/design.md). It stays on through a reload of the mod, and when you resume the
-// session after Claude Code restarts. While the voice server is down, as when it restarts,
+// prompt, or a question the session asks you, is put to you on a call first (see "What a
+// session asks" in docs/design.md). It stays on through a reload of the mod, and when you resume the
+// session after Claude Code restarts. While the agent is down, as when it restarts,
 // it tries again instead of giving up. Switched on, it turns on Remote Control too, so a
 // question held outside your work hours can go to the Claude app.
 import type { EngineInterface, HttpResponse, Register } from 'claude-code'
