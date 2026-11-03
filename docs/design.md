@@ -689,10 +689,10 @@ current code, and what has only been checked offline.
   session's latest briefing; the session was told afterwards.
 - Pairing the phone from the portal's link, on mobile data, from the app's banner.
 - A call that can't reach the hub (the hub stopped right after it pushed): it rang, and once
-  answered stayed silent until the app gave up, ended the call, and said that Ringback can't
-  reach your hub in a notification and its banner (on Wi-Fi). That was with a wait of 71 s;
-  the 20 s wait, the reason spoken on the call, and the notice when you hang up first are built
-  and not yet tried on the phone.
+  answered stayed silent until the app gave up 20 s after you answered: the phone said
+  "Ringback can't reach your hub. Check that your VPN is on." on the call, ended it, and said
+  so in a notification. Hung up after a few seconds instead, a notification said "The call
+  didn't connect" and why (on Wi-Fi).
 - The portal on a real hub, from the phone's Safari: signing in, the map, and taking calls.
 - In the app, apart from the hub, with an earlier build whose code for them hasn't changed:
   ringing as call waiting during another call, a call recorded as ended when the app is
@@ -731,7 +731,7 @@ host unable to read their calls.
   on whose audio can't connect, or is lost, ends through CallKit, with a notification and the
   app's banner saying why: that the hub can't be reached, as the connection check says, or the
   error. It waits 20 s after you answer, says the reason on the call before ending, and says
-  why when you hang up first too (these three built, not yet tried on the phone).
+  why when you hang up first too.
 - [x] **A phone proves it's yours before the hub takes its push token** (tried on the phone).
   The app's banner sends an unpaired phone to the portal's pairing page, whose
   one-time link opens Ringback, which trades it for the phone's key; every request that names
