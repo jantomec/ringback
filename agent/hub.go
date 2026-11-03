@@ -321,6 +321,8 @@ func (a *agent) handle(m map[string]any) {
 		a.toVoice(id, func(*offer) any { return speakingMsg{} })
 	case "idle":
 		a.toVoice(id, func(*offer) any { return idleMsg{} })
+	case "quiet":
+		a.toVoice(id, func(*offer) any { return quietMsg{} })
 	case "heard":
 		text, _ := m["text"].(string)
 		reply, _ := m["reply"].(float64)

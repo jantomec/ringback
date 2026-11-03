@@ -227,6 +227,15 @@ func (h *hearStream) Turn(text string, secs, took float64) {
 	h.n.out(map[string]any{"type": "turn", "stream": h.id, "text": text, "secs": round3(secs), "took": round3(took)})
 }
 
+func (h *hearStream) Missed(m hearing.Missed) {
+	why := fmt.Sprintf("shorter than the %.2f s the sensitivity needs", m.Needed)
+	if m.Quiet > 0 {
+		why = fmt.Sprintf("%.2f s of it quieter than the background filter", m.Quiet)
+	}
+	logf("stream %d: not taken for speech: %.2f s that Silero heard (at most %.2f), loudest %.2f (%.0f LUFS) "+
+		"against the filter's %.2f: %s", h.id, m.Secs, m.Confidence, m.Volume, -110+100*m.Volume, m.Gate, why)
+}
+
 func (h *hearStream) Transcribe(id int, samples []float32) {
 	asked := time.Now()
 	h.n.gpu.hearing(func() {

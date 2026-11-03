@@ -147,6 +147,14 @@ and that one started by `warm` alone exits too; then it kills a worker during a 
 node must close its link and link again) and drops the link while a worker loads (the worker
 must exit). The node's log ends with each worker's start, load time and exit.
 
+Something said that started no turn is in the node's log: each stretch of 0.1 s or more that
+Silero took for speech while you weren't speaking, which the background filter kept out
+(quieter than its volume) or that was shorter than the sensitivity needs, as "not taken for
+speech", with its length, loudness and why. It changes nothing about what's heard. On
+2026-11-03, `check.sh` passed all 45 checks with it, and the recording 20 dB quieter, with the
+filter at its strongest (-30 LUFS), logged three: 1.1–2.5 s each, loudest -38 to -43 LUFS,
+all of it kept out by the filter. No stream that was heard logged one.
+
 The pure Go parts have tests that run anywhere (`go test ./internal/hearing
 ./internal/speaking`); with `RINGBACK_KOKORO_DIR` set to Kokoro's folder they check that
 every word of sentences sherpa-onnx dropped words from gets sounds.

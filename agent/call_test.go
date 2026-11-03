@@ -238,9 +238,23 @@ func TestNotesAndAsksOnACall(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	check(t, "a second one in a row goes unanswered", twice != nil && hub.count(sayN(9)) == 0 && len(a.turns()) == 7, twice)
 
-	// A permission still waiting when you hang up gets none.
+	// A permission you don't answer: once the voice has finished and nothing has been heard for
+	// a while (the hub's quiet), it asks again, once.
 	_, asked = a.mod("POST", "/sessions/s2-session/permissions", map[string]any{"tool": "Write", "project": "demo", "cwd": a.project()})
 	last := asked["permission"].(string)
+	note = a.waitTurn(8, 5*time.Second)
+	check(t, "a permission is put to the call", strings.HasPrefix(note, "[The session asks"), note)
+	text, _ = hub.reply(callID, 10, 5*time.Second)
+	a.played(callID, text)
+	hub.send(map[string]any{"type": "quiet", "call_id": callID})
+	check(t, "nothing heard: the voice asks again", a.waitTurn(9, 5*time.Second) == "["+reask+"]")
+	text, _ = hub.reply(callID, 11, 5*time.Second)
+	a.played(callID, text)
+	hub.send(map[string]any{"type": "quiet", "call_id": callID})
+	time.Sleep(200 * time.Millisecond)
+	check(t, "but only once", len(a.turns()) == 9, a.turns())
+
+	// A permission still waiting when you hang up gets none.
 	hub.send(map[string]any{"type": "ended", "call_id": callID, "lasted": 30.0})
 	_, none := a.mod("GET", "/sessions/s2-session/permissions/"+last+"?wait=5", nil)
 	check(t, "hung up without an answer: none", none["verdict"] == "none", none)

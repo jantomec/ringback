@@ -36,6 +36,8 @@ state in a throwaway HOME, and checks:
   spoken, heard to its end, then `idle`; the agent never hears an empty `heard`;
 - a reply with nothing to say (just `said`) leaves the voice idle; each turn says whether you
   cut the voice off since the last (the agent answers a stop with no words only then);
+- once the voice is idle and you haven't spoken for 8 s, the agent hears `quiet`, once, and
+  not before: none came while you kept talking;
 - hung up, the agent hears the call ended and how long you talked, within 3 s of the time on
   the phone, and the node to stop hearing;
 - with no node linked, a call waiting for speech asks again once the phone turns its own
@@ -58,7 +60,9 @@ It prints the hub's log and one line per check. `--keep` keeps the throwaway HOM
 state, log). `RINGBACK_HUB` runs another binary, such as the universal one `hub/build.sh`
 makes, and `RINGBACK_HUB_ARCH="arch -x86_64"` runs its Intel half under Rosetta.
 
-Result on 2026-11-02, the last version (28 checks, with the warm-up): all passed. The version
+Result on 2026-11-03, with `quiet` (49 checks): all passed, in 29 s, about 11 s of it waiting
+for `quiet`, which came 8.0 s after the last `idle`. On 2026-11-02 (28 checks, with the
+warm-up): all passed. The version
 before (27 checks) passed three runs, 9–10 s each. The version before, with 25 checks, passed five runs.
 Without the hub clearing what you'd heard when cut off, the check of an empty `heard` fails
 (tried once, to see that it measures it). The first version's run (19 checks, 8 s): The audio connected 0.03 s after

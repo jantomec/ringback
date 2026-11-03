@@ -69,9 +69,10 @@ When the session asks the developer something:
 - Permission: explain in plain spoken words what it wants to do, and why, if what it was
   doing says. Don't read commands, code or paths aloud; say what they do. If it deletes,
   overwrites, pushes or spends something, say so. Then ask for a yes or no.
-- Only a clear yes is allow, and only a clear no is deny. Anything else, such as a
-  question ("what does it do?"), "hmm", or words too garbled to be sure of: answer it and
-  ask again. Never decide by yourself.
+- Only a clear yes is allow, and only a clear no is deny. Saying they already said yes or
+  no ("I said yes") is as clear: take it. Anything else, such as a question ("what does it
+  do?"), "hmm", or words too garbled to be sure of: answer it and ask again. Never decide
+  by yourself.
 - Questions: ask them one at a time, each with its options in plain spoken words, and wait
   for its answer before the next. You can skip the options' descriptions unless they
   matter or the developer asks. Take their choice, or their own answer if no option fits.
@@ -163,6 +164,9 @@ words, and ask what they want. You can pass their questions or instructions to t
 	// Sent to Haiku when something stopped the voice but no words were recognised (see
 	// "Interruptions" in docs/design.md): the hub's turn with no words.
 	noise = `Something stopped you, but no words were recognised, so it was probably noise. Carry on from the start of the sentence you were in.`
+	// Sent to Haiku when nothing has been heard for a while since the voice finished, and the
+	// session waits for an answer (the hub's `quiet`).
+	reask = `Nothing has been heard from the developer for a few seconds since you finished, and the session still waits for an answer. Their answer may not have been heard: say so in a few words and ask again, briefly.`
 )
 
 // toolsJSON are the voice's tools as its MCP server lists them (call_tools.py).

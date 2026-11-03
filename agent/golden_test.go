@@ -264,8 +264,10 @@ func TestGoldenReplies(t *testing.T) {
 		if s.Model != "" {
 			haiku.model = s.Model
 		}
-		v := &voice{calls: c, callID: "c1", link: link, haiku: haiku, log: func(string) {}, said: s.Said, turn: 2, unfinished: 1}
 		var spoken, answers []string
+		// What's spoken comes from the stream, and from a tool call that flushes it.
+		say := func(m map[string]any) { spoken = append(spoken, m["text"].(string)) }
+		v := &voice{calls: c, callID: "c1", link: link, haiku: haiku, log: func(string) {}, out: say, said: s.Said, turn: 2, unfinished: 1, writing: true}
 		for _, step := range s.Steps {
 			if name, ok := step["tool"].(string); ok {
 				input, _ := step["input"].(map[string]any)

@@ -329,6 +329,24 @@ async def main() -> int:
         check(f"a turn says whether you cut the voice off since the last: {flags}",
               [f for _, f in flags] == [False, True, True, False])  # fmt: skip
 
+        # Quiet: once the voice is idle and you haven't spoken for 8 s, the agent hears so, once
+        # (an answer it asked for may have gone unheard). Speaking meanwhile starts it again.
+        check(f"no quiet while you kept talking: {len(agent.of('quiet'))}", not agent.of("quiet"))
+        await asyncio.sleep(2)
+        await node.ws.send_json({"type": "speech_started", "stream": stream})
+        await node.ws.send_json({"type": "speech_stopped", "stream": stream})
+        await node.ws.send_json({"type": "turn", "stream": stream, "text": "", "secs": 0.3, "took": 0.02})
+        await until(lambda: len(agent.of("turn")) == 5, 3)
+        await agent.ws.send_json({"type": "said", "call_id": call_id, "reply": 6})
+        await until(lambda: len(agent.of("idle")) > idles + 2, 3)
+        idle_at = [t for t, m in agent.got if m["type"] == "idle"][-1]
+        await until(lambda: agent.of("quiet"), 12)
+        await asyncio.sleep(1)
+        quiets = [t - idle_at for t, m in agent.got if m["type"] == "quiet"]
+        check(f"8 s after the voice went idle with nothing heard, the agent hears it's quiet, once: "
+              f"{[round(q, 2) for q in quiets]} s",
+              len(quiets) == 1 and 8 <= quiets[0] < 8.5)  # fmt: skip
+
         # Hanging up: the agent hears how long you talked.
         talked = time.monotonic() - t0
         await phone.hang_up()

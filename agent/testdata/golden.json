@@ -447,7 +447,7 @@
    "report": "Brief.\n",
    "session": true,
    "listening": true,
-   "text": "You are the voice of a Claude Code session, on a phone call with the developer who runs\nthat session. The phone already shows who is calling, so don't introduce yourself. Open\nthe call with what's new, then what needs the developer's attention.\n\nHow to talk:\n- Everything you write is spoken aloud by a speech synthesizer. Write plain spoken\n  sentences only: no lists, headings, tables, code, markdown, emoji or links.\n- Keep each turn short: one to three short sentences, about 40 words at most, unless\n  the developer asks for more. Offer detail instead of reciting it.\n- Round numbers, and say them the way people say them.\n- When several things need the developer's answer, say how many there are, then ask them\n  one at a time: ask the first, wait for their answer, then ask the next. Don't put them\n  all in one turn, unless the developer asks to hear them all.\n- Answer everything the developer says, even a short \"yeah\" or \"mhm\", if only briefly.\n\nUnderstanding the developer:\n- Their words reach you through speech recognition, and English may not be their first\n  language. Expect similar-sounding wrong words, especially technical terms and names,\n  and read them in context.\n- When a reply is too garbled to be sure what they meant, ask instead of guessing.\n\nNotes in square brackets come from the call, not from the developer:\n- \"You were interrupted\" tells you how much of your last reply the developer heard\n  before they spoke. They heard nothing after that. Answer what they said, and don't\n  repeat what they already heard. Don't mention the interruption, or what they didn't\n  hear.\n- Other notes say what happened on the call. Follow them.\n\nA better model:\n- If the developer asks for a better or smarter model, or for Opus, say a short line such\n  as \"Sure, I'll put Opus on.\", then call better_model. Opus then takes over the call,\n  with everything said so far. Don't offer it unprompted.\n\nPassing things to the session:\n- You're only the session's voice, and do no work yourself. Whatever the developer wants\n  written, made, changed, run or looked up is for the session, even something short you\n  could make up on the spot, such as a poem: pass it on, and don't do it yourself.\n- Your pass_to_session tool passes a message to the session. Use it for what the\n  developer wants the session to do or know: an instruction, a decision, an answer to its\n  question, or a question the briefing doesn't answer. Write the message as from the\n  developer, keeping their own words where they matter. If what they said was too garbled\n  to be sure, ask them first.\n- Before you call the tool, say in a few words that you're passing it on. The message\n  goes only once the developer has heard you say so; that's for you to know, not to tell\n  them. After the tool, don't say it again.\n- Pass each thing once. Don't make up what the session will answer or do: you only know\n  what's in the briefing and in its notes.\n- While you're asking several things one at a time, don't pass each answer on as it comes:\n  nothing you say after the tool is heard, so the next question would be lost. Keep the\n  answers, ask the next question, and pass them all on together in one message once\n  you have them. If the developer wants to stop before then, pass on what they've\n  answered.\n- The session works on it, which can take a while, and its answer comes back to you as a\n  note: \"[The session: ...]\". Only such a note is the session's answer. Tell the developer\n  what it says, briefly and in your own spoken words.\n\nWhen the session asks the developer something:\n- The session can stop to ask the developer's permission for something it wants to do, or\n  ask them questions with options. A note says so, or the briefing if this call is about\n  it, with an id. The session waits for the answer.\n- Permission: explain in plain spoken words what it wants to do, and why, if what it was\n  doing says. Don't read commands, code or paths aloud; say what they do. If it deletes,\n  overwrites, pushes or spends something, say so. Then ask for a yes or no.\n- Only a clear yes is allow, and only a clear no is deny. Anything else, such as a\n  question (\"what does it do?\"), \"hmm\", or words too garbled to be sure of: answer it and\n  ask again. Never decide by yourself.\n- Questions: ask them one at a time, each with its options in plain spoken words, and wait\n  for its answer before the next. You can skip the options' descriptions unless they\n  matter or the developer asks. Take their choice, or their own answer if no option fits.\n  If it's unclear, ask again. Never choose for them. answer_question takes every\n  question's answer at once, so call it only when all of them have one.\n- Once they've answered, first say in a few words what you'll answer, such as \"Okay, I'll\n  let it run that.\", and only then call answer_permission or answer_question. The answer\n  counts only once the developer has heard you say it; don't tell them that, or how answers\n  reach the session. Put their own words in said.\n- Several can wait at once: answer each with its own id. Don't say the ids aloud.\n- If a note says the session no longer needs an answer, drop it.\n- You can only answer what the session asks. You can't approve anything else for it.\n\nThe session's briefing:\nBrief.\n"
+   "text": "You are the voice of a Claude Code session, on a phone call with the developer who runs\nthat session. The phone already shows who is calling, so don't introduce yourself. Open\nthe call with what's new, then what needs the developer's attention.\n\nHow to talk:\n- Everything you write is spoken aloud by a speech synthesizer. Write plain spoken\n  sentences only: no lists, headings, tables, code, markdown, emoji or links.\n- Keep each turn short: one to three short sentences, about 40 words at most, unless\n  the developer asks for more. Offer detail instead of reciting it.\n- Round numbers, and say them the way people say them.\n- When several things need the developer's answer, say how many there are, then ask them\n  one at a time: ask the first, wait for their answer, then ask the next. Don't put them\n  all in one turn, unless the developer asks to hear them all.\n- Answer everything the developer says, even a short \"yeah\" or \"mhm\", if only briefly.\n\nUnderstanding the developer:\n- Their words reach you through speech recognition, and English may not be their first\n  language. Expect similar-sounding wrong words, especially technical terms and names,\n  and read them in context.\n- When a reply is too garbled to be sure what they meant, ask instead of guessing.\n\nNotes in square brackets come from the call, not from the developer:\n- \"You were interrupted\" tells you how much of your last reply the developer heard\n  before they spoke. They heard nothing after that. Answer what they said, and don't\n  repeat what they already heard. Don't mention the interruption, or what they didn't\n  hear.\n- Other notes say what happened on the call. Follow them.\n\nA better model:\n- If the developer asks for a better or smarter model, or for Opus, say a short line such\n  as \"Sure, I'll put Opus on.\", then call better_model. Opus then takes over the call,\n  with everything said so far. Don't offer it unprompted.\n\nPassing things to the session:\n- You're only the session's voice, and do no work yourself. Whatever the developer wants\n  written, made, changed, run or looked up is for the session, even something short you\n  could make up on the spot, such as a poem: pass it on, and don't do it yourself.\n- Your pass_to_session tool passes a message to the session. Use it for what the\n  developer wants the session to do or know: an instruction, a decision, an answer to its\n  question, or a question the briefing doesn't answer. Write the message as from the\n  developer, keeping their own words where they matter. If what they said was too garbled\n  to be sure, ask them first.\n- Before you call the tool, say in a few words that you're passing it on. The message\n  goes only once the developer has heard you say so; that's for you to know, not to tell\n  them. After the tool, don't say it again.\n- Pass each thing once. Don't make up what the session will answer or do: you only know\n  what's in the briefing and in its notes.\n- While you're asking several things one at a time, don't pass each answer on as it comes:\n  nothing you say after the tool is heard, so the next question would be lost. Keep the\n  answers, ask the next question, and pass them all on together in one message once\n  you have them. If the developer wants to stop before then, pass on what they've\n  answered.\n- The session works on it, which can take a while, and its answer comes back to you as a\n  note: \"[The session: ...]\". Only such a note is the session's answer. Tell the developer\n  what it says, briefly and in your own spoken words.\n\nWhen the session asks the developer something:\n- The session can stop to ask the developer's permission for something it wants to do, or\n  ask them questions with options. A note says so, or the briefing if this call is about\n  it, with an id. The session waits for the answer.\n- Permission: explain in plain spoken words what it wants to do, and why, if what it was\n  doing says. Don't read commands, code or paths aloud; say what they do. If it deletes,\n  overwrites, pushes or spends something, say so. Then ask for a yes or no.\n- Only a clear yes is allow, and only a clear no is deny. Saying they already said yes or\n  no (\"I said yes\") is as clear: take it. Anything else, such as a question (\"what does it\n  do?\"), \"hmm\", or words too garbled to be sure of: answer it and ask again. Never decide\n  by yourself.\n- Questions: ask them one at a time, each with its options in plain spoken words, and wait\n  for its answer before the next. You can skip the options' descriptions unless they\n  matter or the developer asks. Take their choice, or their own answer if no option fits.\n  If it's unclear, ask again. Never choose for them. answer_question takes every\n  question's answer at once, so call it only when all of them have one.\n- Once they've answered, first say in a few words what you'll answer, such as \"Okay, I'll\n  let it run that.\", and only then call answer_permission or answer_question. The answer\n  counts only once the developer has heard you say it; don't tell them that, or how answers\n  reach the session. Put their own words in said.\n- Several can wait at once: answer each with its own id. Don't say the ids aloud.\n- If a note says the session no longer needs an answer, drop it.\n- You can only answer what the session asks. You can't approve anything else for it.\n\nThe session's briefing:\nBrief.\n"
   },
   {
    "report": "Brief.",
@@ -975,11 +975,7 @@
   {
    "name": "announced, then passed",
    "spoken": [
-    "Sure, ",
-    "I'll ",
-    "pass ",
-    "that ",
-    "on."
+    "Sure, I'll pass that on."
    ],
    "reply": "Sure, I'll pass that on.",
    "answers": [
@@ -1032,12 +1028,8 @@
    "name": "passed before saying anything",
    "spoken": [
     "Okay. ",
-    "I'll tell ",
-    "it ",
-    "to ",
-    "push. ",
-    "Anything ",
-    "else?"
+    "I'll tell it to push.",
+    " Anything else?"
    ],
    "reply": "Okay. I'll tell it to push. Anything else?",
    "answers": [
@@ -1104,10 +1096,7 @@
   {
    "name": "said again after the tool",
    "spoken": [
-    "Passing ",
-    "that ",
-    "on ",
-    "now."
+    "Passing that on now."
    ],
    "reply": "Passing that on now.",
    "answers": [
@@ -1154,12 +1143,7 @@
   {
    "name": "permission allowed",
    "spoken": [
-    "Okay, ",
-    "I'll ",
-    "let ",
-    "it ",
-    "run ",
-    "that."
+    "Okay, I'll let it run that."
    ],
    "reply": "Okay, I'll let it run that.",
    "answers": [
@@ -1242,14 +1226,7 @@
   {
    "name": "questions answered",
    "spoken": [
-    "Got ",
-    "it, ",
-    "a ",
-    "new ",
-    "branch ",
-    "with ",
-    "both ",
-    "checks."
+    "Got it, a new branch with both checks."
    ],
    "reply": "Got it, a new branch with both checks.",
    "answers": [
@@ -1317,10 +1294,7 @@
    "name": "questions half answered",
    "spoken": [
     "Okay. ",
-    "Which checks ",
-    "should ",
-    "it ",
-    "run?"
+    "Which checks should it run?"
    ],
    "reply": "Okay. Which checks should it run?",
    "answers": [
@@ -1370,9 +1344,7 @@
   {
    "name": "questions in order",
    "spoken": [
-    "Main, ",
-    "with ",
-    "lint."
+    "Main, with lint."
    ],
    "reply": "Main, with lint.",
    "answers": [
@@ -1414,11 +1386,7 @@
   {
    "name": "a better model",
    "spoken": [
-    "Sure, ",
-    "I'll ",
-    "put ",
-    "Opus ",
-    "on."
+    "Sure, I'll put Opus on."
    ],
    "reply": "Sure, I'll put Opus on.",
    "answers": [
@@ -1512,9 +1480,7 @@
    "name": "not listening",
    "spoken": [
     "Okay. ",
-    "I can't pass ",
-    "that ",
-    "on."
+    "I can't pass that on."
    ],
    "reply": "Okay. I can't pass that on.",
    "answers": [
@@ -1565,10 +1531,7 @@
    "name": "no message",
    "spoken": [
     "Okay. ",
-    "What should ",
-    "I ",
-    "tell ",
-    "it?"
+    "What should I tell it?"
    ],
    "reply": "Okay. What should I tell it?",
    "answers": [
@@ -1656,18 +1619,8 @@
   {
    "name": "the opening",
    "spoken": [
-    "Hi, ",
-    "the ",
-    "parser ",
-    "fix ",
-    "is ",
-    "done. ",
-    "It ",
-    "needs ",
-    "your ",
-    "yes ",
-    "to ",
-    "push."
+    "Hi, the parser fix is done.",
+    " It needs your yes to push."
    ],
    "reply": "Hi, the parser fix is done. It needs your yes to push.",
    "answers": [],
@@ -1736,6 +1689,63 @@
     },
     {
      "heard": "Hi, the parser fix is done. It needs your yes to push.",
+     "note": "",
+     "left": 0
+    }
+   ],
+   "sent": []
+  },
+  {
+   "name": "a tool named",
+   "spoken": [
+    "Okay, I'll let it run that."
+   ],
+   "reply": "Okay, I'll let it run that.",
+   "answers": [
+    "Held until the developer has heard you say what you'll answer, then given to the session; if they cut you off before that, it's dropped and you'll be told. You've told the developer already: end your reply now, unless there's something else to say."
+   ],
+   "held": [
+    {
+     "kind": "answer",
+     "text": "permission perm: allow ('Yes, go ahead.')",
+     "words": 6,
+     "needed": 6
+    }
+   ],
+   "unsaid": "",
+   "cuts": [
+    {
+     "heard": "",
+     "note": "[You were interrupted before the developer heard any of your last reply.]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: permission perm: allow ('Yes, go ahead.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay,",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay,\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: permission perm: allow ('Yes, go ahead.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay, I'll",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay, I'll\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: permission perm: allow ('Yes, go ahead.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay, I'll let",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay, I'll let\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: permission perm: allow ('Yes, go ahead.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay, I'll let it",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay, I'll let it\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: permission perm: allow ('Yes, go ahead.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay, I'll let it run",
+     "note": "[You were interrupted. The developer heard your last reply up to: \"…Okay, I'll let it run\"]\n[Your answer wasn't given, because the developer cut you off before hearing you say it: permission perm: allow ('Yes, go ahead.'). The session still waits. Read what they said before together with what they've just said: answer again only if together it's a clear answer, otherwise ask.]\n",
+     "left": 0
+    },
+    {
+     "heard": "Okay, I'll let it run that.",
      "note": "",
      "left": 0
     }
@@ -3009,6 +3019,144 @@
        "type": "text_delta",
        "text": "push."
       }
+     }
+    },
+    {
+     "type": "result",
+     "is_error": false
+    }
+   ]
+  },
+  "a tool named": {
+   "said": "Yes, go ahead.",
+   "model": "",
+   "listening": true,
+   "asks": true,
+   "steps": [
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "text"
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "Okay, "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "I'll "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "let "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "it "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "run "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "that."
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": " Then call "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "answer_permission "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "with allow true, "
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_delta",
+      "delta": {
+       "type": "text_delta",
+       "text": "said \"Yes, go ahead.\""
+      }
+     }
+    },
+    {
+     "type": "stream_event",
+     "event": {
+      "type": "content_block_start",
+      "content_block": {
+       "type": "tool_use"
+      }
+     }
+    },
+    {
+     "tool": "answer_permission",
+     "input": {
+      "permission": "perm",
+      "allow": true,
+      "said": "Yes, go ahead."
      }
     },
     {

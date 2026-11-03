@@ -35,6 +35,10 @@ import (
 
 var okayStart = regexp.MustCompile(`(?i)^\s*(okay|ok|alright|all right)\b[,.!]?\s*`)
 
+// toolNamed finds a tool's name in a sentence: Haiku once wrote out the call it was about to
+// make ("Then call answer_permission with allow true."), which isn't for saying.
+var toolNamed = regexp.MustCompile(`\b(` + strings.Join(append([]string{betterModel}, sessionTools...), "|") + `)\b`)
+
 // held is a message or an answer for the session, or Opus taking over ("model"), until
 // you've heard the reply up to where Haiku gave it.
 type held struct {
@@ -56,6 +60,7 @@ type (
 	connectedMsg struct{ at time.Time }
 	speakingMsg  struct{}
 	idleMsg      struct{}
+	quietMsg     struct{}
 	heardMsg     struct {
 		text  string
 		reply int
@@ -126,10 +131,13 @@ type voice struct {
 	opener     *string // Haiku's first words after the ack, until checked
 	heardWords *int    // of the last reply, if you cut it off
 	unfinished int     // turns sent whose reply hasn't fully arrived
-	reply      string  // the last reply, as Haiku wrote it
+	reply      string  // the last reply, as it's spoken
+	unspoken   string  // its sentence still being written (see speakable)
 	written    bool    // the last reply is in the call's transcript
 	cut        bool    // you interrupted the last reply while it was arriving
 	cutOff     *string // what you'd heard of the reply you interrupted
+
+	reasked map[string]bool // asks the voice has asked again after you said nothing
 }
 
 func newVoice(calls *Calls, call *Call, haiku *Haiku, out func(map[string]any)) *voice {
@@ -217,6 +225,8 @@ func (v *voice) handle(m any) {
 	case idleMsg:
 		v.idle = true
 		v.tryAnswer()
+	case quietMsg:
+		v.onQuiet()
 	case heardMsg:
 		if m.reply == v.current {
 			v.onHeard(m.text)
@@ -272,21 +282,7 @@ func (v *voice) drainEvents() {
 }
 
 func (v *voice) onEvent(e event) {
-	text := v.nextText(e)
-	if text != "" && v.writing && !v.cut {
-		if !v.firstWords {
-			v.firstWords = true
-			// When they came, which for an opening written while the phone rang was before
-			// it's spoken.
-			came := v.haiku.FirstWords()
-			if came.IsZero() {
-				came = time.Now()
-			}
-			v.log(fmt.Sprintf("%s: first words after %.2f s", v.haiku.Name(), came.Sub(v.sentAt).Seconds()))
-		}
-		v.out(map[string]any{"type": "say", "call_id": v.callID, "reply": v.current, "text": text})
-		v.hearing = true
-	}
+	v.speak(v.nextText(e))
 	if v.unfinished == 0 && v.writing {
 		v.writing = false
 		// Written as soon as it's complete, so it comes before what it passed on.
@@ -304,6 +300,60 @@ func (v *voice) onEvent(e event) {
 	}
 }
 
+// speak sends reply text to the hub to be spoken.
+func (v *voice) speak(text string) {
+	if text == "" || !v.writing || v.cut {
+		return
+	}
+	if !v.firstWords {
+		v.firstWords = true
+		// When they came, which for an opening written while the phone rang was before
+		// it's spoken.
+		came := v.haiku.FirstWords()
+		if came.IsZero() {
+			came = time.Now()
+		}
+		v.log(fmt.Sprintf("%s: first words after %.2f s", v.haiku.Name(), came.Sub(v.sentAt).Seconds()))
+	}
+	v.out(map[string]any{"type": "say", "call_id": v.callID, "reply": v.current, "text": text})
+	v.hearing = true
+}
+
+// speakable takes the reply's next text and returns what of it can be spoken now: each
+// sentence once the text after it has begun (a sentence that ends the text so far may not
+// have ended: "2." of "2.5"), and none that names a tool. The hub speaks only whole sentences
+// anyway, so holding back the one being written costs no time.
+func (v *voice) speakable(text string) string {
+	v.unspoken += text
+	spoken := ""
+	for {
+		n := matchEndOfSentence(v.unspoken)
+		if n == 0 || strings.TrimSpace(v.unspoken[n:]) == "" {
+			return spoken
+		}
+		spoken += v.sentence(v.unspoken[:n])
+		v.unspoken = v.unspoken[n:]
+	}
+}
+
+// flush returns the rest of what Haiku has written, finished or not: it has reached for a
+// tool, or its reply has ended.
+func (v *voice) flush() string {
+	text := v.sentence(v.unspoken)
+	v.unspoken = ""
+	return text
+}
+
+// sentence is a sentence of the reply as it's spoken: nothing if it names a tool.
+func (v *voice) sentence(s string) string {
+	if toolNamed.MatchString(s) {
+		v.log("not spoken, names a tool: " + pyrepr(strings.TrimSpace(s)))
+		return ""
+	}
+	v.reply += s
+	return s
+}
+
 // nextText is the next piece of reply text in an event ("" for other events).
 func (v *voice) nextText(e event) string {
 	if e == nil {
@@ -315,11 +365,10 @@ func (v *voice) nextText(e event) string {
 		v.unfinished--
 		if v.opener != nil && *v.opener != "" {
 			// Haiku's words after the ack were too short to check; say them as they are.
-			text := *v.opener
+			v.unspoken += *v.opener
 			v.opener = nil
-			v.reply += text
-			return text
 		}
+		text := v.flush()
 		if v.unsaid != "" {
 			v.log("not spoken, after passing a message: " + pyrepr(strings.TrimSpace(v.unsaid)))
 			v.unsaid = ""
@@ -327,12 +376,17 @@ func (v *voice) nextText(e event) string {
 		if isError, _ := e["is_error"].(bool); isError {
 			v.log(fmt.Sprintf("%s: error %s", v.haiku.Name(), pyrepr(e["result"])))
 		}
-		return ""
+		return text
 	}
 	s := stream(e)
 	if s["type"] == "content_block_start" {
 		block, _ := s["content_block"].(map[string]any)
 		kind := block["type"]
+		said := ""
+		if kind == "tool_use" {
+			// What it wrote before the tool is all it says first.
+			said = v.flush()
+		}
 		switch {
 		case kind == "tool_use" && words(skip(v.reply, utf8.RuneCountInString(v.ack))) > 0:
 			// Haiku has said it's passing something on. Told so or not, it tends to say it
@@ -347,12 +401,13 @@ func (v *voice) nextText(e event) string {
 			opener := ""
 			v.opener = &opener
 			v.reply += ack
-			return ack
+			return said + ack
 		case kind == "text" && !v.quiet && v.reply != "" && !endsInSpace(v.reply):
 			// Text after a tool call starts a new block; keep a space between them.
 			v.reply += " "
 			return " "
 		}
+		return said
 	}
 	d, _ := s["delta"].(map[string]any)
 	if d["type"] == "text_delta" {
@@ -373,8 +428,7 @@ func (v *voice) nextText(e event) string {
 				text = string(unicode.ToUpper(r)) + text[size:]
 			}
 		}
-		v.reply += text
-		return text
+		return v.speakable(text)
 	}
 	return ""
 }
@@ -455,6 +509,35 @@ func (v *voice) onTurn(text string, interrupted bool) {
 	v.tryAnswer()
 }
 
+// onQuiet: the voice finished a while ago and you haven't spoken since (the hub's quietAfter).
+// If the session still waits for your answer to something put to you, as when your "yes" went
+// unheard, the voice asks again, once for each.
+func (v *voice) onQuiet() {
+	if !v.idle || v.unfinished > 0 || len(v.parts) > 0 || v.holds("answer") {
+		return
+	}
+	v.calls.mu.Lock()
+	var asks []string
+	for _, a := range v.link.asks.list() {
+		if !v.reasked[a.ID] {
+			asks = append(asks, a.ID)
+		}
+	}
+	v.calls.mu.Unlock()
+	if len(asks) == 0 {
+		return
+	}
+	if v.reasked == nil {
+		v.reasked = map[string]bool{}
+	}
+	for _, id := range asks {
+		v.reasked[id] = true
+	}
+	v.log("nothing heard since the voice finished, and an answer is waited for: it asks again")
+	v.parts = append(v.parts, part{true, reask})
+	v.tryAnswer()
+}
+
 // tryAnswer starts the next reply when it can: your turn as soon as Haiku has finished the
 // last one and Opus, if it's taking over, has started; notes and Opus's first reply once the
 // voice is idle.
@@ -531,7 +614,7 @@ func (v *voice) answer() {
 
 // send sends a turn to Haiku, as reply number reply.
 func (v *voice) send(message string, reply int) {
-	v.reply, v.written, v.cut, v.quiet = "", false, false, false
+	v.reply, v.unspoken, v.written, v.cut, v.quiet = "", "", false, false, false
 	v.ack, v.opener = "", nil
 	v.turn++
 	// From your first words on, Haiku's tool calls are yours to pass on (see haiku.go).
@@ -571,6 +654,8 @@ func (v *voice) writeReply() {
 }
 
 func (v *voice) tool(name string, arguments map[string]any) string {
+	// What Haiku wrote before the call is spoken first, if the call came before its event did.
+	v.speak(v.flush())
 	if name == betterModel {
 		return v.betterModel()
 	}

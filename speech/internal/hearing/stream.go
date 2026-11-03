@@ -15,6 +15,8 @@ type Events interface {
 	// Transcribe asks for the words of one stretch of speech (float samples at Rate); the
 	// answer comes back through Stream.Transcribed with the same id, in the order asked.
 	Transcribe(id int, samples []float32)
+	// Missed: Silero heard speech that didn't start speaking (see Missed), for the log.
+	Missed(m Missed)
 }
 
 const (
@@ -71,6 +73,9 @@ func (s *Stream) Audio(samples []int16) {
 	}
 
 	state := s.vad.analyze(samples)
+	if m := s.vad.takeMissed(); m != nil {
+		s.ev.Missed(*m)
+	}
 	var started, stopped bool
 	if state != s.said && state != starting && state != stopping {
 		started, stopped = state == speaking, state == quiet

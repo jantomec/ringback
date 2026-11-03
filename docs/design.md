@@ -120,9 +120,9 @@ built or run on Linux. The agent runs where the sessions run, on a Mac.
    the hub about 0.3 s after you stop (`speech/README.md`).
 6. **The reply.** The hub gives your words to the agent, and Haiku answers in a Claude Code
    session that stays open for the whole call, so each turn sends only what's new. Its first
-   words come about 1.2 s after your turn (`tools/reply-speed`). The agent streams the reply
-   to the hub as it's written, the hub cuts it into pieces, the speech node speaks each, and
-   the hub plays them.
+   words come about 1.2 s after your turn (`tools/reply-speed`). The agent passes the reply
+   to the hub a sentence at a time as it's written, the hub cuts it into pieces, the speech
+   node speaks each, and the hub plays them.
 7. **Passing it on.** What you want done goes to the session (Acting on the call, below). The
    mod collects it once a second and submits it to the session as a prompt; the session's
    answer comes back to the call as a note, and the voice tells you once it has finished
@@ -176,7 +176,9 @@ with each `claude -p`: `pass_to_session` for what you want the session to do or 
   for the sentence after it. If Haiku reaches for a tool before saying anything, the voice
   says "Okay." at once, so you aren't left in silence.
 - What Haiku writes after a tool isn't spoken if it said something before: it tends to repeat
-  itself.
+  itself. Nor is a sentence that names one of its tools: on a call, Haiku once said the call it
+  was about to make ("Then call answer_permission with allow true"). So the agent passes a
+  reply on a sentence at a time, which costs no time: the hub speaks only whole sentences.
 - Before you've said anything, `pass_to_session` passes nothing: an opening written while the
   phone rings has nothing of yours to pass on.
 - The voice does no work itself. Whatever you want written, changed, run or looked up goes to
@@ -185,9 +187,12 @@ with each `claude -p`: `pass_to_session` for what you want the session to do or 
 - When several things need your answer, it says how many, asks them one at a time, and passes
   the answers on together.
 - A permission: Haiku says in plain words what the session wants to do, and whether it
-  deletes, overwrites, pushes or spends anything, and takes only a clear yes or no. A
-  question: it reads it and its options, and takes your choice or your own words; it never
-  chooses for you.
+  deletes, overwrites, pushes or spends anything, and takes only a clear yes or no ("I said
+  yes" counts). A question: it reads it and its options, and takes your choice or your own
+  words; it never chooses for you.
+- If you say nothing for 8 s after the voice has finished while the session waits for your
+  answer, the voice says it may not have heard you and asks again, once for each thing asked.
+  On a call, a "yes" to a permission went unheard, and the voice waited 35 s in silence.
 
 The voice's instructions are in `agent/texts.go`. Its style: short sentences, rounded
 numbers, nothing read out that's meant to be seen (tables, lists, code), detail offered
@@ -631,8 +636,11 @@ with a certificate, or a private certificate authority installed on each device 
   speech. If that proves fragile, the next step is a gate set relative to your own level on
   the call.
 - **Very short words can go unheard:** a recorded "Great." (about 0.3 s) never started a
-  turn, and once on a call "wait" said while the voice talked wasn't heard (Silero needs
-  0.2 s of speech).
+  turn, once on a call "wait" said while the voice talked wasn't heard (Silero needs 0.2 s
+  of speech), and once a "yes" to a permission wasn't, cause unknown. The voice now asks
+  again after 8 s of silence, and the speech node logs each stretch Silero took for speech
+  that started no turn, and why: quieter than the background filter, or too short ("not
+  taken for speech", `journalctl --user -u ringback-speech`).
 - **Mods are new,** so their API may change. That the terminal prompt shows while the mod
   waits on `PermissionRequest`, and that whichever answers first decides, was seen in one
   run; the docs don't say it. Where Claude Code's built-in guard mod loads (managed settings,
@@ -681,6 +689,14 @@ current code, and what has only been checked offline.
 - A real Claude Code session's call (2026-11-03): the session finished a task, the agent
   placed the call, the audio connected 1.9 s before you answered, the voice started 0.16 s
   after, answered from the briefing and took an interruption.
+- A session's answer coming back to a call, and its permission answered on it (2026-11-03,
+  one call of 4 min 41 s): the session called 10.4 s after its turn ended. Four times, what
+  you asked went to the session and its answer reached the call 4.5–9.1 s later, the voice
+  telling you 1.4–1.7 s after it came. The session's permission to compile and run came to
+  the call 7.7 s after you'd asked for that; allowed by voice, it ran at once and its output
+  came back. The voice answered 2.0–3.5 s after each of your turns. Your first "yes" went
+  unheard, with 35 s of silence after it, and the voice read out a tool call; the voice now
+  asks again after 8 s, and leaves out a sentence naming a tool, not yet tried on the phone.
 - Calling back a call from Recents: connected 1.5 s after the tap, the voice opening with
   "Nothing new since our last call" and what had happened since. On that call, Opus on the
   line: Haiku said so, the handover took 0.37 s once you'd heard it, Opus spoke about 6 s
@@ -703,14 +719,15 @@ agents and node, `tools/hub-check` with a stand-in phone, agent and node, `tools
 with a real session, agent and hub, `tools/line-check` with the real hub, agent and node and a
 stand-in phone, `claude plugin test mod`, `tools/app-screens` and `tools/portal-screens` for
 how things look):
-- a session's answer coming back to a call you're on, and what you ask to pass on reaching
-  a real session;
 - held calls, work hours, and the hold set from the app's pill or Control Center, or put on
   from the portal, with the pill's breathing light, the icon's badge and the Lock Screen
   widget;
 - the connection check's push, and the app checking in with the hub;
 - calling a waiting call now;
-- permissions and questions on a call, and a held call's question sent to the Claude app;
+- questions on a call, a permission refused on a call, and a held call's question sent to the
+  Claude app;
+- the voice asking again after 8 s of silence while an answer is waited for, and leaving out a
+  sentence that names a tool;
 - the weak-signal settings in the hub;
 - Interruption Sensitivity and Ignore Background Noise, with real noise or someone talking
   near you;
@@ -725,8 +742,9 @@ of them installs only the iPhone app and the Mac client: a hub on the internet n
 phones and other parts paired, several users on one hub need that too, and they'd want the
 host unable to read their calls.
 
-- [ ] **Try on the phone what's only been checked offline** (Status): a session's answer
-  coming back to a call, asks, held calls and the hold switch, weak signal, and restarts.
+- [ ] **Try on the phone what's only been checked offline** (Status): questions and a refused
+  permission on a call, the voice asking again, held calls and the hold switch, weak signal,
+  and restarts.
 - [x] **A call that can't reach the hub ends and says why** (tried on the phone). A call you're
   on whose audio can't connect, or is lost, ends through CallKit, with a notification and the
   app's banner saying why: that the hub can't be reached, as the connection check says, or the

@@ -51,7 +51,30 @@ type analyzer struct {
 	prevVolume float64
 	input      [sileroContext + sileroWindow]float32
 	err        error // the model's last failure, if any
+
+	// A stretch Silero takes for speech while you aren't speaking (see Missed): its windows,
+	// those too quiet for the gate, and its peaks.
+	heard, gated   int
+	peakVolume     float64
+	peakConfidence float32
+	missed         *Missed // the last one that ended without starting speech, until taken
 }
+
+// Missed is a stretch that Silero took for speech but that didn't start speaking: too quiet
+// for the background filter for part of it, or shorter than the sensitivity needs. It changes
+// nothing; the node logs it, to tell why something you said went unheard.
+type Missed struct {
+	Secs       float64 // how long Silero heard speech
+	Quiet      float64 // how much of that was quieter than the gate
+	Volume     float64 // its loudest, 0 to 1 for -110 to -10 LUFS
+	Confidence float64 // Silero's highest
+	Gate       float64 // the background filter's MinVolume
+	Needed     float64 // the speech the sensitivity needs, StartSecs
+}
+
+// minMissed is the shortest stretch reported as missed, in windows (96 ms): Silero's single
+// windows on noise aren't worth a line.
+const minMissed = 3
 
 func newAnalyzer(model Silero, params VADParams) *analyzer {
 	a := &analyzer{model: model}
@@ -82,7 +105,9 @@ func (a *analyzer) analyze(samples []int16) vadState {
 		a.buf = a.buf[sileroWindow:]
 
 		// numpy compares the model's float32 with the threshold as float32
-		isSpeech := confidence >= float32(a.params.Confidence) && volume >= a.params.MinVolume
+		voiced := confidence >= float32(a.params.Confidence)
+		isSpeech := voiced && volume >= a.params.MinVolume
+		a.track(voiced, isSpeech, confidence, volume)
 		if isSpeech {
 			switch a.state {
 			case quiet:
@@ -106,11 +131,44 @@ func (a *analyzer) analyze(samples []int16) vadState {
 	a.buf = append(a.buf[:0:0], a.buf...) // don't keep the consumed samples alive
 	if a.state == starting && a.startCount >= a.startFrames {
 		a.state, a.startCount = speaking, 0
+		a.heard, a.gated, a.peakVolume, a.peakConfidence = 0, 0, 0, 0 // it was heard
 	}
 	if a.state == stopping && a.stopCount >= a.stopFrames {
 		a.state, a.stopCount = quiet, 0
 	}
 	return a.state
+}
+
+// track follows a stretch Silero takes for speech while you aren't speaking, and keeps it as
+// missed when it ends without speech having started.
+func (a *analyzer) track(voiced, isSpeech bool, confidence float32, volume float64) {
+	if a.state != quiet && a.state != starting {
+		return
+	}
+	if voiced {
+		a.heard++
+		if !isSpeech {
+			a.gated++
+		}
+		a.peakVolume = max(a.peakVolume, volume)
+		a.peakConfidence = max(a.peakConfidence, confidence)
+		return
+	}
+	if a.heard >= minMissed {
+		secs := float64(sileroWindow) / Rate
+		a.missed = &Missed{
+			Secs: float64(a.heard) * secs, Quiet: float64(a.gated) * secs, Volume: a.peakVolume,
+			Confidence: float64(a.peakConfidence), Gate: a.params.MinVolume, Needed: a.params.StartSecs,
+		}
+	}
+	a.heard, a.gated, a.peakVolume, a.peakConfidence = 0, 0, 0, 0
+}
+
+// takeMissed returns the last stretch missed since it was last taken, if any.
+func (a *analyzer) takeMissed() *Missed {
+	m := a.missed
+	a.missed = nil
+	return m
 }
 
 // confidence runs Silero on one window and resets its state when that's due.

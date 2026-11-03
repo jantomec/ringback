@@ -37,7 +37,7 @@ node with a stand-in phone.
 
 ## Checks
 
-Run before every commit; together they take about a minute and a half (89 s on 2026-11-03):
+Run before every commit; together they take about a minute and a half (96 s on 2026-11-03):
 
 ```sh
 (cd app && xcodegen generate && xcodebuild -project Ringback.xcodeproj -scheme Ringback \

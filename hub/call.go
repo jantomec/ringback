@@ -20,6 +20,10 @@ import (
 // lead is how long before the current piece ends the next is handed over.
 const lead = time.Second
 
+// quietAfter is how long the voice waits, once it's idle and you haven't spoken since, before
+// it tells the agent (`quiet`): an answer it asked for may have gone unheard.
+const quietAfter = 8 * time.Second
+
 type piece struct {
 	id      int // unique in the call, so audio for a piece that was cut off can be told apart
 	text    string
@@ -75,6 +79,7 @@ type Call struct {
 	playing         bool
 	userSpeaking    bool
 	idleSent        bool
+	quietSince      int // bumped when the voice goes idle or you start speaking, so a stale quiet isn't sent
 	heardSent       string
 }
 
@@ -345,6 +350,20 @@ func (c *Call) checkIdle() {
 	}
 	c.idleSent, c.finishedOnce = true, true
 	_ = c.agent.send(map[string]any{"type": "idle", "call_id": c.id})
+	c.quietSince++
+	go c.quiet(c.quietSince)
+}
+
+// quiet tells the agent, once, that the voice has been idle for quietAfter and you haven't
+// started speaking since.
+func (c *Call) quiet(since int) {
+	time.Sleep(quietAfter)
+	c.mu.Lock()
+	still := !c.ended && c.idleSent && !c.userSpeaking && c.quietSince == since
+	c.mu.Unlock()
+	if still {
+		_ = c.agent.send(map[string]any{"type": "quiet", "call_id": c.id})
+	}
 }
 
 // write: reply n, as it's written. The first sentence goes to be spoken at once; later
@@ -498,6 +517,7 @@ func (c *Call) speechStarted() {
 		return
 	}
 	c.userSpeaking = true
+	c.quietSince++
 	end, known := c.expectedEnd(now())
 	unfinished := c.replying && (!c.replyEnded || strings.TrimSpace(c.text) != "" || len(c.queue) > 0 || !known || now().Before(end))
 	heard := ""
