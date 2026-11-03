@@ -109,8 +109,10 @@ built or run on Linux. The agent runs where the sessions run, on a Mac.
    try waiting 3 s, then 6, then 12) and makes its WebRTC offer, marked as ringing, with all
    its addresses in it. The hub asks the agent that placed the call to accept it, and the
    audio connects before you answer. Until you do, the phone sends no microphone and the hub
-   plays nothing. If the offer couldn't go while it rang, it goes once you've answered, for up
-   to 45 s.
+   plays nothing. If the offer couldn't go while it rang, it goes once you've answered. A call
+   whose audio hasn't connected 20 s after you answer ends: the phone says why on the call
+   ("Ringback can't reach your hub. Check that your VPN is on."), then in a notification and
+   on the app's banner. If you hang up first, it still says why.
 4. **Answering.** The app tells the hub (`/answered`), and the voice speaks its opening.
 5. **Hearing you.** The hub decodes your audio and sends it to the speech node at 16 kHz.
    Silero says when you start and stop speaking; Smart Turn says when you've finished, and a
@@ -618,7 +620,8 @@ with a certificate, or a private certificate authority installed on each device 
   notices: a call whose audio can't connect ends, with a notification and a banner saying the
   hub can't be reached, and the connection check warns between calls.
 - **A stale tunnel delays a call.** After the phone changes network, the VPN can take 10–20 s
-  to reach the hub again; the app keeps trying, for up to 45 s after you answer.
+  to reach the hub again; the app keeps trying, for up to 20 s after you answer, then ends the
+  call and says why.
 - **Every placed call costs a Haiku opening** on your subscription, even if you decline it,
   and keeps Haiku and the Mac awake until it's forgotten after 90 s.
 - **Other people's voices and noise.** The background filter's default is an absolute level,
@@ -686,9 +689,10 @@ current code, and what has only been checked offline.
   session's latest briefing; the session was told afterwards.
 - Pairing the phone from the portal's link, on mobile data, from the app's banner.
 - A call that can't reach the hub (the hub stopped right after it pushed): it rang, and once
-  answered stayed silent until the app gave up, 71 s after you answered, ended the call, and
-  said that Ringback can't reach your hub in a notification and its banner (on Wi-Fi). Hang
-  up before that and nothing says why.
+  answered stayed silent until the app gave up, ended the call, and said that Ringback can't
+  reach your hub in a notification and its banner (on Wi-Fi). That was with a wait of 71 s;
+  the 20 s wait, the reason spoken on the call, and the notice when you hang up first are built
+  and not yet tried on the phone.
 - The portal on a real hub, from the phone's Safari: signing in, the map, and taking calls.
 - In the app, apart from the hub, with an earlier build whose code for them hasn't changed:
   ringing as call waiting during another call, a call recorded as ended when the app is
@@ -726,7 +730,8 @@ host unable to read their calls.
 - [x] **A call that can't reach the hub ends and says why** (tried on the phone). A call you're
   on whose audio can't connect, or is lost, ends through CallKit, with a notification and the
   app's banner saying why: that the hub can't be reached, as the connection check says, or the
-  error.
+  error. It waits 20 s after you answer, says the reason on the call before ending, and says
+  why when you hang up first too (these three built, not yet tried on the phone).
 - [x] **A phone proves it's yours before the hub takes its push token** (tried on the phone).
   The app's banner sends an unpaired phone to the portal's pairing page, whose
   one-time link opens Ringback, which trades it for the phone's key; every request that names

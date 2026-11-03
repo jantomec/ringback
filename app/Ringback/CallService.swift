@@ -51,6 +51,13 @@ final class CallService: NSObject, CXProviderDelegate {
     private var callingContact: Set<UUID> = []
     /// Calls whose audio connected, so a call back that never did ends as not connected.
     private var connected: Set<UUID> = []
+    /// For each call you're on, the end of the wait for its audio (giveUpAfter).
+    private var giveUps: [UUID: Task<Void, Never>] = [:]
+    /// The phone saying why a call can't go on, before it ends it.
+    private var farewells: [UUID: AVSpeechSynthesizer] = [:]
+    /// How long a call you're on may stay silent, its audio not yet connected, before it ends and
+    /// the app says why: you'd hang up long before the network's own timeouts.
+    static let giveUpAfter: TimeInterval = 20
     private var heartbeatTimer: Timer?
 
     private struct RingingAudio {
@@ -60,6 +67,8 @@ final class CallService: NSObject, CXProviderDelegate {
         var connectedAt: Date?
         /// Why connecting while ringing failed, if it did. Answering then makes a new offer.
         var failure: String?
+        /// The same, as the app tells you.
+        var problem: String?
     }
 
     init(state: AppState) {
@@ -240,6 +249,9 @@ final class CallService: NSObject, CXProviderDelegate {
         callingNow.remove(uuid)
         callingContact.remove(uuid)
         connected.remove(uuid)
+        giveUps.removeValue(forKey: uuid)?.cancel()
+        farewells[uuid]?.stopSpeaking(at: .immediate)
+        farewells[uuid] = nil
         if state.activeCall?.uuid == uuid { endHeartbeat() }
         guard let callID = callIDs.removeValue(forKey: uuid) else {
             link?.stop()
@@ -317,6 +329,7 @@ final class CallService: NSObject, CXProviderDelegate {
         } catch {
             guard let failed = error as? LinkFailed else { return }
             dropRingingLink(uuid, failed.link, failed.error.localizedDescription)
+            ringingAudio[uuid]?.problem = Self.problem(failed.error)
         }
     }
 
@@ -537,15 +550,52 @@ final class CallService: NSObject, CXProviderDelegate {
     /// silent, it ends, and the app says why, on its banner and, as the phone may be locked,
     /// in a notification.
     private func callFailed(_ uuid: UUID, _ problem: String) {
+        guard farewells[uuid] == nil else { return }
+        tellWhy(problem, title: "The call ended")
+        sayThenEnd(uuid, problem == ConnectionCheck.message
+            ? "Ringback can't reach your hub. Check that your VPN is on." : "This call can't go on. The app says why.")
+    }
+
+    /// Says why on the app's banner and, as the phone may be locked, in a notification.
+    private func tellWhy(_ problem: String, title: String) {
         state.callBackProblem = problem
-        end(uuid)
         Task {
             let content = UNMutableNotificationContent()
-            content.title = "The call ended"
+            content.title = title
             content.body = problem
             content.sound = .default
             try? await UNUserNotificationCenter.current().add(
                 UNNotificationRequest(identifier: "call-failed", content: content, trigger: nil))
+        }
+    }
+
+    /// Says words on the call, through its own audio, then ends it: so a call that can't go on
+    /// tells you why in your ear, not only on the screen.
+    private func sayThenEnd(_ uuid: UUID, _ words: String) {
+        guard audioSessionActive else { return end(uuid) }
+        let synthesizer = AVSpeechSynthesizer()
+        synthesizer.usesApplicationAudioSession = true
+        let utterance = AVSpeechUtterance(string: words)
+        utterance.voice = OnDeviceVoice.bestVoice()
+        farewells[uuid] = synthesizer
+        synthesizer.speak(utterance)
+        // About as long as the words take to say, as the synthesizer's own end isn't awaited.
+        let seconds = 1.5 + 0.4 * Double(words.split(separator: " ").count)
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [self] in
+            guard farewells[uuid] === synthesizer else { return }
+            end(uuid)
+        }
+    }
+
+    /// A call you're on that stays silent, its audio not connected, ends after giveUpAfter, saying
+    /// why: what failed, if anything has, else that the hub can't be reached.
+    private func giveUpUnlessConnected(_ uuid: UUID, _ callID: String) {
+        giveUps[uuid]?.cancel()
+        giveUps[uuid] = Task { @MainActor [self] in
+            try? await Task.sleep(for: .seconds(Self.giveUpAfter))
+            guard !Task.isCancelled, callIDs[uuid] != nil, !connected.contains(uuid) else { return }
+            audioFailed(uuid, callID, "no audio \(Int(Self.giveUpAfter)) s after the call began", note: offerNote(uuid))
+            callFailed(uuid, ringingAudio[uuid]?.problem ?? ConnectionCheck.message)
         }
     }
 
@@ -655,6 +705,7 @@ final class CallService: NSObject, CXProviderDelegate {
     /// flow: 0 if it was ready when you did. A call back connects as an outgoing call does.
     private func audioConnected(_ uuid: UUID, _ callID: String, at: Date) {
         connected.insert(uuid)
+        giveUps.removeValue(forKey: uuid)?.cancel()
         if state.activeCall?.uuid == uuid { state.activeCall?.audio = .connected }
         if isOutgoing(uuid) { provider.reportOutgoingCall(with: uuid, connectedAt: at) }
         guard let call = state.calls.first(where: { $0.id == callID }), let answeredAt = call.answeredAt else { return }
@@ -709,6 +760,7 @@ final class CallService: NSObject, CXProviderDelegate {
                     answeredAt: call.answeredAt ?? .now, audio: voiceURLs[uuid] == nil ? .none : .connecting)
             }
             startHeartbeat(callID)
+            giveUpUnlessConnected(uuid, callID)
             Switchboard.report(callID: callID, event: "answered")
             // A link made while ringing now sends your microphone and plays the voice.
             links[uuid]?.ringing = false
@@ -740,6 +792,7 @@ final class CallService: NSObject, CXProviderDelegate {
             uuid: uuid, id: record.id, callerName: record.callerName, subject: record.subject,
             answeredAt: record.answeredAt ?? .now, audio: .connecting)
         startHeartbeat(record.id)
+        giveUpUnlessConnected(uuid, record.id)
         if let original = record.callsBack {
             callingBack[uuid] = original
             Switchboard.report(callID: record.id, event: "called back", extra: ["note": "calls back \(original.prefix(8))"])
@@ -778,7 +831,17 @@ final class CallService: NSObject, CXProviderDelegate {
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
         if let callID = callIDs[action.callUUID] {
-            let answered = state.calls.first(where: { $0.id == callID })?.answeredAt != nil
+            let answeredAt = state.calls.first(where: { $0.id == callID })?.answeredAt
+            let answered = answeredAt != nil
+            // You hung up a call that never got its audio: still say why, unless you hung up
+            // while it was connecting as it should, in its first seconds.
+            let uuid = action.callUUID
+            if let answeredAt, !connected.contains(uuid), farewells[uuid] == nil {
+                let problem = ringingAudio[uuid]?.problem
+                if problem != nil || Date.now.timeIntervalSince(answeredAt) > 5 {
+                    tellWhy(problem ?? ConnectionCheck.message, title: "The call didn't connect")
+                }
+            }
             let outcome = answered ? endedOutcome(action.callUUID) : .declined
             finish(action.callUUID, outcome, event: answered ? "ended" : "declined")
         }

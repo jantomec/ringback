@@ -1016,3 +1016,9 @@ private final class Speaking: NSObject, AVSpeechSynthesizerDelegate, @unchecked 
         }
     }
 }
+
+extension OnDeviceVoice {
+    /// The voice the phone speaks with: the best English voice installed.
+    static func bestVoice() -> AVSpeechSynthesisVoice? { Speaking.bestVoice() }
+}
+
