@@ -2,6 +2,7 @@ import AVFoundation
 import CallKit
 import Foundation
 import UIKit
+import UserNotifications
 
 /// Rings through CallKit for each call the hub rings, and reports back what happened.
 /// Any call in the history can be called back, calls that wait for your work hours called now,
@@ -373,13 +374,15 @@ final class CallService: NSObject, CXProviderDelegate {
             // The offer goes once the hub has answered, so a retry can't start a
             // second conversation.
             guard let reached, reached.at.timeIntervalSince(answeredAt) < Self.reachTimeout else {
-                return audioFailed(uuid, callID, ReachError().localizedDescription, note: nil)
+                audioFailed(uuid, callID, ReachError().localizedDescription, note: nil)
+                return callFailed(uuid, ConnectionCheck.message)
             }
             do {
                 _ = try await startLink(uuid, callID, voiceURL, CallOffer(callID: callID))
             } catch {
                 guard let failed = error as? LinkFailed, links[uuid] === failed.link else { return }
                 audioFailed(uuid, callID, failed.error.localizedDescription, note: offerNote(uuid))
+                callFailed(uuid, Self.problem(failed.error))
             }
         }
     }
@@ -397,6 +400,7 @@ final class CallService: NSObject, CXProviderDelegate {
             guard callIDs[uuid] != nil else { return reached }
             guard let reached else {
                 audioFailed(uuid, callID, ReachError().localizedDescription, note: offerNote(uuid))
+                callFailed(uuid, ConnectionCheck.message)
                 return nil
             }
             reportReached(callID, reached)
@@ -406,6 +410,7 @@ final class CallService: NSObject, CXProviderDelegate {
                 guard let failed = error as? LinkFailed, links[uuid] === failed.link else { return reached }
                 guard let refused = failed.error as? RefusedCall else {
                     audioFailed(uuid, callID, failed.error.localizedDescription, note: offerNote(uuid))
+                    callFailed(uuid, Self.problem(failed.error))
                     return reached
                 }
                 await state.refreshContacts()
@@ -477,7 +482,8 @@ final class CallService: NSObject, CXProviderDelegate {
         } catch {
             guard let failed = error as? LinkFailed, links[uuid] === failed.link else { return }
             guard let refused = failed.error as? RefusedCall else {
-                return audioFailed(uuid, callID, failed.error.localizedDescription, note: offerNote(uuid))
+                audioFailed(uuid, callID, failed.error.localizedDescription, note: offerNote(uuid))
+                return callFailed(uuid, Self.problem(failed.error))
             }
             audioFailed(uuid, callID, refused.localizedDescription, note: offerNote(uuid))
             state.callBackProblem = refused.reason == "not listening"
@@ -514,6 +520,7 @@ final class CallService: NSObject, CXProviderDelegate {
                     callNowFailed(uuid, "This call isn't waiting any more.")
                 } else {
                     audioFailed(uuid, callID, failed.error.localizedDescription, note: offerNote(uuid))
+                    callNowFailed(uuid, Self.problem(failed.error))
                 }
             }
             return reached
@@ -524,6 +531,34 @@ final class CallService: NSObject, CXProviderDelegate {
         state.callBackProblem = problem
         end(uuid)
         Task { await state.refreshWaiting() }
+    }
+
+    /// A call you're on whose audio couldn't connect, or was lost: rather than staying on,
+    /// silent, it ends, and the app says why, on its banner and, as the phone may be locked,
+    /// in a notification.
+    private func callFailed(_ uuid: UUID, _ problem: String) {
+        state.callBackProblem = problem
+        end(uuid)
+        Task {
+            let content = UNMutableNotificationContent()
+            content.title = "The call ended"
+            content.body = problem
+            content.sound = .default
+            try? await UNUserNotificationCenter.current().add(
+                UNNotificationRequest(identifier: "call-failed", content: content, trigger: nil))
+        }
+    }
+
+    /// What to tell you when a call's audio failed: the hub out of reach, as the connection
+    /// check says it, or the error itself.
+    private static func problem(_ error: Error) -> String {
+        let unreachable: [URLError.Code] = [
+            .timedOut, .cannotConnectToHost, .cannotFindHost, .networkConnectionLost, .notConnectedToInternet,
+        ]
+        if error is ReachError || (error as? URLError).map({ unreachable.contains($0.code) }) == true {
+            return ConnectionCheck.message
+        }
+        return "Its audio failed: \(error.localizedDescription)."
     }
 
     /// A new link for the call, which tells the in-call screen and the hub when its
@@ -546,6 +581,7 @@ final class CallService: NSObject, CXProviderDelegate {
                 dropRingingLink(uuid, link, reason)
             } else {
                 audioFailed(uuid, callID, reason, note: offerNote(uuid))
+                callFailed(uuid, "Its audio was lost: the connection to your hub failed.")
             }
         }
         return link

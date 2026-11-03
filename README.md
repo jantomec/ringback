@@ -140,7 +140,7 @@ signal; calls and asks surviving a restart of the agent or the hub.
 What each item means is under "Next" in [docs/design.md](docs/design.md).
 
 - [ ] Try on the phone what's only been checked offline (above)
-- [ ] A call that can't reach the hub ends and says why, rather than staying silent
+- [ ] A call that can't reach the hub ends and says why, rather than staying silent (built, untried)
 - [ ] Find why the phone's tunnel stops receiving the hub's packets on some Wi-Fi
 - [ ] Close the hub's endpoints that take no token
 - [ ] A public hub, so no private network is needed

@@ -699,9 +699,11 @@ read their calls.
 - [ ] **Try on the phone what's only been checked offline** (Status): a session calling and
   its answer coming back, asks, held calls and the hold switch, call backs and Sessions, Opus,
   weak signal, and restarts.
-- [ ] **A call that can't reach the hub ends and says why.** When the phone's requests to the
-  hub fail after it has rung, the call stays on, silent, with nothing on screen; it should
-  give up after a while, end, and say the hub can't be reached.
+- [ ] **A call that can't reach the hub ends and says why** (built; not yet tried on the
+  phone). When the phone's requests to the hub failed after it rang, the call stayed on,
+  silent, with nothing on screen. Now a call you're on whose audio can't connect, or is lost,
+  ends through CallKit, with a notification and the app's banner saying why: that the hub
+  can't be reached, as the connection check says, or the error.
 - [ ] **Find why the phone's tunnel stops receiving the hub's packets on some Wi-Fi** (Limits
   and risks).
 - [ ] **Close the hub's open endpoints** (to be fixed; Limits and risks). Take out `/call` and
