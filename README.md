@@ -148,8 +148,8 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 - [ ] End-to-end encrypted calls with On-device Voice
 - [ ] The Mac client as a package
 - [ ] Several sessions calling in turn, with retries
-- [ ] A better voice for On-device Voice, and Parakeet on the phone if its hearing falls short
-- [ ] On-device Voice on a weak signal
+- [ ] A better On-device Voice: it works, but doesn't sound good enough yet (later)
+- [ ] On-device Voice on a weak signal (later)
 - [ ] A phone-network fallback
 - [ ] Showing you things: images and other things a call can't say
 - [ ] The call history in iCloud

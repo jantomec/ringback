@@ -662,8 +662,8 @@ current code, and what has only been checked offline.
   connected while it rang, the voice started 1.85 s after you answered, you interrupted it,
   and it answered each of your four turns. Apple's recognizer had your words 0.45–0.51 s after
   you stopped, all right ("the first two" as "the 1st 2"), and the phone made each sentence's
-  speech in 0.07–0.33 s. The voice sounds flatter than Kokoro: its pacing, pronunciation and
-  intonation, with the best English voice installed then.
+  speech in 0.07–0.33 s. It works, but not well enough to use: the voice sounds flatter than
+  Kokoro in its pacing, pronunciation and intonation, with an Enhanced voice (Samantha).
 - The portal on a real hub, from the phone's Safari: signing in, the map, and taking calls.
 - In the app, apart from the hub, with an earlier build whose code for them hasn't changed:
   ringing as call waiting during another call, a call recorded as ended when the app is
@@ -734,12 +734,13 @@ read their calls.
   call waits for the first to end. A call you decline or miss tries again 5 min, 20 min, 1 h,
   2½ h and 6 h after its first ring, with the queue paused in between; after the last, every
   call waits until you call that session back.
-- [ ] **A better voice for On-device Voice.** Apple's built-in voices sound flat next to
-  Kokoro: first an Enhanced or Premium English voice, then Kokoro on the phone. If Apple's
-  recognizer proves too weak on more calls, Parakeet on the phone too (on Apple's Neural
-  Engine through Core ML; not checked).
-- [ ] **On-device voice on a weak signal,** even with a speech node linked, since only text
-  crosses the network.
+- [ ] **A better On-device Voice** (later). It works, but sounds flat even with an Enhanced
+  voice, and apps can't use Siri's voices. Apple's on-device models improve with iOS updates,
+  and nothing says newer iPhones get better ones, so this waits rather than taking much work:
+  a Premium voice is the one cheap thing to try (the app picks the best voice installed).
+  Kokoro, or Parakeet if its hearing falls short, on the phone only if that stays poor.
+- [ ] **On-device voice on a weak signal** (later, with the item above), even with a speech
+  node linked, since only text crosses the network.
 - [ ] **A phone-network fallback** for where data is too weak: SIP trunks from a local
   operator, or an LTE modem with an ordinary SIM on the hub's machine, priced first.
 - [ ] **Showing you things:** sometimes you need to see what a session did, such as an image or
