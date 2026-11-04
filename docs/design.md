@@ -748,6 +748,11 @@ current code, and what has only been checked offline.
   that command. You hung up 2.1 s into the voice telling the session's answer, and the
   session called again at once, with "The answer you didn't hear": the phone rang within a
   second, and the voice opened with the answer. Your "Bye." (0.2 s) was heard too.
+- A "bye" over the session's answer (2026-11-04, one call of 18 s, locked, on mobile data,
+  through the hub, agent and speech node as they are now): you allowed a permission, the
+  session's answer reached the call 1.8 s later, you said "Okay, bye." 1.7 s into the voice
+  telling it and hung up 1.5 s after that, and nothing called again. The audio connected
+  0.52 s after the offer.
 - The phone choosing its addresses for the call's audio by the hub's (2026-11-04, one call,
   locked, on mobile data): for the hub on Nebula it offered only the VPN's addresses, as
   before. The audio connected 1.14 s after the offer, slower than
@@ -783,7 +788,6 @@ how things look):
 - calling a waiting call now;
 - a held call's question sent to the Claude app;
 - the voice leaving out a sentence that names a tool;
-- no call again when you said "bye" over the session's answer, or anything else;
 - the hub serving HTTPS and WSS (`[tls]`), renewed without a restart, and the agent and the
   speech node linking to it; the app's side isn't tried at all;
 - Macs and speech nodes pairing and linking with their own keys (a Mac's agent paired with
@@ -803,8 +807,8 @@ of them installs only the iPhone app and the Mac client: a hub on the internet n
 phones and other parts paired, several users on one hub need that too, and they'd want the
 host unable to read their calls.
 
-- [ ] **Try on the phone what's only been checked offline** (Status): a "bye" over the
-  session's answer, held calls and the hold switch, weak signal, and restarts.
+- [ ] **Try on the phone what's only been checked offline** (Status): held calls and the hold
+  switch, weak signal, and restarts.
 - [x] **A call that can't reach the hub ends and says why** (tried on the phone). A call you're
   on whose audio can't connect, or is lost, ends through CallKit, with a notification and the
   app's banner saying why: that the hub can't be reached, as the connection check says, or the

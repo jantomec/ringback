@@ -131,17 +131,16 @@ Ringback is a working prototype: everything below is built and passes its offlin
 - a Claude Code session calling when it finishes, its answers coming back to the call, and a
   permission and a question with options it asked, answered by voice, a short "yes" or "no"
   included;
-- the session calling again with an answer you hung up on;
+- the session calling again with an answer you hung up on, and not after a "bye";
 - calling back from Recents, calling a session from the Sessions tab, and Opus taking over a
   call;
 - pairing the phone from the portal, from the app's banner;
 - a call that can't reach the hub ending by itself, with the app saying why;
 - the hub's portal, from the phone.
 
-**Not yet tried on the phone:** no call again after a "bye" said over the session's answer;
-work hours, the hold switch, its breathing light and the Lock Screen
-widget; calling a waiting call now; weak signal; calls and asks surviving a restart of the
-agent or the hub.
+**Not yet tried on the phone:** work hours, the hold switch, its breathing light and the
+Lock Screen widget; calling a waiting call now; weak signal; calls and asks surviving a
+restart of the agent or the hub.
 
 ## To do
 
