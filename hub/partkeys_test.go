@@ -118,7 +118,12 @@ func TestPairPart(t *testing.T) {
 		t.Fatal("its key doesn't link")
 	}
 	ws.CloseNow()
-	if tail := strings.Join(logTail(), "\n"); !strings.Contains(tail, "agent build-mac: connected") || strings.Contains(tail, "someone-else") {
+	// The hub logs the link just after its welcome.
+	tail := ""
+	for end := time.Now().Add(2 * time.Second); !strings.Contains(tail, "agent build-mac: connected") && time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+		tail = strings.Join(logTail(), "\n")
+	}
+	if !strings.Contains(tail, "agent build-mac: connected") || strings.Contains(tail, "someone-else") {
 		t.Errorf("not under the name it paired as:\n%s", tail)
 	}
 

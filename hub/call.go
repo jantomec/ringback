@@ -304,7 +304,7 @@ func (c *Call) play() {
 			if c.playing && len(c.queue) == 0 {
 				c.playing = false
 				// All of it has played, its last frame within the tick: you've heard it to the end.
-				if heard := c.heard(now().Add(20 * time.Millisecond)); heard != c.heardSent {
+				if heard := c.heardSoFar(now().Add(20 * time.Millisecond)); heard != c.heardSent {
 					c.heardSent = heard
 					final = map[string]any{"type": "heard", "call_id": c.id, "reply": c.replyNo, "text": heard}
 				}
@@ -335,7 +335,7 @@ func (c *Call) play() {
 		}
 		frames++
 		if frames%5 == 0 {
-			if heard := c.heard(t); heard != c.heardSent {
+			if heard := c.heardSoFar(t); heard != c.heardSent {
 				c.heardSent = heard
 				events = append(events, map[string]any{"type": "heard", "call_id": c.id, "reply": c.replyNo, "text": heard})
 			}
@@ -382,6 +382,16 @@ func (c *Call) heard(t time.Time) string {
 		}
 	}
 	return strings.TrimSpace(strings.Join(words, " "))
+}
+
+// heardSoFar is what you've heard of the reply at t, never less than the agent was told: a
+// piece's length grows as its audio comes, so the share of it played can shrink, as when
+// the audio comes slower than it plays.
+func (c *Call) heardSoFar(t time.Time) string {
+	if heard := c.heard(t); len(heard) >= len(c.heardSent) || !strings.HasPrefix(c.heardSent, heard) {
+		return heard
+	}
+	return c.heardSent
 }
 
 // checkIdle tells the agent when the voice has finished and you aren't speaking, once.
@@ -572,7 +582,7 @@ func (c *Call) speechStarted() {
 	heard := ""
 	switch {
 	case unfinished:
-		heard = c.heard(now())
+		heard = c.heardSoFar(now())
 		c.cut = c.replyNo
 		_ = c.node.send(map[string]any{"type": "speak_cancel", "stream": c.stream})
 	case c.awaiting:

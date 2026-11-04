@@ -308,6 +308,7 @@ async def main() -> int:
         await say(3, "Too late for this one. It's dropped.")
         await node.ws.send_json({"type": "speech_stopped", "stream": stream})
         await node.ws.send_json({"type": "turn", "stream": stream, "text": "Go on.", "secs": 0.6, "took": 0.05})
+        await until(lambda: len(agent.of("turn")) == 3, 3)
         idles = len(agent.of("idle"))
         await say(4, "Going on now.")
         await until(lambda: len(agent.of("idle")) > idles, 10)
@@ -321,6 +322,9 @@ async def main() -> int:
 
         # A reply with nothing to say (only a tool call): the voice is idle.
         await node.ws.send_json({"type": "turn", "stream": stream, "text": "Do it.", "secs": 0.5, "took": 0.05})
+        # Answered once the turn has reached the agent, as an agent does: the node's link and the
+        # agent's are two, so the hub could take the answer before the turn.
+        await until(lambda: len(agent.of("turn")) == 4, 3)
         await agent.ws.send_json({"type": "said", "call_id": call_id, "reply": 5})
         await until(lambda: len(agent.of("idle")) > idles + 1, 3)
         check(f"a reply with nothing to say leaves the voice idle: {len(agent.of('idle')) - idles - 1} idle",
@@ -345,7 +349,7 @@ async def main() -> int:
         quiets = [t - idle_at for t, m in agent.got if m["type"] == "quiet"]
         check(f"8 s after the voice went idle with nothing heard, the agent hears it's quiet, once: "
               f"{[round(q, 2) for q in quiets]} s",
-              len(quiets) == 1 and 8 <= quiets[0] < 8.5)  # fmt: skip
+              len(quiets) == 1 and 7.9 <= quiets[0] < 8.5)  # fmt: skip  (the idle can reach this a little late)
 
         # Hanging up: the agent hears how long you talked.
         talked = time.monotonic() - t0

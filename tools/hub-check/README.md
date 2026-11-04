@@ -60,6 +60,16 @@ It prints the hub's log and one line per check. `--keep` keeps the throwaway HOM
 state, log). `RINGBACK_HUB` runs another binary, such as the universal one `hub/build.sh`
 makes, and `RINGBACK_HUB_ARCH="arch -x86_64"` runs its Intel half under Rosetta.
 
+On 2026-11-04 it failed now and then while the Mac was busy: 4 of 12 runs (and 1 of 3 with
+the hub of the day before), most with an app build running beside it; with the first fix
+below, still 2 of 8. Each time it was one of three reasons: the check answered a turn
+before the hub had taken it, on the other link, so the hub took the next speech as cutting off
+a reply still to come (the check now waits for the turn to reach the agent first, as an agent
+does); the hub told the agent an empty `heard`, as the share of a piece played shrank while
+its audio still came (fixed in the hub: what you've heard never shrinks); and `quiet` was
+measured 7.99 s after `idle`, which reached the check late (it now takes 7.9 s). After the
+fixes, 8 of 8 runs passed with app builds running beside them.
+
 Result on 2026-11-03, with `quiet` (49 checks): all passed, in 29 s, about 11 s of it waiting
 for `quiet`, which came 8.0 s after the last `idle`. On 2026-11-02 (28 checks, with the
 warm-up): all passed. The version
