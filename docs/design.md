@@ -748,6 +748,12 @@ current code, and what has only been checked offline.
   that command. You hung up 2.1 s into the voice telling the session's answer, and the
   session called again at once, with "The answer you didn't hear": the phone rang within a
   second, and the voice opened with the answer. Your "Bye." (0.2 s) was heard too.
+- The phone choosing its addresses for the call's audio by the hub's (2026-11-04, one call,
+  locked, on mobile data): for the hub on Nebula it offered only the VPN's addresses, as
+  before. The audio connected 1.14 s after the offer, slower than
+  the 0.29–0.45 s of the five calls before it, but 2.5 s before you answered, and the voice
+  started 0.16 s after you did; the address lookup comes before the offer, so the time after
+  it isn't the lookup's. A hub on a public address isn't tried.
 - Calling back a call from Recents: connected 1.5 s after the tap, the voice opening with
   "Nothing new since our last call" and what had happened since. On that call, Opus on the
   line: Haiku said so, the handover took 0.37 s once you'd heard it, Opus spoke about 6 s
