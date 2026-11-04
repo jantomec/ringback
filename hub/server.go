@@ -38,6 +38,9 @@ func serve(listen string) {
 		fail(fmt.Sprintf("can't listen on %s: %v", listen, err))
 	}
 	how := ""
+	if _, err := audioNetwork(loadConfig()); err != nil {
+		fail("The call's audio: " + err.Error())
+	}
 	config, err := tlsConfig(loadConfig())
 	if err != nil {
 		fail("Can't serve TLS: " + err.Error())
@@ -50,7 +53,7 @@ func serve(listen string) {
 	checkPeriodically()
 	server := &http.Server{
 		ReadHeaderTimeout: 5 * time.Second,
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		Handler: limited(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			path := r.URL.Path
 			switch {
 			case path == "/agent":
@@ -80,7 +83,7 @@ func serve(listen string) {
 				w.WriteHeader(status)
 				_, _ = io.WriteString(w, body)
 			}
-		}),
+		})),
 	}
 	fail(server.Serve(listener).Error())
 }

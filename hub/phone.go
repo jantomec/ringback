@@ -94,8 +94,14 @@ func offer(w http.ResponseWriter, r *http.Request) {
 		refused(w, answer)
 		return
 	}
+	network, err := audioNetwork(loadConfig())
+	if err != nil {
+		log("call " + short + ": " + err.Error())
+		phoneJSON(w, http.StatusInternalServerError, map[string]any{"error": "the hub's config: " + err.Error()})
+		return
+	}
 	c, sdp, err := newCall(callID, str(body, "sdp"), ringing, setting(body, "sensitivity", 0.5),
-		setting(body, "background_filter", 0.5), agent, node, loadConfig()["listen"])
+		setting(body, "background_filter", 0.5), agent, node, network)
 	if err != nil {
 		log("call " + short + ": offer failed: " + err.Error())
 		phoneJSON(w, http.StatusBadRequest, map[string]any{"error": "bad offer"})

@@ -5,6 +5,13 @@
 # address, on UDP ports it picks.
 listen = "10.0.0.1:8787"
 
+# The call's audio on a public address (optional, for a hub the internet reaches): the address
+# to offer the phone when the hub's machine doesn't have it on an interface, as on clouds that
+# put their servers behind NAT, and the UDP ports the calls use, one each, for a firewall to
+# let in.
+# public_ip = "203.0.113.5"
+# udp_ports = "50000-50199"
+
 # How the phone reaches the hub, if not at http://<listen> (optional). With [tls], its https://
 # address by the name the certificate is for, such as "https://hub.example.com:8787".
 # url = "http://10.0.0.1:8787"

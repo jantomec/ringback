@@ -428,3 +428,30 @@ These need uv (`brew install uv`); they run in the tools' Python environment
       (cd hub && go build -o build/ringback-hub .) && uv run --project tools tools/hub-check/hub_check.py
 
 - **The speech node,** on the node (step 4): `speech/check.sh` (about 2.5 min).
+
+## 10. A public hub (prepared, not tried)
+
+Everything above runs on a private network, such as Nebula. The hub has what it would need on
+an address the internet reaches, with no VPN, but none of it has been tried on one yet (Status
+in `design.md`), and the portal still signs in with a password and a passcode, not a passkey.
+What it would take:
+- **A machine the internet reaches,** always on: a small server, or a machine of yours with a
+  port forward. The hub runs as `ringback-hub serve` from its service manager anywhere; only
+  `install` is macOS's, and `build.sh` builds for macOS.
+- **A domain name** whose DNS points at it, and a **certificate** for that name, from an ACME
+  client (lego, acme.sh, certbot) that renews it on its own; the hub reads the files under
+  `[tls]` again when they change (step 2).
+- In `hub.toml`: `listen` on its address, or `0.0.0.0:8787` for every one it has; `url`, the
+  hub's `https://` address by that name; `[tls]`; `udp_ports`, a range the calls' audio uses,
+  one port each (such as `50000-50199`); and `public_ip` if the machine doesn't have its public
+  address on an interface, as on clouds that put their servers behind NAT. Leave `[tokens]`
+  out, so each Mac and speech node pairs (steps 4 and 5).
+- A firewall that lets in the hub's TCP port and that UDP range.
+- On the phone, the hub's URL as its Address, or pair it from the portal, which sets it.
+
+Requests the hub refuses (a key, token, code or call ID that isn't right) are counted by
+address: 30 within a minute shut that address out for a minute (429).
+
+Not tried, or not ready: the app offers the call's audio its VPN's addresses first, and only
+with no VPN every address, so with a VPN on, such as a work one, a public hub's audio may not
+connect; and its messages for a hub it can't reach still talk about a VPN.

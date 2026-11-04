@@ -406,10 +406,11 @@ up to lose little and recover the rest (`hub/opus.go`, `hub/call.go`):
   there; the hub ends the call only after 15 s without an answer. With tighter limits, a call
   on a network slower than about 0.5 s round trip ended half a minute in (`tools/ice-check`,
   in git history).
-- **Few addresses.** The hub offers only the address it listens on, over UDP and IPv4, and the
-  phone only its VPN's addresses (all its addresses if the VPN gives none), so WebRTC doesn't
-  try pairs that can't connect. With every address offered, audio connected 2.1–2.4 s after
-  the offer; with only the VPN's, 0.94 s (one call on mobile data).
+- **Few addresses.** The hub offers only the address it listens on (or its `public_ip`, on
+  its `udp_ports`), over UDP and IPv4, and the phone only its VPN's addresses (all its
+  addresses if the VPN gives none), so WebRTC doesn't try pairs that can't connect. With every
+  address offered, audio connected 2.1–2.4 s after the offer; with only the VPN's, 0.94 s (one
+  call on mobile data).
 - **Reaching the hub.** After the phone moves from Wi-Fi to mobile data, its VPN tunnel can
   stay stale for 10–20 s. The app's tries to reach the hub while it rings send fresh packets,
   which bring the tunnel back sooner, and wait longer each time (3, 6, 12 s), so a slow network
@@ -452,12 +453,14 @@ direct tunnels to it failed, so the phone's traffic goes through the relay. That
 phone always dials the hub, and never the other way. Another VPN with the same property (the
 phone reaches the hub from anywhere) should work, but hasn't been tried.
 
-**A public address isn't supported yet.** Over plain HTTP, the portal's password, the links'
+**A public address isn't tried yet.** Over plain HTTP, the portal's password, the links'
 tokens, the phones' keys and the calls' IDs would cross the internet unencrypted (Security).
-The hub can serve HTTPS and WSS instead (`[tls]` in `hub.toml`, `docs/setup.md`), and the Macs
-and speech nodes can pair rather than share tokens, but the rest a public hub needs is still to
-do (Next): the call's audio on the public address, and limits on what the internet could
-send it.
+The hub has what it would need, checked offline only (`docs/setup.md`, "A public hub"): HTTPS
+and WSS (`[tls]` in `hub.toml`); every part pairing, rather than sharing tokens; the call's
+audio on its public address (`public_ip`) and a range of UDP ports a firewall can open
+(`udp_ports`); and a limit on refused requests. Passkeys for the portal are still to do (Next),
+and the app offers the call's audio its VPN's addresses first, so with another VPN on, a public
+hub's audio may not connect.
 
 ## Security
 
@@ -489,6 +492,9 @@ The private network is the outer wall: anything on it can reach the hub. Inside 
   compared in constant time, or gets 401: so only your phones register, get the IDs of the
   waiting calls and the sessions (`/waiting`, `/contacts`), set their hold, or are rung and
   pushed to. The pairing page's sign-in comes back only to a page of the portal.
+- **Refused requests.** An address with 30 requests refused (401 or 403) within a minute is
+  shut out for a minute (429): every secret the hub checks is random and long, so this is
+  about load more than guessing. The hub's own machine isn't counted.
 - **The portal** has one account, made on the hub's machine (`ringback-hub portal-user NAME`):
   a password of at least 10 characters, hashed with PBKDF2-SHA256 at 600,000 iterations and
   a random salt, then a one-time passcode from an authenticator app (TOTP, RFC 6238: 6 digits,
@@ -774,6 +780,7 @@ how things look):
   speech node linking to it; the app's side isn't tried at all;
 - Macs and speech nodes pairing and linking with their own keys (a Mac's agent paired with
   a real hub and linked; the speech node only in its tests);
+- the call's audio on a public address and a range of ports, and refused requests shut out;
 - the weak-signal settings in the hub;
 - Interruption Sensitivity and Ignore Background Noise, with real noise or someone talking
   near you;
@@ -804,8 +811,9 @@ host unable to read their calls.
   domain name; the phone, the Macs and the speech nodes paired with the hub (a one-time code
   from the portal) instead of trusting the network; the call's audio on the public address
   (its UDP ports open); then passkeys for the portal. Ready: the phone's pairing (tried on the
-  phone), and HTTPS and WSS (`[tls]`) and the Macs' and speech nodes' pairing (checked
-  offline).
+  phone); HTTPS and WSS (`[tls]`), the Macs' and speech nodes' pairing, the call's audio on the
+  public address, and a limit on refused requests (checked offline; `docs/setup.md`, "A public
+  hub"). Left: passkeys, the app's audio with another VPN on, and trying it on a server.
 - [ ] **A hosted hub for several users.** Someone runs the hub, and each user has their own
   account and sees only their own phones, Macs, sessions and calls: a call rings only its
   user's phones, the portal shows each user only theirs, and each Mac's agent links as its

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -85,10 +86,61 @@ type Call struct {
 
 func (c *Call) say(line string) { log("call " + c.short + ": " + line) }
 
-// newCall answers the phone's offer: a peer connection offering only the hub's own address,
-// with Opus asked of the phone as phoneOpus says. It returns the
-// answer's SDP once its addresses are gathered.
-func newCall(id string, offer string, ringing bool, sensitivity, gate float64, agent, node *link, listen string) (*Call, string, error) {
+// audioNet is where a call's audio goes, from hub.toml: the hub's listen address; the public
+// address it offers instead (public_ip), for a hub on a public address whose machine doesn't
+// have it on an interface, as clouds that put their servers behind NAT do; and the UDP ports
+// it may use (udp_ports, as "50000-50199"), for a firewall to open.
+type audioNet struct {
+	listen, public   string
+	minPort, maxPort uint16
+}
+
+func audioNetwork(config map[string]string) (audioNet, error) {
+	n := audioNet{listen: config["listen"], public: config["public_ip"]}
+	host, _, _ := net.SplitHostPort(n.listen)
+	if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() && config["url"] == "" {
+		return n, fmt.Errorf("listening on every address (%s) needs url, how the phone reaches the hub", n.listen)
+	}
+	if ip := net.ParseIP(n.public); n.public != "" && (ip == nil || ip.To4() == nil) {
+		return n, fmt.Errorf("public_ip %q isn't an IPv4 address", n.public)
+	}
+	if ports := config["udp_ports"]; ports != "" {
+		low, high, ranged := strings.Cut(ports, "-")
+		min, errMin := strconv.ParseUint(strings.TrimSpace(low), 10, 16)
+		max, errMax := strconv.ParseUint(strings.TrimSpace(high), 10, 16)
+		if !ranged || errMin != nil || errMax != nil || min == 0 || min > max {
+			return n, fmt.Errorf("udp_ports %q isn't a range of ports such as 50000-50199", ports)
+		}
+		n.minPort, n.maxPort = uint16(min), uint16(max)
+	}
+	return n, nil
+}
+
+// apply has a call offer only the hub's own address, or its public one, on its ports. A hub
+// that listens on every address (0.0.0.0) offers every one it has.
+func (n audioNet) apply(settings *webrtc.SettingEngine) error {
+	host, _, _ := net.SplitHostPort(n.listen)
+	if ip := net.ParseIP(host); ip != nil && !ip.IsUnspecified() {
+		settings.SetIPFilter(func(candidate net.IP) bool { return candidate.Equal(ip) })
+		// Pion leaves loopback out, which a hub on localhost (tools/hub-check) needs.
+		settings.SetIncludeLoopbackCandidate(ip.IsLoopback())
+	}
+	if n.public != "" {
+		if err := settings.SetICEAddressRewriteRules(webrtc.ICEAddressRewriteRule{External: []string{n.public},
+			AsCandidateType: webrtc.ICECandidateTypeHost, Mode: webrtc.ICEAddressRewriteReplace}); err != nil {
+			return err
+		}
+	}
+	if n.maxPort != 0 {
+		return settings.SetEphemeralUDPPortRange(n.minPort, n.maxPort)
+	}
+	return nil
+}
+
+// newCall answers the phone's offer: a peer connection offering only the hub's own address
+// (audioNet), with Opus asked of the phone as phoneOpus says. It returns the answer's SDP once
+// its addresses are gathered.
+func newCall(id string, offer string, ringing bool, sensitivity, gate float64, agent, node *link, network audioNet) (*Call, string, error) {
 	c := &Call{id: id, short: prefix(id, 8), agent: agent, node: node, ringing: ringing,
 		sensitivity: sensitivity, gate: gate, offeredAt: now(), stream: nextStream()}
 	engine := &webrtc.MediaEngine{}
@@ -99,11 +151,8 @@ func newCall(id string, offer string, ringing bool, sensitivity, gate float64, a
 		return nil, "", err
 	}
 	settings := webrtc.SettingEngine{}
-	host, _, _ := net.SplitHostPort(listen)
-	if ip := net.ParseIP(host); ip != nil {
-		settings.SetIPFilter(func(candidate net.IP) bool { return candidate.Equal(ip) })
-		// Pion leaves loopback out, which a hub on localhost (tools/hub-check) needs.
-		settings.SetIncludeLoopbackCandidate(ip.IsLoopback())
+	if err := network.apply(&settings); err != nil {
+		return nil, "", err
 	}
 	settings.SetNetworkTypes([]webrtc.NetworkType{webrtc.NetworkTypeUDP4})
 	// Patient with a slow network: a call on 3G or worse lost its consent checks with

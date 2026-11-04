@@ -43,6 +43,9 @@ func installService() {
 	if _, err := tlsConfig(config); err != nil {
 		fail("[tls] in " + configPath + ": " + err.Error())
 	}
+	if _, err := audioNetwork(config); err != nil {
+		fail("In " + configPath + ": " + err.Error())
+	}
 	exe, err := os.Executable()
 	if err == nil {
 		exe, err = filepath.EvalSymlinks(exe)
