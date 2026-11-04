@@ -793,6 +793,9 @@ how things look):
 - Macs and speech nodes pairing and linking with their own keys (a Mac's agent paired with
   a real hub and linked; the speech node only in its tests);
 - the call's audio on a public address and a range of ports, and refused requests shut out;
+- the hub on Linux: `hub/build.sh` building it there with libopus linked in, its checks and
+  smoke test passing, and `install` making a systemd user service that came back 12 s after a
+  kill (on the speech node's machine, then taken away);
 - the weak-signal settings in the hub;
 - Interruption Sensitivity and Ignore Background Noise, with real noise or someone talking
   near you;
@@ -825,8 +828,8 @@ host unable to read their calls.
   (its UDP ports open); then passkeys for the portal. Ready: the phone's pairing (tried on the
   phone); HTTPS and WSS (`[tls]`), the Macs' and speech nodes' pairing, the call's audio on the
   public address, and a limit on refused requests (checked offline; `docs/setup.md`, "A public
-  hub"), and the app's audio for a hub on a public address. Left: passkeys, and trying it on a
-  server.
+  hub"), the app's audio for a hub on a public address, and the hub on Linux. Left:
+  passkeys, and trying it on a server.
 - [ ] **A hosted hub for several users.** Someone runs the hub, and each user has their own
   account and sees only their own phones, Macs, sessions and calls: a call rings only its
   user's phones, the portal shows each user only theirs, and each Mac's agent links as its

@@ -6,7 +6,7 @@
 # through the APNs sandbox, signed with your real config and key. Apple answers 400
 # BadDeviceToken only when the signature is valid (a bad one gets 403), and nothing rings.
 #
-#   hub/smoke-test.sh [--apns]     after: go build -o build/ringback-hub .
+#   hub/smoke-test.sh [--apns]     after: go build -o build/ringback-hub .  (macOS or Linux)
 set -eu
 cd "$(dirname "$0")"
 # RINGBACK_HUB runs the same checks against another build of the hub.
@@ -34,6 +34,8 @@ body() { curl -s --retry 5 --retry-connrefused --retry-delay 1 "$@"; }
 yes_if() { if "$@" > /dev/null; then echo yes; else echo no; fi; }
 has() { printf '%s\n' "$1" | grep -qE "$2"; }  # text, pattern
 has_text() { printf '%s\n' "$1" | grep -qF "$2"; }  # text, text it contains
+perms() { if [ "$(uname -s)" = Darwin ]; then stat -f %Lp "$1"; else stat -c %a "$1"; fi; }  # a file's, in octal
+days_ago() { date -u -v-"$1"d +%Y-%m-%dT%H:%M:%SZ 2> /dev/null || date -u -d "$1 days ago" +%Y-%m-%dT%H:%M:%SZ; }
 
 HOME="$home" "$bin" serve > "$home/log" 2>&1 &
 server=$!
@@ -56,7 +58,7 @@ made_up=$(printf '%s' "$pair1" | sed "s/$code1/not-a-code/")
 check "a made-up code: 403, not valid" '{"ok": false, "error": "pairing code not valid"}' "$(body -d "$made_up" "$url/pair")"
 check "the key isn't kept, only its hash" no "$(yes_if grep -q "$k1" "$home/.local/state/ringback/devices.json")"
 check "nor the codes, which only the hub's user can read" "600 no" \
-    "$(stat -f %Lp "$home/.local/state/ringback/pairing.json") $(yes_if grep -q "$code1" "$home/.local/state/ringback/pairing.json")"
+    "$(perms "$home/.local/state/ringback/pairing.json") $(yes_if grep -q "$code1" "$home/.local/state/ringback/pairing.json")"
 me="\"token\": \"aaaa1111bbbb2222\", \"key\": \"$k1\""
 me_only="{$me}"
 me_full="{$me, \"environment\": \"sandbox\", \"device\": \"Test phone\", \"notification_token\": \"cccc3333\"}"
@@ -302,7 +304,7 @@ set_at() {  # token, ISO 8601
         "$state/devices.json" "$1" "$2"
 }
 hold_json() { echo "{\"hold\":$1,\"until\":\"$2:00$offset\"}"; }  # true|false, date and time
-tomorrow=$(TZ=$zone date -v+1d +%Y-%m-%d)
+tomorrow=$(TZ=$zone date -v+1d +%Y-%m-%d 2> /dev/null || TZ=$zone date -d tomorrow +%Y-%m-%d)
 HOME="$home" "$bin" serve >> "$home/log" 2>&1 &
 server=$!
 check "the switch without a token: 401" 401 "$(status -d '{}' "$url/hold")"
@@ -319,11 +321,11 @@ check "and calls are held again" "$(held_until 13:15)" "$(call_as hold0003-00000
 check "with 08:00–20:00, inside them, it stays on hold" 200 "$(hours "$phone" 08:00 20:00)"
 check "until they next start, tomorrow" "$(hold_json true "${tomorrow}T08:00")" "$(hold_of $first)"
 check "paused before they started today, they let calls through" "$(hold_json false "${today}T20:00")" \
-    "$(set_at $first "$(date -u -v-1d +%Y-%m-%dT%H:%M:%SZ)"; hold_of $first)"
+    "$(set_at $first "$(days_ago 1)"; hold_of $first)"
 check "so a call rings" "$rings" "$(call_as hold0004-000000000000)"
 check "with 14:00–16:00 again" 200 "$(hours "$phone" 14:00 16:00)"
 check "taking calls since before they last ended: on hold" "$(hold_json true "${today}T14:00")" \
-    "$(set_hold $first false > /dev/null; set_at $first "$(date -u -v-2d +%Y-%m-%dT%H:%M:%SZ)"; hold_of $first)"
+    "$(set_hold $first false > /dev/null; set_at $first "$(days_ago 2)"; hold_of $first)"
 check "both phones without hours" 200 "$(status -d "{$phone}" "$url/register"; status -d "{$second}" "$url/register" > /dev/null)"
 check "without hours, a phone takes calls" '{"hold":false}' "$(hold_of $first)"
 check "on hold, it has no time to come off it" '{"hold":true}' "$(set_hold $first true)"

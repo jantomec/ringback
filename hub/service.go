@@ -1,8 +1,9 @@
 package main
 
-// The hub as a service, on macOS: `install` writes a launchd agent that starts the hub at
-// login and again whenever it stops, and starts it now; `uninstall` stops it and takes the
-// agent away. Installing again, as after copying a new binary over the old, restarts it.
+// The hub as a service: on macOS, `install` writes a launchd agent that starts the hub at
+// login and again whenever it stops, and starts it now; on Linux, a systemd user service that
+// starts it at boot (systemd.go). `uninstall` stops it and takes it away. Installing again, as
+// after copying a new binary over the old, restarts it.
 
 import (
 	"encoding/xml"
@@ -26,8 +27,8 @@ var (
 )
 
 func installService() {
-	if runtime.GOOS != "darwin" {
-		fail("install sets the hub up with launchd, on macOS. Elsewhere, run `ringback-hub serve` from your service manager.")
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		fail("install sets the hub up with launchd on macOS, or systemd on Linux. Elsewhere, run `ringback-hub serve` from your service manager.")
 	}
 	config := loadConfig()
 	listen := config["listen"]
@@ -52,6 +53,10 @@ func installService() {
 	}
 	if err != nil {
 		fail("Can't tell where this binary is: " + err.Error())
+	}
+	if runtime.GOOS == "linux" {
+		installSystemd(exe, listen)
+		return
 	}
 	stopService()
 	// A hub started by hand would keep the address, and the service would never start.
@@ -78,6 +83,10 @@ func installService() {
 }
 
 func uninstallService() {
+	if runtime.GOOS == "linux" {
+		uninstallSystemd()
+		return
+	}
 	stopService()
 	if err := os.Remove(servicePlist); err != nil && !os.IsNotExist(err) {
 		fail(err.Error())

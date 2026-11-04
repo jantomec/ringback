@@ -15,9 +15,9 @@ import (
 const usage = `usage: ringback-hub install | uninstall | serve | ring [--project NAME] [--subject TEXT]
        | check | devices | pair [mac | node] | portal-user NAME
 
-  install  run the hub as a service (a launchd agent): now, at login, and again whenever
-           it stops; again after updating the binary, to restart it; uninstall stops it
-           and takes it away
+  install  run the hub as a service (a launchd agent on macOS, a systemd user service on
+           Linux): now, at login or boot, and again whenever it stops; again after updating
+           the binary, to restart it; uninstall stops it and takes it away
   serve    serve the phone, the speech nodes and the agents: ring calls, carry their audio,
            and every 30 min ask each phone to check that it can still reach the hub
   ring     ring every paired phone, at any time, to try the push; the call has no audio

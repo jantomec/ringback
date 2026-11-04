@@ -28,7 +28,8 @@ say where else. Replace the example addresses (`10.0.0.1` for the hub) with your
 - **A paid Apple Developer Program account.** VoIP pushes need it.
 - **An iPhone** on iOS 26 or later.
 - **An always-on Mac** for the hub, Intel or Apple silicon, on macOS 13 or later. It needs
-  nothing installed but your VPN.
+  nothing installed but your VPN. Or a Linux machine (step 2), as a server would be: x86-64
+  or ARM, built there.
 - **A Linux machine with an NVIDIA GPU** for the speech node, if you want one (step 4):
   x86-64, a GPU from the Turing generation (2018) or later, and a driver of the 580 series or
   later, for CUDA 13 (it's tried on 610). A call takes about 3 GB of its GPU memory and 3 GB
@@ -71,6 +72,14 @@ scp hub/build/ringback-hub-universal always-on-mac:.local/bin/ringback-hub
 scp hub/hub.example.toml always-on-mac:.config/ringback/hub.toml
 scp AuthKey_XYZ9876543.p8 always-on-mac:.config/ringback/   # your APNs key, from step 1
 ```
+
+**On Linux** instead, build it on that machine, with Go, a C compiler, CMake, pkg-config and
+curl (`sudo apt install build-essential cmake pkg-config curl` on Debian or Ubuntu, with Go from
+go.dev): `hub/build.sh` makes `hub/build/ringback-hub`, which needs nothing but the system's C
+library. Copy it to `~/.local/bin/ringback-hub`, and the config and APNs key to
+`~/.config/ringback/` as above. Its `install` makes a systemd user service, which starts at
+boot (it turns on lingering, as the speech node's does), and its log is `journalctl --user -u
+ringback-hub`. Tried on one x86-64 machine with its checks, not as anyone's hub yet.
 
 On the always-on Mac, fill in `~/.config/ringback/hub.toml`:
 - `listen` is the hub's address on your private network, such as its Nebula address, and its
@@ -436,8 +445,8 @@ an address the internet reaches, with no VPN, but none of it has been tried on o
 in `design.md`), and the portal still signs in with a password and a passcode, not a passkey.
 What it would take:
 - **A machine the internet reaches,** always on: a small server, or a machine of yours with a
-  port forward. The hub runs as `ringback-hub serve` from its service manager anywhere; only
-  `install` is macOS's, and `build.sh` builds for macOS.
+  port forward. On Linux, build and install the hub as step 2 says. As a user's service it
+  can't listen on a port below 1024, such as 443: keep 8787, the app's default.
 - **A domain name** whose DNS points at it, and a **certificate** for that name, from an ACME
   client (lego, acme.sh, certbot) that renews it on its own; the hub reads the files under
   `[tls]` again when they change (step 2).

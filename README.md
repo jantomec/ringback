@@ -99,7 +99,7 @@ How each part works and why, and what's been tried on the phone so far, are in
 You need:
 
 - an always-on Mac for the hub, Intel or Apple silicon (it needs nothing installed but your
-  VPN);
+  VPN), or a Linux machine;
 - for the speech node, a Linux machine with an NVIDIA GPU: about 3 GB of GPU memory and 3 GB
   of RAM during calls, next to nothing between them, and 4 GB on disk. It's optional: without one,
   the iPhone hears and speaks calls itself, and gets more of your words wrong;
