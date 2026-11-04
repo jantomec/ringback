@@ -342,6 +342,32 @@ check "a call held until you take calls is logged" yes "$(yes_if grep -qF 'call 
 check "held calls ring nobody" no "$(yes_if grep -qE 'call hold000[13] →' "$home/log")"
 check "the others ring, the last once you take calls" 4 "$(grep -cE 'call hold000[2456] → Test phone' "$home/log")"
 
+# Over TLS ([tls]), with a certificate for 127.0.0.1 that's its own CA, made here as an ACME
+# client would write it; then renewed while the hub serves.
+tls="$home/.config/ringback/tls"
+mkdir -p "$tls"
+make_cert() { (cd "$tls" && go run "$(go env GOROOT)/src/crypto/tls/generate_cert.go" --host 127.0.0.1 --ca \
+    --ecdsa-curve P256 --duration "$1" 2> /dev/null && mv cert.pem fullchain.pem); }
+make_cert 2160h
+tls_url=https://127.0.0.1:18790
+printf 'listen = "127.0.0.1:18790"\n[tls]\ncert = "%s"\nkey = "%s"\n[tokens]\nagent = "smoke-agent-token-0001"\nspeech = "smoke-speech-token-001"\n' \
+    "$tls/fullchain.pem" "$tls/key.pem" > "$home/.config/ringback/hub.toml"
+HOME="$home" "$bin" serve > "$home/tls.log" 2>&1 &
+server=$!
+cp "$tls/fullchain.pem" "$tls/first.pem"
+check "TLS: /ping over HTTPS" 200 "$(status --cacert "$tls/first.pem" "$tls_url/ping")"
+check "TLS: a certificate it doesn't trust fails" 000 "$(curl -s -o /dev/null -w '%{http_code}' "$tls_url/ping")"
+check "TLS: plain HTTP on its port is refused" 400 "$(status "http://127.0.0.1:18790/ping")"
+check "TLS: the agent link without a token gets 401" 401 "$(status --cacert "$tls/first.pem" "$tls_url/agent")"
+make_cert 24h
+check "TLS: renewed, the new certificate is served" 200 "$(status --cacert "$tls/fullchain.pem" "$tls_url/ping")"
+check "TLS: and the first one no longer" 000 "$(curl -s -o /dev/null -w '%{http_code}' --cacert "$tls/first.pem" "$tls_url/ping")"
+kill $server
+wait $server 2> /dev/null || true
+check "TLS: it says it serves HTTPS" yes "$(yes_if grep -qF 'hub listening on 127.0.0.1:18790, HTTPS and WSS' "$home/tls.log")"
+check "TLS: each certificate is logged" 2 "$(grep -c 'TLS: certificate for 127.0.0.1, valid until' "$home/tls.log")"
+cat "$home/tls.log" >> "$home/log"
+
 if [ "${1:-}" = --apns ]; then
     cp ~/.config/ringback/hub.toml "$home/.config/ringback/hub.toml"
     cp ~/.config/ringback/AuthKey_*.p8 "$home/.config/ringback/"

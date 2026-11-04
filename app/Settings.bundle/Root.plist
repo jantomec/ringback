@@ -6,7 +6,7 @@
 	<array>
 		<dict>
 			<key>FooterText</key>
-			<string>Your hub's address, such as 10.0.0.1. Port 8787 is used unless you add another, as in 10.0.0.1:9000.</string>
+			<string>Your hub's address, such as 10.0.0.1. Port 8787 is used unless you add another, as in 10.0.0.1:9000. A hub that serves HTTPS needs its whole address, such as https://hub.example.com:8787.</string>
 			<key>Title</key>
 			<string>Hub</string>
 			<key>Type</key>

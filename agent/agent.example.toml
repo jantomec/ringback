@@ -1,11 +1,16 @@
 # Copy to ~/.config/ringback/agent.toml on each Mac that runs Claude Code sessions, and fill
 # in your own values.
 
-# The hub's address, as its hub.toml's listen gives it.
+# The hub's address, as its hub.toml's listen gives it; or if it serves HTTPS ([tls]), its
+# URL, such as "https://hub.example.com:8787".
 hub = "10.0.0.1:8787"
 
 # The hub's agent token ([tokens] agent in its hub.toml).
 token = "…"
+
+# A certificate authority to trust for the hub's certificate as well as the system's, as a PEM
+# file: for a hub whose certificate a CA of your own signed (optional).
+# ca = "~/.config/ringback/hub-ca.pem"
 
 # This Mac, for the hub's log and its portal (optional; by default its local host name, as
 # set in System Settings, General, Sharing).

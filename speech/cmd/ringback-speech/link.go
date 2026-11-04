@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -21,6 +25,37 @@ const (
 	silentFor       = 45 * time.Second // a link that answers no ping for this long is closed
 	maxBackoff      = 30 * time.Second
 )
+
+// linkURL is the hub's speech link: its own ws:// or wss:// URL, or the hub's URL, which turns
+// into it ("https://hub.example.com:8787" into wss://…/speech).
+func linkURL(hub string) string {
+	if strings.HasPrefix(hub, "http://") || strings.HasPrefix(hub, "https://") {
+		return "ws" + strings.TrimPrefix(strings.TrimSuffix(hub, "/"), "http") + "/speech"
+	}
+	return hub
+}
+
+// hubClient is how the node reaches the hub: trusting the CA in the PEM file ca as well as the
+// system's, for a hub whose certificate a CA of your own signed; nil, the default, without one.
+func hubClient(ca string) (*http.Client, error) {
+	if ca == "" {
+		return nil, nil
+	}
+	data, err := os.ReadFile(ca)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(data) {
+		return nil, fmt.Errorf("no certificate in %s", ca)
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{RootCAs: pool}
+	return &http.Client{Transport: transport}, nil
+}
 
 type message struct {
 	Type        string   `json:"type"`
@@ -63,6 +98,7 @@ func serve(ctx context.Context, c config, r *relay) {
 func link(ctx context.Context, c config, r *relay) (welcomed bool, err error) {
 	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	conn, _, err := websocket.Dial(dialCtx, c.hub, &websocket.DialOptions{
+		HTTPClient: c.client,
 		HTTPHeader: http.Header{"Authorization": {"Bearer " + c.token}},
 	})
 	cancel()

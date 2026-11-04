@@ -5,8 +5,16 @@
 # address, on UDP ports it picks.
 listen = "10.0.0.1:8787"
 
-# How the phone reaches the hub, if not at http://<listen> (optional).
+# How the phone reaches the hub, if not at http://<listen> (optional). With [tls], its https://
+# address by the name the certificate is for, such as "https://hub.example.com:8787".
 # url = "http://10.0.0.1:8787"
+
+# HTTPS and WSS instead of plain HTTP (optional): the certificate chain and its key, as PEM
+# files, such as an ACME client (lego, acme.sh, certbot) writes them. The hub reads them again
+# when they change, so a renewal needs no restart, and logs a week ahead if they run out.
+# [tls]
+# cert = "~/.config/ringback/tls/fullchain.pem"
+# key = "~/.config/ringback/tls/key.pem"
 
 # The tokens the speech nodes and the agents link with: long random strings, such as
 # `openssl rand -hex 32` gives. Each speech node's speech.toml and each Mac's agent.toml

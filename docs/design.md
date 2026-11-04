@@ -452,10 +452,11 @@ direct tunnels to it failed, so the phone's traffic goes through the relay. That
 phone always dials the hub, and never the other way. Another VPN with the same property (the
 phone reaches the hub from anywhere) should work, but hasn't been tried.
 
-**A public address isn't supported.** The hub speaks plain HTTP, so the portal's password,
-the links' tokens, the phones' keys and the calls' IDs would cross the internet unencrypted
-(Security). A public hub with TLS, and the Macs and speech nodes paired too, is planned
-(Next).
+**A public address isn't supported yet.** Over plain HTTP, the portal's password, the links'
+tokens, the phones' keys and the calls' IDs would cross the internet unencrypted (Security).
+The hub can serve HTTPS and WSS instead (`[tls]` in `hub.toml`, `docs/setup.md`), but the rest
+a public hub needs is still to do (Next): the Macs and speech nodes paired, and the call's
+audio on the public address.
 
 ## Security
 
@@ -486,7 +487,9 @@ The private network is the outer wall: anything on it can reach the hub. Inside 
   hash and ended after 12 h unused; every form carries a CSRF token; five failed sign-ins from
   an address shut it out for a minute. The pages allow no outside scripts or framing.
 - **In transit.** The VPN encrypts everything between the parts. Inside it, the call's audio
-  is encrypted anyway (SRTP), while HTTP and the links' WebSockets are not.
+  is encrypted anyway (SRTP), while HTTP and the links' WebSockets are not, unless the hub
+  serves TLS (`[tls]`, TLS 1.2 or later): then the agent and the speech node check its
+  certificate against the system's CAs, or a CA of your own (`ca`), and so does the phone.
 - **On the hub's machine:** the APNs key (`.p8`) sits beside `hub.toml`, which also holds the
   links' tokens.
 - **On each Mac:** the agent's socket and its state file (which holds call IDs) are readable
@@ -756,6 +759,8 @@ how things look):
 - a held call's question sent to the Claude app;
 - the voice leaving out a sentence that names a tool;
 - no call again when you said "bye" over the session's answer, or anything else;
+- the hub serving HTTPS and WSS (`[tls]`), renewed without a restart, and the agent and the
+  speech node linking to it; the app's side isn't tried at all;
 - the weak-signal settings in the hub;
 - Interruption Sensitivity and Ignore Background Noise, with real noise or someone talking
   near you;
@@ -785,7 +790,8 @@ host unable to read their calls.
 - [ ] **A public hub,** so no private network is needed: HTTPS and WSS with a certificate for a
   domain name; the phone, the Macs and the speech nodes paired with the hub (a one-time code
   from the portal) instead of trusting the network; the call's audio on the public address
-  (its UDP ports open); then passkeys for the portal.
+  (its UDP ports open); then passkeys for the portal. Ready: the phone's pairing (tried on the
+  phone), and HTTPS and WSS (`[tls]`, checked offline).
 - [ ] **A hosted hub for several users.** Someone runs the hub, and each user has their own
   account and sees only their own phones, Macs, sessions and calls: a call rings only its
   user's phones, the portal shows each user only theirs, and each Mac's agent links as its

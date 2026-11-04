@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,7 +12,9 @@ import (
 
 type config struct {
 	path     string
-	hub      string // the hub's speech link, ws://…/speech
+	hub      string // the hub's speech link, ws://…/speech or wss://…/speech (linkURL)
+	ca       string // a CA to trust for the hub's certificate, besides the system's (hubClient)
+	client   *http.Client
 	token    string
 	name     string
 	provider string // "cuda" or "cpu", for Parakeet and Kokoro
@@ -86,7 +89,8 @@ func loadConfig(path string) (config, error) {
 	}
 	c := config{
 		path:      path,
-		hub:       values["hub"],
+		hub:       linkURL(values["hub"]),
+		ca:        rel("ca", ""),
 		token:     values["token"],
 		name:      values["name"],
 		provider:  values["provider"],

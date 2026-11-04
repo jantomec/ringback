@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,8 +21,9 @@ var (
 
 type endpoint func(body map[string]any) (map[string]any, error)
 
-// serve answers the phone over Nebula (/pair, /register, /events, /check, /waiting,
-// /contacts, /hold), and the links the agents and the speech nodes open. The phone's requests are small
+// serve answers the phone (/pair, /register, /events, /check, /waiting, /contacts, /hold),
+// and the links the agents and the speech nodes open: over plain HTTP on a private network
+// such as Nebula, or HTTPS and WSS with [tls] in hub.toml (tlsConfig). The phone's requests are small
 // and rare, and are handled one at a time (stateMu); each gets at most 5 s, so a stalled
 // connection can't hold the next one past the app's 10 s timeout. Meanwhile it asks the
 // phones to check their connection every 30 min.
@@ -35,7 +37,15 @@ func serve(listen string) {
 		// Fails if Nebula isn't up yet; the service manager then starts it again.
 		fail(fmt.Sprintf("can't listen on %s: %v", listen, err))
 	}
-	log("hub listening on " + listen)
+	how := ""
+	config, err := tlsConfig(loadConfig())
+	if err != nil {
+		fail("Can't serve TLS: " + err.Error())
+	}
+	if config != nil {
+		listener, servingTLS, how = tls.NewListener(listener, config), true, ", HTTPS and WSS"
+	}
+	log("hub listening on " + listen + how)
 	partsGoneAtStart()
 	checkPeriodically()
 	server := &http.Server{

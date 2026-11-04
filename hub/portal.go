@@ -651,9 +651,11 @@ type setupPart struct {
 }
 
 type setupView struct {
-	Listen, Config, SpeechToken, AgentToken, PushProblem string
-	SpeechSet, AgentSet                                  bool
-	Node, Mac, Phone, Push                               setupPart
+	// How the phone, an agent and a speech node reach the hub.
+	PhoneHub, AgentHub, SpeechHub                string
+	Config, SpeechToken, AgentToken, PushProblem string
+	SpeechSet, AgentSet                          bool
+	Node, Mac, Phone, Push                       setupPart
 }
 
 func setupData() setupView {
@@ -674,8 +676,15 @@ func setupData() setupView {
 	for _, mac := range macNames {
 		macs = append(macs, fmt.Sprint(mac["name"]))
 	}
-	v := setupView{Listen: config["listen"], Config: shown, SpeechToken: config["tokens.speech"], AgentToken: config["tokens.agent"],
+	v := setupView{Config: shown, SpeechToken: config["tokens.speech"], AgentToken: config["tokens.agent"],
 		SpeechSet: set(config["tokens.speech"]), AgentSet: set(config["tokens.agent"])}
+	// At the listen address, the shortest they can be; otherwise the hub's URL, which the
+	// agent turns into its link's.
+	v.PhoneHub, v.AgentHub, v.SpeechHub = config["listen"], config["listen"], "ws://"+config["listen"]+"/speech"
+	if config["url"] != "" || config["tls.cert"] != "" {
+		base := hubURL()
+		v.PhoneHub, v.AgentHub, v.SpeechHub = base, base, "ws"+strings.TrimPrefix(base, "http")+"/speech"
+	}
 	v.Node = partSetUp(nodeNames, len(seen["speech"]), "speech node")
 	v.Mac = partSetUp(macs, len(seen["agent"]), "Mac")
 	var phones, unpaired []string

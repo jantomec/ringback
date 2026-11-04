@@ -22,7 +22,7 @@ speech/build.sh</pre>
     <div class="step"><span class="n">2</span><p>Set the hub's address and the speech token in <code>~/ringback-speech/speech.toml</code>:</p></div>
     {{- if .SpeechSet}}
     <div class="snippet">
-      <pre class="code">hub = "ws://{{.Listen}}/speech"
+      <pre class="code">hub = "{{.SpeechHub}}"
 token = "<span class="secret" data-secret="{{.SpeechToken}}">••••••••••••••••</span>"</pre>
       <div class="actions"><button type="button" class="btn" data-reveal>Show token</button><button type="button" class="btn" data-copy>Copy</button></div>
     </div>
@@ -48,7 +48,7 @@ cp agent/agent.example.toml ~/.config/ringback/agent.toml</pre>
     <div class="step"><span class="n">2</span><p>Set the hub's address and the agent token in <code>~/.config/ringback/agent.toml</code>:</p></div>
     {{- if .AgentSet}}
     <div class="snippet">
-      <pre class="code">hub = "{{.Listen}}"
+      <pre class="code">hub = "{{.AgentHub}}"
 token = "<span class="secret" data-secret="{{.AgentToken}}">••••••••••••••••</span>"</pre>
       <div class="actions"><button type="button" class="btn" data-reveal>Show token</button><button type="button" class="btn" data-copy>Copy</button></div>
     </div>
@@ -70,7 +70,7 @@ token = "<span class="secret" data-secret="{{.AgentToken}}">••••••�
   <div class="group pad">
     <div class="step"><span class="n">1</span><p>Install the app on the iPhone from Xcode, as the repository's <code>docs/setup.md</code> says, with Nebula on the phone too.</p></div>
     <div class="step"><span class="n">2</span><p>In the Settings app, under Apps, Ringback, set the hub's Address, so the app can reach it:</p></div>
-    <pre class="code">{{.Listen}}</pre>
+    <pre class="code">{{.PhoneHub}}</pre>
     <div class="step"><span class="n">3</span><p>Open the app and allow notifications. Its banner says the hub needs the phone paired: tap Pair, sign in to this portal on the phone, and tap Pair this phone. Ringback opens and pairs, and the phone shows on the status page's map. To start from the portal instead, open <a href="/portal/pair">Pair this phone</a> on the iPhone.</p></div>
   </div>
 </section>

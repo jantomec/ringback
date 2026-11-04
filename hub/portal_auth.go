@@ -260,8 +260,8 @@ it on the device with the app) or the setup key:
 	}
 	address := "http://<the hub's address>/portal/"
 	if data, err := os.ReadFile(configPath); err == nil && len(data) > 0 {
-		if listen := loadConfig()["listen"]; listen != "" {
-			address = "http://" + listen + "/portal/"
+		if loadConfig()["listen"] != "" {
+			address = hubURL() + "/portal/"
 		}
 	}
 	fmt.Printf("The portal's account is %s. Sign in at %s\n", a.Name, address)
@@ -350,7 +350,7 @@ func keyOf(id string) string {
 
 func setCookie(w http.ResponseWriter, name, value string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{Name: name, Value: value, Path: "/portal", MaxAge: maxAge,
-		HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		HttpOnly: true, Secure: servingTLS, SameSite: http.SameSiteStrictMode})
 }
 
 func clearCookie(w http.ResponseWriter, name string) { setCookie(w, name, "", -1) }

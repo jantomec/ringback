@@ -32,6 +32,9 @@ func hubURL() string {
 	if url := config["url"]; url != "" {
 		return strings.TrimSuffix(url, "/")
 	}
+	if config["tls.cert"] != "" {
+		return "https://" + config["listen"]
+	}
 	return "http://" + config["listen"]
 }
 

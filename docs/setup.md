@@ -81,6 +81,20 @@ On the always-on Mac, fill in `~/.config/ringback/hub.toml`:
 - `[apns]` is your team ID and the app's bundle ID, and `[apns.sandbox]` the key: its key ID
   and the path of its `.p8` file.
 
+**HTTPS (optional).** On a private network plain HTTP is enough, since the VPN encrypts it. To
+have the hub serve HTTPS and WSS instead, as a hub on a public address will need (not
+supported yet: "The network" in `design.md`), give it a certificate under `[tls]`: `cert`,
+the chain, and `key`, as PEM files, as an ACME client such as lego, acme.sh or certbot writes
+them for a domain name of yours (a DNS challenge works for a hub that only your private
+network reaches), and set `url` to the hub's `https://` address by that name. It reads them
+again when they change, so a renewal needs no restart, and it logs a week ahead of their
+running out. The speech node's `hub` is then `wss://NAME:PORT/speech`, and the agent's `hub`
+and the phone's Address are the hub's URL; pairing the phone from the portal sets it. A
+certificate a CA of your own signed works too: the agent and the speech node trust it with
+`ca`, and the phone needs the CA's profile installed and turned on under Settings, General,
+About, Certificate Trust Settings. Checked offline only (`hub/smoke-test.sh`), not with the
+phone.
+
 Then install it as a service, a launchd agent: it starts now, at login, and again whenever it
 stops (at most every 30 s: while the network is down it can't listen on its address, and
 launchd tries again):
@@ -89,8 +103,8 @@ launchd tries again):
 ~/.local/bin/ringback-hub install
 ```
 
-`install` refuses while the config lacks `listen` or the tokens, or while something else
-listens on the address, such as a hub started by hand. Its log is
+`install` refuses while the config lacks `listen` or the tokens, has a `[tls]` it can't read,
+or while something else listens on the address, such as a hub started by hand. Its log is
 `~/Library/Logs/ringback-hub.log`. After copying a new binary over the old one, run `install`
 again to restart it; `ringback-hub uninstall` stops it and takes the launchd agent away. To
 try it in a terminal instead, `ringback-hub serve` runs it until you stop it. On a Mac with

@@ -68,7 +68,18 @@ func newFakeHub(t *testing.T) *fakeHub {
 	return h
 }
 
-func (h *fakeHub) addr() string { return strings.TrimPrefix(h.server.URL, "http://") }
+// newFakeTLSHub is a fake hub that serves TLS, with a certificate its own CA signed.
+func newFakeTLSHub(t *testing.T) *fakeHub {
+	h := newFakeHub(t)
+	h.server.Close()
+	h.server = httptest.NewTLSServer(http.HandlerFunc(h.serve))
+	t.Cleanup(h.server.Close)
+	return h
+}
+
+func (h *fakeHub) addr() string {
+	return strings.TrimPrefix(strings.TrimPrefix(h.server.URL, "http://"), "https://")
+}
 
 func (h *fakeHub) serve(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/agent" || r.Header.Get("Authorization") != "Bearer "+h.token {

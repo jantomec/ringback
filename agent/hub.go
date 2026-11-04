@@ -20,10 +20,13 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -46,6 +49,7 @@ var (
 
 type hubLink struct {
 	url, addr, token, name string
+	client                 *http.Client // trusting a private CA too (trustCA); nil for the default
 	log                    func(string)
 	handle                 func(message map[string]any)
 	up, down               func() // the link has opened, or closed
@@ -57,15 +61,41 @@ type hubLink struct {
 	writing sync.Mutex
 }
 
+// newHubLink is the link to the hub at addr: its listen address ("10.0.0.1:8787"), linked
+// over plain ws://; or its URL, which turns into its link's ("https://hub.example.com:8787"
+// into wss://…/agent); or the link's own URL.
 func newHubLink(addr, token, name string, log func(string)) *hubLink {
 	url := addr
-	if !strings.Contains(addr, "://") {
+	switch {
+	case !strings.Contains(addr, "://"):
 		url = "ws://" + addr + "/agent"
+	case strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://"):
+		url = "ws" + strings.TrimPrefix(strings.TrimSuffix(addr, "/"), "http") + "/agent"
 	}
 	return &hubLink{url: url, addr: addr, token: token, name: name, log: log, pending: map[int]chan map[string]any{}}
 }
 
 func (h *hubLink) address() string { return h.addr }
+
+// trustCA has the link trust the certificate authority in the PEM file at path as well as the
+// system's: for a hub whose certificate a CA of your own signed.
+func (h *hubLink) trustCA(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(data) {
+		return fmt.Errorf("no certificate in %s", path)
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{RootCAs: pool}
+	h.client = &http.Client{Transport: transport}
+	return nil
+}
 
 // run keeps the link open until ctx ends.
 func (h *hubLink) run(ctx context.Context) {
@@ -93,6 +123,7 @@ func (h *hubLink) run(ctx context.Context) {
 func (h *hubLink) connect(ctx context.Context) (bool, error) {
 	dial, cancel := context.WithTimeout(ctx, 10*time.Second)
 	conn, response, err := websocket.Dial(dial, h.url, &websocket.DialOptions{
+		HTTPClient: h.client,
 		HTTPHeader: http.Header{"Authorization": {"Bearer " + h.token}},
 	})
 	cancel()

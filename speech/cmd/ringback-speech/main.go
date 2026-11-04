@@ -84,6 +84,9 @@ func main() {
 		if c.hub == "" || c.token == "" {
 			fail("No hub or token in " + c.path + ".")
 		}
+		if c.client, err = hubClient(c.ca); err != nil {
+			fail("Can't read the hub's CA (ca in " + c.path + "): " + err.Error())
+		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		r := newRelay(c)

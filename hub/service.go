@@ -39,6 +39,9 @@ func installService() {
 			fail("No [tokens] " + kind + " in " + configPath + ": make it a long random string, such as `openssl rand -hex 32` prints.")
 		}
 	}
+	if _, err := tlsConfig(config); err != nil {
+		fail("[tls] in " + configPath + ": " + err.Error())
+	}
 	exe, err := os.Executable()
 	if err == nil {
 		exe, err = filepath.EvalSymlinks(exe)

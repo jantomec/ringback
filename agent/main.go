@@ -76,6 +76,11 @@ func serve(options map[string]string) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	hub := newHubLink(config["hub"], config["token"], name, logLine)
+	if ca := config["ca"]; ca != "" {
+		if err := hub.trustCA(expand(ca)); err != nil {
+			fail(fmt.Sprintf("Can't read the hub's CA (ca in %s): %v", configPath, err))
+		}
+	}
 	// What it keeps across a restart, beside the socket.
 	calls := newCalls(hub, logLine, filepath.Join(filepath.Dir(socket), stateFile))
 	a := newAgent(calls, hub, logLine)

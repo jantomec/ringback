@@ -29,13 +29,16 @@ enum Switchboard {
     }
 
     /// Turns what you type ("10.0.0.1", "10.0.0.1:9000" or a full URL) into the hub's
-    /// URL, adding http:// and the default port. Nil if there's no host.
+    /// URL, adding http:// and the default port. A hub that serves HTTPS keeps the port its
+    /// URL has, 443 if none. Nil if there's no host.
     static func normalize(_ input: String) -> URL? {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, var parts = URLComponents(string: text.contains("://") ? text : "http://\(text)"),
             let host = parts.host, !host.isEmpty
         else { return nil }
-        parts.port = parts.port ?? defaultPort
+        if parts.scheme != "https" {
+            parts.port = parts.port ?? defaultPort
+        }
         parts.path = ""
         return parts.url
     }
