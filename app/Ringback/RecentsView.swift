@@ -134,11 +134,16 @@ private struct WaitingRow: View {
         }
     }
 
-    /// "Rings at 08:00 · subject", or "Question · rings at 08:00 · subject".
+    /// "Rings at 08:00 · subject", or "Question · rings at 08:00 · subject"; "Not answered ·
+    /// call it back" after a call's last try.
     private var detail: String {
         if isSending { return "Sending its question to the Claude app…" }
-        let when = call.waitsForSpeech ? "when the speech computer is back" : call.heldUntil?.ringsLabel ?? "when you take calls"
-        let rings = call.question ? "Question · rings \(when)" : "Rings \(when)"
+        let rings: String
+        if let when = call.rings(sentence: true) {
+            rings = call.question ? "Question · rings \(when)" : "Rings \(when)"
+        } else {
+            rings = call.question ? "Question · not answered · call it back" : "Not answered · call it back"
+        }
         return [rings, call.subject].compactMap { $0 }.joined(separator: " · ")
     }
 }

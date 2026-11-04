@@ -552,6 +552,12 @@ func waitingViews(calls []map[string]any) []waitingView {
 		switch until, _ := call["held_until"].(string); {
 		case call["reason"] == "no speech":
 			wv.NoSpeech, wv.Why, wv.Rings = true, "Waiting for a speech node", "Rings once one links"
+		case call["reason"] == inTurn:
+			wv.Why, wv.Rings = "In turn", "Rings after the calls before it"
+		case call["reason"] == missed:
+			wv.Why, wv.Rings = "Not answered", "Rings again at "+isoAhead(until)+"; nothing else rings before"
+		case call["reason"] == callBack:
+			wv.Why, wv.Rings = "Not answered after its last try", "Waits until you call its session; so does every call"
 		case until != "":
 			wv.Why, wv.Rings = "On hold", "Rings at "+isoAhead(until)
 		default:

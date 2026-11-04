@@ -241,7 +241,13 @@ func freshWaiting() map[string]map[string]string {
 func holdCall(callID, project, subject, voice, heldUntil string, question bool, session, reason string) (bool, error) {
 	calls := freshWaiting()
 	notified := calls[callID]["notified"]
-	call := map[string]string{"project": project, "voice": voice, "refreshed": isoNow()}
+	call := map[string]string{"project": project, "voice": voice, "refreshed": isoNow(), "since": isoNow()}
+	// When it was first held, for its turn, and how often it rang (line.go).
+	for _, key := range []string{"since", "tries", "first_rang"} {
+		if value := calls[callID][key]; value != "" {
+			call[key] = value
+		}
+	}
 	for key, value := range map[string]string{"held_until": heldUntil, "subject": subject, "session_id": session, "reason": reason} {
 		if value != "" {
 			call[key] = value
@@ -250,7 +256,7 @@ func holdCall(callID, project, subject, voice, heldUntil string, question bool, 
 	if question {
 		call["question"] = "yes"
 	}
-	notify := (question || reason != "") && notified == ""
+	notify := (question || reason == "no speech") && notified == ""
 	if notify {
 		call["notified"] = isoNow()
 	} else if notified != "" {

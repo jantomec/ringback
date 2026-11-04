@@ -105,12 +105,20 @@ struct WaitingDetailsView: View {
                 }
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-                Section(call.waitsForSpeech ? "Waiting" : call.heldUntil?.dayLabel ?? "On hold") {
-                    LabeledContent("Rings", value: call.waitsForSpeech ? "When the speech computer is back"
-                        : call.heldUntil?.formatted(date: .omitted, time: .shortened) ?? "When you take calls")
+                Section(call.reason == nil ? call.heldUntil?.dayLabel ?? "On hold" : call.heldUntil?.dayLabel ?? "Waiting") {
+                    LabeledContent("Rings", value: call.rings(sentence: false) ?? "When you call it back")
                         .foregroundStyle(.orange)
                     if call.waitsForSpeech {
                         Text("The speech computer isn't connected to your hub, so this call can't be talked through yet.")
+                    }
+                    if call.reason == "in turn" {
+                        Text("One call rings at a time: this one rings once the calls before it are over.")
+                    }
+                    if call.reason == "missed" {
+                        Text("You didn't answer it. Until it rings again, no other call rings.")
+                    }
+                    if call.reason == "call back" {
+                        Text("You didn't answer it, nor when it rang again. No call rings until you call it, or its session, back.")
                     }
                     if call.question {
                         Text("The session asks you a question, and waits for your answer.")

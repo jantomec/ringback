@@ -136,7 +136,7 @@ built or run on Linux. The agent runs where the sessions run, on a Mac.
    no words.
 8. **The end.** Either side hangs up. The agent finishes the transcript and leaves the
    session a note on how the call went: answered and for how long, with the transcript's path;
-   not answered within 90 s; or answered but the audio never connected. The note is added to
+   not answered, and when it rings again; or answered but the audio never connected. The note is added to
    the session's conversation without starting a turn, so it can't set off another call, and
    it says it's from ringback: unsigned, the session took it for your words.
 
@@ -275,15 +275,26 @@ clock, so a Mac that slept still asks on time, and keeps its Mac awake meanwhile
 briefing rather than placing a second call. The hub keeps the calls that wait, and drops one
 whose agent hasn't asked about it for 25 min, so a call from a Mac that's gone doesn't wait
 forever. When you take calls, the app asks the hub to have them ask again (`/reask`), and they
-ring at once, together.
+ring one at a time, in turn.
 
 **Waiting calls in the app** show at the top of Recents, under Waiting, in orange, with when
 they ring ("Rings tomorrow at 08:00"). Tapping one calls it now: an outgoing call that
 doesn't ring, whose voice opens with the briefing and knows you called while it waited.
 
-**A call you don't answer.** The agent forgets it after 90 s and tells its session. The hub's
-log tells a decline from a missed call; the agent can't. Calls aren't retried yet, and two
-sessions calling at once both ring (Next).
+**One call at a time.** Every Mac's calls share one line, which the hub keeps (`hub/line.go`).
+While a call rings or you're on one, a call that would ring is held in turn, as a held call is:
+its agent keeps it and asks again, and once the line is free the hub asks the call that's
+waited longest, which rings. A call you make yourself takes the line too.
+
+**A call you don't answer**, or decline, rings again 5 min, 20 min, 1 h, 2½ h and 6 h after it
+first rang (at least 5 min after its last ring), and until it does, nothing else rings: you
+weren't there, so other calls would only pile up. After its last try it doesn't ring again; it
+waits until you call its session, and so does every other call. The phone says whether you
+answered, declined or missed a call; one it says nothing of within 75 s, as when it's off,
+counts as missed. Meanwhile the call waits under Waiting in the app ("Rings again at 14:05"),
+its session is told each time, and calling it now, calling it back from Recents, or calling
+its session from Sessions ends the wait: it doesn't ring again, and the next call in turn
+rings once you hang up. Each ring starts a fresh Haiku, as the opening is written for it.
 
 **Calling back.** Tapping any call in Recents calls its session straight away, without
 ringing, answered calls too. The agent remembers each call for a day, across restarts, and
@@ -294,7 +305,8 @@ isn't listening any more, the call still connects, but the voice can't pass anyt
 says so. Work hours don't apply: you called. If the agent no longer knows the call, the app
 calls the session from Sessions instead, if it's there.
 
-**During another call** (phone, FaceTime, WhatsApp), a ringback call rings as call waiting,
+**During another call** (phone, FaceTime, WhatsApp; not another ringback call, after which it
+waits its turn), a ringback call rings as call waiting,
 with iOS's own Hold & Accept, End & Accept and Decline.
 
 **The connection check.** If the phone can't reach the hub (its VPN off, say), calls ring
@@ -639,9 +651,12 @@ with a certificate, or a private certificate authority installed on each device 
 - **Told afterwards how the call went,** rather than asking the briefing what it didn't check:
   that led 6 of 8 briefings to say they couldn't confirm the call would reach you
   (`tools/briefing-check`).
-- **What a missed call asked waits** for the next call you answer, within 15 min, rather than
-  going to the terminal at once; and outside your hours it waits for the morning call, with a
-  notification, rather than going to the Claude app at once. You choose from the app.
+- **What a missed call asked waits** with it, for when it rings again or you call it back,
+  rather than going to the terminal at once (which shows it too, and whichever answers first
+  decides); and outside your hours it waits for the morning call, with a notification, rather
+  than going to the Claude app at once. You choose from the app.
+- **A missed call holds the others up** until its next try, and after its last until you call
+  back, rather than letting them ring meanwhile: you weren't there for the first.
 
 **The app**
 - **Like the Phone app:** Recents and Sessions, with settings in the Settings app, which
@@ -654,8 +669,10 @@ with a certificate, or a private certificate authority installed on each device 
 
 ## Limits and risks
 
-- **Calls don't queue or retry.** Two sessions calling at once both ring, and a call you
-  don't answer is forgotten after 90 s with only a note to its session (Next).
+- **A missed call can hold every call up for long.** After its last try, nothing rings until
+  you call its session back, however many calls wait; the app lists them under Waiting. And a
+  call waiting its turn on a Mac that went to sleep holds the line until its agent asks again,
+  or until the hub drops it 25 min after it last asked.
 - **The phone's tunnel can stop receiving.** Once (2026-11-03), after the phone moved from
   home Wi-Fi to mobile data to another Wi-Fi, for over two minutes its Nebula packets reached
   the hub and the hub answered, but nothing reached the phone. Moving between networks, with
@@ -665,8 +682,8 @@ with a certificate, or a private certificate authority installed on each device 
 - **A stale tunnel delays a call.** After the phone changes network, the VPN can take 10–20 s
   to reach the hub again; the app keeps trying, for up to 20 s after you answer, then ends the
   call and says why.
-- **Every placed call costs a Haiku opening** on your subscription, even if you decline it,
-  and keeps Haiku and the Mac awake until it's forgotten after 90 s.
+- **Every ring costs a Haiku opening** on your subscription, even if you decline it, so a call
+  you keep missing costs six; and a held call keeps its Mac awake until it rings.
 - **Other people's voices and noise.** The background filter's default is an absolute level,
   and how loud each microphone delivers your voice on a call isn't measured; it leaves about
   5 dB under your quietest speech on your recordings. Gym noise or someone talking near you
@@ -798,6 +815,9 @@ how things look):
 - Macs and speech nodes pairing and linking with their own keys (a Mac's agent paired with
   a real hub and linked; the speech node only in its tests), and unpairing one that's linked;
 - the call's audio on a public address and a range of ports, and refused requests shut out;
+- one call at a time, and a call you don't answer ringing again 5 min to 6 h after, with
+  nothing else ringing meanwhile, and waiting after its last try until you call back (the hub's
+  tests, its smoke test and hub-check, and the agent's tests);
 - what the app and the portal say about reaching the hub by whether it's on a private address
   (for yours, the same words as before);
 - the hub on Linux: `hub/build.sh` building it there with libopus linked in, its checks and
@@ -854,10 +874,10 @@ host unable to read their calls.
   you.
 - [ ] **The Mac client as a package:** a signed, ready-built agent and mod that a user
   installs without Go or a copy of this repository, set up as a service from the start.
-- [ ] **Several sessions in turn, with retries.** One queue for every Mac's calls: a second
-  call waits for the first to end. A call you decline or miss tries again 5 min, 20 min, 1 h,
-  2½ h and 6 h after its first ring, with the queue paused in between; after the last, every
-  call waits until you call that session back.
+- [x] **Several sessions in turn, with retries** (checked offline, not tried on the phone).
+  One queue for every Mac's calls: a second call waits for the first to end. A call you
+  decline or miss tries again 5 min, 20 min, 1 h, 2½ h and 6 h after its first ring, with the
+  queue paused in between; after the last, every call waits until you call that session back.
 - [ ] **A better On-device Voice** (later). It works, but sounds flat even with an Enhanced
   voice, and apps can't use Siri's voices. Apple's on-device models improve with iOS updates,
   and nothing says newer iPhones get better ones, so this waits rather than taking much work:

@@ -106,6 +106,17 @@ func fromAgent(l *link, message map[string]any) {
 			warmNodes()
 		}
 		reply(l, message, answer)
+	case "drop":
+		// The agent forgot a held call, as when you called its session yourself: it no longer
+		// waits, and if it held the line up, the next call rings.
+		id := str(message, "call_id")
+		stateMu.Lock()
+		if removed, err := removeWaiting(id); err == nil && removed {
+			log("call " + prefix(id, 8) + ": no longer waiting, its agent dropped it")
+		}
+		lineEnded(id)
+		nextInTurn()
+		stateMu.Unlock()
 	case "say", "said", "hang_up":
 		c := liveCall(str(message, "call_id"))
 		if c == nil || c.agent != l {

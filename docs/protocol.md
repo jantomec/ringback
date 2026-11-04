@@ -108,8 +108,10 @@ Hello: `{"type": "hello", "version": 1, "name": "…"}`; the name is the Mac's, 
 | Direction | Message |
 |---|---|
 | agent → hub | `{"type": "sessions", "sessions": [{"session_id", "project", "since", "subject", "briefed_at"}]}` when they change and every 30 s; the hub lists them with this agent as their place |
-| agent → hub | `{"type": "place", "id": 1, "call_id", "project", "subject", "session_id", "question": false}`, to place a call or ask again about a held one. Reply: `{"ok": true}` (it rings), `{"ok": true, "held": true, "held_until": "…"}`, or, while no speech node is linked, `{"ok": true, "held": true, "reason": "no speech"}`: it waits, and the hub sends `reask` once a node links |
-| hub → agent | `{"type": "reask", "call_ids": [...]}`: you took calls; the held ones among them ask again now |
+| agent → hub | `{"type": "place", "id": 1, "call_id", "project", "subject", "session_id", "question": false}`, to place a call or ask again about a held one. Reply: `{"ok": true}` (it rings), `{"ok": true, "held": true, "held_until": "…"}`, or, while no speech node is linked, `{"ok": true, "held": true, "reason": "no speech"}`: it waits, and the hub sends `reask` once a node links. One call rings at a time: while another rings or is on, or waits before it, `"reason": "in turn"`, and the hub sends `reask` when it's its turn; a call you didn't answer, `"reason": "missed"` with `held_until`, its next try, or after its last `"reason": "call back"`, until you call its session |
+| hub → agent | `{"type": "reask", "call_ids": [...]}`: you took calls, a node linked, or it's a call's turn; the held ones among them ask again now |
+| hub → agent | `{"type": "missed", "call_id", "reason": "missed", "held_until": "…", "tries": 1}`: the phone declined or missed the call, or said nothing of it within 75 s; it's held to ring again at `held_until`, or with `"reason": "call back"` and no time after its last try |
+| agent → hub | `{"type": "drop", "call_id"}`: the agent forgot a held call, as when you called its session yourself: it no longer waits, and the next in turn can ring |
 
 ### The phone's requests
 

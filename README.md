@@ -139,8 +139,8 @@ Ringback is a working prototype: everything below is built and passes its offlin
 - the hub's portal, from the phone.
 
 **Not yet tried on the phone:** work hours, the hold switch, its breathing light and the
-Lock Screen widget; calling a waiting call now; weak signal; calls and asks surviving a
-restart of the agent or the hub.
+Lock Screen widget; calling a waiting call now; calls ringing one at a time, and a missed call
+ringing again; weak signal; calls and asks surviving a restart of the agent or the hub.
 
 ## To do
 
@@ -153,7 +153,7 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 - [ ] A hub hosted for several users, who install only the app and the Mac client
 - [ ] End-to-end encrypted calls with On-device Voice
 - [ ] The Mac client as a package
-- [ ] Several sessions calling in turn, with retries
+- [x] Several sessions calling in turn, with retries
 - [ ] A better On-device Voice: it works, but doesn't sound good enough yet (later)
 - [ ] On-device Voice on a weak signal (later)
 - [ ] A phone-network fallback

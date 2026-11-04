@@ -19,6 +19,8 @@ state in a throwaway HOME, and checks:
   calls can't be talked through, that the last push to the phone failed for want of a key
   (`problem` "key": there's no APNs key here), and which Macs are linked. Once the node links,
   the agent is asked to ask again, and asked again, the call rings and the status is fine;
+- one call rings at a time: while it rings, another waits in turn; once the phone says it's
+  over (`ended` on `/events`), the call in turn is asked again (`reask`), and rings;
 - an offer for a call no agent owns is refused (403);
 - an offer the agent accepts is answered; the agent hears `answered` and `connected`, and the
   node is told to warm up (`warm`, as for every offer and every call placed that rings), then
@@ -69,6 +71,8 @@ does); the hub told the agent an empty `heard`, as the share of a piece played s
 its audio still came (fixed in the hub: what you've heard never shrinks); and `quiet` was
 measured 7.99 s after `idle`, which reached the check late (it now takes 7.9 s). After the
 fixes, 8 of 8 runs passed with app builds running beside them.
+
+Result on 2026-11-04, with one call at a time (52 checks): all passed, in 32 s.
 
 Result on 2026-11-03, with `quiet` (49 checks): all passed, in 29 s, about 11 s of it waiting
 for `quiet`, which came 8.0 s after the last `idle`. On 2026-11-02 (28 checks, with the

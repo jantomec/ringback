@@ -346,7 +346,9 @@ async function place($: EngineInterface, body: object, tries: number): Promise<v
     if (response.ok) {
       retry = undefined
       const heldUntil = fieldOf(response.text, 'held_until')
-      if (heldUntil !== undefined || fieldOf(response.text, 'held') === true) await showHeld($, heldUntil)
+      if (heldUntil !== undefined || fieldOf(response.text, 'held') === true) {
+        await showHeld($, heldUntil, fieldOf(response.text, 'reason'))
+      }
       return
     }
     failed = errorOf(response.text) ?? `the ringback agent answered ${response.status}`
@@ -379,7 +381,16 @@ const projectOf = (cwd: string) => cwd.split('/').filter(Boolean).pop() ?? 'Clau
 // While your phone holds calls (outside your work hours, or paused in the app) the
 // hub holds the call: a dim line says when it rings, in this Mac's time, with the
 // date unless it's today, or that it rings when you take calls, if there's no time.
-async function showHeld($: EngineInterface, heldUntil: unknown): Promise<void> {
+async function showHeld($: EngineInterface, heldUntil: unknown, reason?: unknown): Promise<void> {
+  const why: Record<string, string> = {
+    'in turn': 'Another call rings or is on, or waits before this one: the call rings after them.',
+    'call back': "A call you didn't answer waits for you to call its session back: the call rings after that.",
+    'no speech': "The speech computer isn't linked to the hub: the call rings once it is.",
+  }
+  if (typeof reason === 'string' && why[reason]) {
+    $.ui.log(why[reason])
+    return
+  }
   const at = typeof heldUntil === 'string' ? new Date(heldUntil) : undefined
   if (!at || Number.isNaN(at.getTime())) {
     $.ui.log('Your phone holds calls: the call rings when you take calls.')
@@ -478,7 +489,7 @@ async function hold(
     }
     if (value.call === 'held') {
       restart()
-      await showHeld($, value.held_until)
+      await showHeld($, value.held_until, value.reason)
     }
     while (true) {
       const polled = await Promise.race([reply(voice($, `${path}/${value[id]}?wait=25`)), stopped])

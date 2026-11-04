@@ -77,6 +77,7 @@ func phoneSpeech(w http.ResponseWriter, r *http.Request) {
 		c.say("a new offer replaces the earlier one")
 		earlier.end("replaced")
 	}
+	lineOffered(callID, kind)
 	if l.send(map[string]any{"type": "welcome", "version": protocolVersion}) != nil {
 		c.end("disconnected")
 		return

@@ -347,6 +347,14 @@ func (a *agent) handle(m map[string]any) {
 			}
 		}
 		a.calls.reask(ids)
+	case "missed":
+		// You didn't answer a call the hub rang, or declined it: it's held to ring again.
+		heldUntil, _ := m["held_until"].(string)
+		if reason, _ := m["reason"].(string); reason == callBack {
+			heldUntil = callBack
+		}
+		tries, _ := m["tries"].(float64)
+		a.calls.missed(id, heldUntil, int(tries))
 	case "answered":
 		a.markAnswered(id)
 	case "connected":

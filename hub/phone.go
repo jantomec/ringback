@@ -115,6 +115,7 @@ func offer(w http.ResponseWriter, r *http.Request) {
 		c.say("a new offer replaces the earlier one")
 		earlier.end("replaced")
 	}
+	lineOffered(callID, kind)
 	if !ringing {
 		c.markAnswered()
 	}

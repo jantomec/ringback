@@ -260,6 +260,25 @@ func placeCall(mac string, body map[string]any) (map[string]any, error) {
 		}
 		return map[string]any{"ok": true, "held": true, "reason": "no speech"}, nil
 	}
+	// One call rings at a time (line.go).
+	question, _ := body["question"].(bool)
+	waiting := freshWaiting()
+	entry := waiting[callID]
+	if why, until := lineWaits(callID, entry, waiting); why != "" {
+		if _, err := holdCall(callID, project, subject, voice, until, question, session, why); err != nil {
+			return nil, err
+		}
+		if entry["reason"] != why || entry["held_until"] != until {
+			log("call " + prefix(callID, 8) + ": waits, " + map[string]string{inTurn: "in turn",
+				missed: "missed, until " + until, callBack: "until you call its session back"}[why])
+		}
+		answer := map[string]any{"ok": true, "held": true, "reason": why}
+		if until != "" {
+			answer["held_until"] = until
+		}
+		return answer, nil
+	}
+	takeLine(callID, project, subject, voice, session, question, entry)
 	if removed, err := removeWaiting(callID); err != nil {
 		return nil, err
 	} else if removed {
@@ -331,6 +350,14 @@ func event(body map[string]any) (map[string]any, error) {
 		name = fmt.Sprint(value)
 	}
 	log("call " + prefix(callID, 8) + ": " + name + extra + at)
+	switch str(body, "event") {
+	case "answered":
+		lineAnswered(callID)
+	case "missed", "declined", "failed":
+		lineUnanswered(callID, str(body, "event"))
+	case "ended":
+		lineEnded(callID)
+	}
 	leaves := map[string]string{"called now": "called from the app", "claude app": "its question went to the Claude app"}
 	if why, leaving := leaves[str(body, "event")]; leaving && str(body, "call_id") != "" {
 		if removed, err := removeWaiting(str(body, "call_id")); err != nil {

@@ -76,6 +76,7 @@ check "connection check before the token arrived" 200 "$(status -d '{}' "$url/ch
 check "connection check without the key: 401" 401 "$(status -d "$no_key" "$url/check")"
 check "an agent's link with a wrong token: 401" 401 "$(status -H 'Authorization: Bearer wrong' "$url/agent")"
 check "an agent places a call" 200 "$(status -d '{"project": "demo", "subject": "Tests pass", "call_id": "0123456789abcdef0123"}' "$agent/place")"
+status -d '{"call_id": "0123456789abcdef0123", "event": "ended"}' "$url/events" > /dev/null  # over: the line is free
 check "a call without a call ID: 400" 400 "$(status -d '{"project": "demo"}' "$agent/place")"
 check "a call without a project: 400" 400 "$(status -d '{"call_id": "0123456789abcdef0123"}' "$agent/place")"
 
@@ -104,7 +105,12 @@ check_in() {  # from, to, time zone: a connection check that brings work hours
 with_zone="{$phone, \"hours_from\": \"08:00\", \"hours_to\": \"20:00\", \"time_zone\": \"$zone\"}"
 no_zone="{$phone, \"hours_from\": \"14:00\", \"hours_to\": \"16:00\"}"
 only_from="{$phone, \"hours_from\": \"14:00\", \"time_zone\": \"$zone\"}"
-call_as() { body -d "{\"project\": \"demo\", \"call_id\": \"$1\"}" "$agent/place"; }
+# A call that rings is then over, as the phone says, so the next one can ring (one at a time).
+call_as() {
+    out=$(body -d "{\"project\": \"demo\", \"call_id\": \"$1\"}" "$agent/place")
+    [ "$out" != '{"ok":true}' ] || status -d "{\"call_id\": \"$1\", \"event\": \"ended\"}" "$url/events" > /dev/null
+    printf '%s' "$out"
+}
 held_until() { echo "{\"held\":true,\"held_until\":\"${today}T$1:00$offset\",\"ok\":true}"; }
 rings='{"ok":true}'
 echo "      work hours in $zone, where it's $(TZ=$zone date +%H:%M)"
@@ -171,8 +177,10 @@ serve_waiting() {
     server=$!
 }
 listed() { body -d "$me_only" "$url/waiting" | grep -oE 'wait[0-9]{4}' | tr '\n' ' ' | sed 's/ $//'; }
-call_about() {  # call ID, subject
-    body -d "{\"project\": \"demo\", \"subject\": \"$2\", \"call_id\": \"$1\"}" "$agent/place"
+call_about() {  # call ID, subject; one that rings is then over
+    out=$(body -d "{\"project\": \"demo\", \"subject\": \"$2\", \"call_id\": \"$1\"}" "$agent/place")
+    [ "$out" != '{"ok":true}' ] || status -d "{\"call_id\": \"$1\", \"event\": \"ended\"}" "$url/events" > /dev/null
+    printf '%s' "$out"
 }
 called_now='{"call_id": "wait0002-000000000000", "event": "called now", "at": "2026-10-30T09:00:00Z"}'
 serve_waiting
@@ -335,6 +343,19 @@ waiting=$(body -d "$me_only" "$url/waiting")
 check "listed without a time" yes "$(yes_if has_text "$waiting" '"call_id":"hold0006-000000000000","project":"demo","question":false')"
 check "with the phone's switch" yes "$(yes_if has_text "$waiting" '"hold":{"hold":true}')"
 check "taking calls again: it rings" "$rings" "$(set_hold $first false > /dev/null; call_as hold0006-000000000000)"
+
+# One call at a time: a second waits in turn; the first missed, it rings again 5 min after it
+# first rang, and nothing else rings meanwhile; called now, it no longer waits, and the next rings.
+place_raw() { body -d "{\"project\": \"demo\", \"call_id\": \"$1\"}" "$agent/place"; }
+check "line: the first call rings" "$rings" "$(place_raw line0001-000000000000)"
+check "line: a second waits in turn" '{"held":true,"ok":true,"reason":"in turn"}' "$(place_raw line0002-000000000000)"
+status -d '{"call_id": "line0001-000000000000", "event": "missed"}' "$url/events" > /dev/null
+check "line: the first missed, the second still waits" '{"held":true,"ok":true,"reason":"in turn"}' "$(place_raw line0002-000000000000)"
+check "line: the missed call waits to ring again, at a time" yes "$(yes_if has "$(place_raw line0001-000000000000)" '^\{"held":true,"held_until":"[^"]+","ok":true,"reason":"missed"\}$')"
+check "line: listed as waiting, missed" yes "$(yes_if has_text "$(body -d "$me_only" "$url/waiting")" '"call_id":"line0001-000000000000","held_until":')"
+status -d '{"call_id": "line0001-000000000000", "event": "called now"}' "$url/events" > /dev/null
+check "line: called now, the next rings" "$rings" "$(place_raw line0002-000000000000)"
+status -d '{"call_id": "line0002-000000000000", "event": "ended"}' "$url/events" > /dev/null
 sleep 1
 kill $server
 wait $server 2> /dev/null || true

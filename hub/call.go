@@ -228,6 +228,7 @@ func (c *Call) markAnswered() {
 	}
 	c.answeredAt = now()
 	c.mu.Unlock()
+	lineAnswered(c.id)
 	c.say("answered")
 	_ = c.agent.send(map[string]any{"type": "answered", "call_id": c.id})
 	c.hearIfLive()
@@ -644,6 +645,7 @@ func (c *Call) end(why string) {
 	c.ended = true
 	replaced := why == "replaced"
 	var lasted any
+	answered := !c.answeredAt.IsZero()
 	if !c.connectedAt.IsZero() && !c.answeredAt.IsZero() {
 		start := maxTime(c.connectedAt, c.answeredAt)
 		end := now()
@@ -661,6 +663,14 @@ func (c *Call) end(why string) {
 	}
 	go c.close()
 	forgetCall(c)
+	if answered {
+		// A call that rang and wasn't answered is settled by what the phone says of it.
+		go func() {
+			stateMu.Lock()
+			defer stateMu.Unlock()
+			lineEnded(c.id)
+		}()
+	}
 	if replaced {
 		c.say("replaced by a new offer")
 		return

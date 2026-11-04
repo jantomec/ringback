@@ -182,6 +182,21 @@ async def main() -> int:
         check(f"asked again, it rings, and the status is fine: {rang}, {answer.get('status', {}).get('speech')}",
               rang.get("ok") is True and not rang.get("held") and not [c for c in answer["calls"] if c["call_id"] == early_id]
               and answer["status"]["speech"]["ok"] is True)  # fmt: skip
+        # One call rings at a time: while it does, the next waits in turn; once the phone says
+        # it's over, the next rings.
+        held_next = await place("known-" + secrets.token_hex(12))
+        check(f"while it rings, another call waits in turn: {held_next}", held_next.get("held") is True and held_next.get("reason") == "in turn")
+        async with aiohttp.ClientSession() as http:
+            async with http.post(f"http://{HUB}/events", json={"call_id": early_id, "event": "ended"}) as r:
+                pass
+        await until(lambda: [m for m in agent.of("reask") if m["call_ids"] != [early_id]], 3)
+        nexts = [m["call_ids"] for m in agent.of("reask") if m["call_ids"] != [early_id]]
+        check(f"over, the call in turn is asked again: {nexts}", len(nexts) == 1)
+        rang_next = await place(nexts[0][0]) if nexts else {}
+        check(f"and rings: {rang_next}", rang_next.get("ok") is True and not rang_next.get("held"))
+        async with aiohttp.ClientSession() as http:
+            async with http.post(f"http://{HUB}/events", json={"call_id": nexts[0][0] if nexts else "", "event": "ended"}) as r:
+                pass
 
         # The stand-in agent owns calls whose ID starts with "known-", and speaks a reply once
         # you've answered and the audio connected. The stand-in node makes a tone for each

@@ -122,6 +122,13 @@ const (
 	// noSpeech is a held call's heldUntil while no speech computer is linked to the hub, so it
 	// can't be talked through: it rings when one links (the hub asks it again then).
 	noSpeech = "no speech"
+	// inTurn is a held call's heldUntil while another call rings or is on, or waits before it:
+	// one call rings at a time, and the hub asks it again when it's its turn.
+	inTurn = "in turn"
+	// callBack is a held call's heldUntil after you didn't answer its last try: it waits until
+	// you call its session (as every call does meanwhile). Until then, a call you didn't answer
+	// is held until its next try, a time.
+	callBack = "call back"
 	// The longest tool input and context the voice gets: the mod sends at most about this much.
 	inputMost   = 2000
 	contextMost = 1500
@@ -530,12 +537,17 @@ type Call struct {
 	// call ends or is forgotten.
 	Haiku    *Haiku
 	deadline context.CancelFunc // forgets it if it isn't answered
-	// Outside your work hours: when the hub said the call can ring (ISO 8601, with an
-	// offset), until it rings; onHold with no time.
+	// Outside your work hours, or after you didn't answer it: when the hub said the call can
+	// ring (ISO 8601, with an offset), until it rings; onHold, noSpeech, inTurn or callBack with
+	// no time.
 	HeldUntil string
-	holding   context.CancelFunc // asks the hub again
+	// It rang and you didn't answer: held to ring again, it can be called back.
+	Rang    bool               `json:",omitempty"`
+	holding context.CancelFunc // asks the hub again
 	// Signalled while held, to ask the hub again at once: a question joined the call.
 	reask chan struct{}
+	// Why it's forgotten unanswered, for its session, when that isn't that it rang out.
+	dropped string
 	// When it was placed, or its briefing replaced while it was held, as Unix seconds, for how
 	// long ago.
 	At float64
@@ -719,8 +731,8 @@ func (c *Calls) askHub(call *Call, question bool) (string, error) {
 	if heldUntil, _ := reply["held_until"].(string); heldUntil != "" {
 		return heldUntil, nil
 	}
-	if reason, _ := reply["reason"].(string); reason == noSpeech {
-		return noSpeech, nil
+	if reason, _ := reply["reason"].(string); reason == noSpeech || reason == inTurn || reason == callBack {
+		return reason, nil
 	}
 	if held, _ := reply["held"].(bool); held {
 		return onHold, nil
@@ -831,6 +843,8 @@ func (c *Calls) reask(ids []string) int {
 		if call, ok := c.calls.get(id); ok && call.HeldUntil != "" && call.holding != nil {
 			if call.HeldUntil == noSpeech {
 				c.logCall(call, "the speech computer is back, asking the hub again")
+			} else if call.HeldUntil == inTurn {
+				c.logCall(call, "its turn, asking the hub again")
 			} else {
 				c.logCall(call, "you take calls, asking the hub again")
 			}
@@ -839,6 +853,63 @@ func (c *Calls) reask(ids []string) int {
 		}
 	}
 	return n
+}
+
+// missed: the hub says you didn't answer a call it rang, or declined it, so it's held to ring
+// again at heldUntil, or after its last try until you call its session (callBack). The Haiku
+// that wrote this ring's opening closes; the next ring starts its own. Its session is told.
+func (c *Calls) missed(id, heldUntil string, tries int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	call, ok := c.calls.get(id)
+	if !ok || call.answered() || call.HeldUntil != "" || heldUntil == "" {
+		return
+	}
+	if call.deadline != nil {
+		call.deadline()
+		call.deadline = nil
+	}
+	c.closeHaiku(call)
+	call.Rang, call.HeldUntil = true, heldUntil
+	c.logCall(call, fmt.Sprintf("not answered (ring %d), held %s", tries, until(heldUntil)))
+	c.sendLocked(call.Session, missedNote(call, heldUntil, tries), nil, "outcome")
+	c.startHolding(call)
+	c.save()
+}
+
+// missedNote tells a session its call wasn't answered, and when it rings again.
+func missedNote(call *Call, heldUntil string, tries int) string {
+	about := "The call"
+	if call.Subject != "" {
+		about = `The call about "` + call.Subject + `"`
+	}
+	rings := fmt.Sprintf("%d rings", tries)
+	if tries == 1 {
+		rings = "1 ring"
+	}
+	if heldUntil == callBack {
+		return about + " wasn't answered after " + rings + ". It doesn't ring again: it waits until the developer " +
+			"calls the session back, and other calls wait with it."
+	}
+	at := heldUntil
+	if t, err := time.Parse(time.RFC3339, heldUntil); err == nil {
+		at = t.Local().Format("15:04")
+	}
+	return about + " wasn't answered (" + rings + " so far). It rings again at " + at + ", and no other call rings before."
+}
+
+// dropMissed: you called a session yourself, so its calls you didn't answer, held to ring
+// again, won't: they're forgotten, which tells the hub, so the calls after them can ring, and
+// what they asked waits for the call you made. Not the call except, which you called. The
+// caller holds c.mu.
+func (c *Calls) dropMissed(session, except string) {
+	for _, call := range c.calls.list() {
+		if call.Session == session && call.ID != except && call.Rang && call.HeldUntil != "" {
+			c.logCall(call, "you called its session, so it won't ring again")
+			call.dropped = "the developer called the session since, so it doesn't ring again."
+			c.forget(call)
+		}
+	}
 }
 
 // offered is the call an offer is for, if it's one this agent placed. The offer can come
@@ -863,11 +934,16 @@ func (c *Calls) back(id string) *Call {
 	c.expire()
 	var missed *Call
 	if call, ok := c.calls.get(id); ok {
-		if call.HeldUntil != "" {
+		if call.HeldUntil != "" && !call.Rang {
 			return nil // held outside your work hours, it hasn't rung, so the phone can't know its ID
 		}
 		if call.Back != nil || call.answered() {
 			return call
+		}
+		if call.holding != nil {
+			// You didn't answer it, and it waits to ring again: the call back takes its place.
+			call.holding()
+			call.holding, call.HeldUntil = nil, ""
 		}
 		// Still placed: the call back takes its place, so it's never told it wasn't
 		// answered, and what it asked waits for the call back.
@@ -887,6 +963,7 @@ func (c *Calls) back(id string) *Call {
 	} else {
 		return nil
 	}
+	c.dropMissed(missed.Session, id)
 	listening := c.listening(missed.Session)
 	// The session's latest briefing, if it wrote one after this call's.
 	var later *since
@@ -949,6 +1026,7 @@ func (c *Calls) now(id string) *Call {
 	if !ok || held.HeldUntil == "" {
 		return held
 	}
+	c.dropMissed(held.Session, id)
 	if held.holding != nil {
 		held.holding()
 	}
@@ -982,6 +1060,7 @@ func (c *Calls) contact(session, id string) *Call {
 	if _, ok := c.past.get(id); ok || !c.listening(session) {
 		return nil
 	}
+	c.dropMissed(session, id)
 	latest := c.latest(session)
 	named := c.named[session]
 	project, cwd := named[0], named[1]
@@ -1476,6 +1555,11 @@ func (c *Calls) deadline(ctx context.Context, call *Call) {
 // remembered for a day, so you can call it back.
 func (c *Calls) forget(call *Call) {
 	c.calls.pop(call.ID)
+	if call.HeldUntil != "" {
+		// It no longer waits at the hub, and the calls after it can ring.
+		id := call.ID
+		go func() { _ = c.hub.send(map[string]any{"type": "drop", "call_id": id}) }()
+	}
 	for _, cancel := range []context.CancelFunc{call.deadline, call.holding} {
 		if cancel != nil {
 			cancel()
@@ -1627,6 +1711,9 @@ func outcome(call *Call, transcript *string) string {
 		}
 		return withTranscript("The developer " + how + " and it lasted " + duration(*call.Lasted) + ".")
 	}
+	if call.dropped != "" {
+		return about + " wasn't answered, and " + call.dropped
+	}
 	if !call.answered() {
 		took := duration(time.Since(call.Placed).Seconds())
 		return about + " wasn't answered within " + took + ": declined, missed, or its audio didn't connect."
@@ -1677,6 +1764,12 @@ func until(heldUntil string) string {
 	if heldUntil == noSpeech {
 		return "until the speech computer is back"
 	}
+	if heldUntil == inTurn {
+		return "in turn, after the call on or before it"
+	}
+	if heldUntil == callBack {
+		return "until you call its session back"
+	}
 	return "until " + heldUntil
 }
 
@@ -1689,8 +1782,8 @@ func heldFields(heldUntil string) map[string]any {
 	if heldUntil == onHold {
 		return map[string]any{"held": true}
 	}
-	if heldUntil == noSpeech {
-		return map[string]any{"held": true, "reason": noSpeech}
+	if heldUntil == noSpeech || heldUntil == inTurn || heldUntil == callBack {
+		return map[string]any{"held": true, "reason": heldUntil}
 	}
 	return map[string]any{"held": true, "held_until": heldUntil}
 }
