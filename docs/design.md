@@ -410,7 +410,9 @@ up to lose little and recover the rest (`hub/opus.go`, `hub/call.go`):
   its `udp_ports`), over UDP and IPv4, and the phone only its VPN's addresses (all its
   addresses if the VPN gives none), so WebRTC doesn't try pairs that can't connect. With every
   address offered, audio connected 2.1–2.4 s after the offer; with only the VPN's, 0.94 s (one
-  call on mobile data).
+  call on mobile data). For a hub whose address is public (a name is looked up first), the
+  phone offers every address it has, since a VPN that's on may not reach it
+  (`AudioLink.overVPN`; not tried with a public hub).
 - **Reaching the hub.** After the phone moves from Wi-Fi to mobile data, its VPN tunnel can
   stay stale for 10–20 s. The app's tries to reach the hub while it rings send fresh packets,
   which bring the tunnel back sooner, and wait longer each time (3, 6, 12 s), so a slow network
@@ -458,9 +460,9 @@ tokens, the phones' keys and the calls' IDs would cross the internet unencrypted
 The hub has what it would need, checked offline only (`docs/setup.md`, "A public hub"): HTTPS
 and WSS (`[tls]` in `hub.toml`); every part pairing, rather than sharing tokens; the call's
 audio on its public address (`public_ip`) and a range of UDP ports a firewall can open
-(`udp_ports`); and a limit on refused requests. Passkeys for the portal are still to do (Next),
-and the app offers the call's audio its VPN's addresses first, so with another VPN on, a public
-hub's audio may not connect.
+(`udp_ports`); a limit on refused requests; and the app offering the call's audio every one of
+its addresses for a hub on a public address, not only its VPN's. Passkeys for the portal are
+still to do (Next).
 
 ## Security
 
@@ -813,7 +815,8 @@ host unable to read their calls.
   (its UDP ports open); then passkeys for the portal. Ready: the phone's pairing (tried on the
   phone); HTTPS and WSS (`[tls]`), the Macs' and speech nodes' pairing, the call's audio on the
   public address, and a limit on refused requests (checked offline; `docs/setup.md`, "A public
-  hub"). Left: passkeys, the app's audio with another VPN on, and trying it on a server.
+  hub"), and the app's audio for a hub on a public address. Left: passkeys, and trying it on a
+  server.
 - [ ] **A hosted hub for several users.** Someone runs the hub, and each user has their own
   account and sees only their own phones, Macs, sessions and calls: a call rings only its
   user's phones, the portal shows each user only theirs, and each Mac's agent links as its

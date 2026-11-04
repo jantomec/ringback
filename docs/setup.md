@@ -452,6 +452,7 @@ What it would take:
 Requests the hub refuses (a key, token, code or call ID that isn't right) are counted by
 address: 30 within a minute shut that address out for a minute (429).
 
-Not tried, or not ready: the app offers the call's audio its VPN's addresses first, and only
-with no VPN every address, so with a VPN on, such as a work one, a public hub's audio may not
-connect; and its messages for a hub it can't reach still talk about a VPN.
+For a hub on a public address, the app offers the call's audio every one of its addresses
+(Wi-Fi, mobile data), rather than only its VPN's, so a VPN that's on, such as a work one,
+doesn't stand in the way; a hub's name counts as public if it looks up to a public address.
+Not ready: the app's messages for a hub it can't reach still talk about a VPN.

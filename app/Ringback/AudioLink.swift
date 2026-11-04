@@ -1,10 +1,12 @@
 import AVFoundation
 import Foundation
+import Network
 import WebRTC
 
-/// A call's audio: a WebRTC connection that the phone opens to the hub
-/// over Nebula. (On mobile data only the phone can open a Nebula tunnel.) It's made while the
-/// phone rings, so the voice can start as soon as you answer.
+/// A call's audio: a WebRTC connection that the phone opens to the hub, over Nebula or
+/// another VPN, or straight to a hub on a public address. (On mobile data only the phone can
+/// open a Nebula tunnel.) It's made while the phone rings, so the voice can start as soon as
+/// you answer.
 ///
 /// CallKit owns the audio session, so WebRTC runs in manual-audio mode: CallKit activates
 /// the session and `activate`/`deactivate` hand it to WebRTC.
@@ -123,11 +125,13 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     func start(
         voiceURL: URL, callID: String, back: Bool = false, now: Bool = false, contact: String? = nil
     ) async throws -> Bool {
-        var local = try await gather(nebulaOnly: true)
+        let overVPN = await Self.overVPN(voiceURL)
+        guard !stopped else { throw CancellationError() }
+        var local = try await gather(nebulaOnly: overVPN)
         guard !stopped else { throw CancellationError() }
         var found = Self.candidates(local)
-        addresses = "Nebula only (\(found))"
-        if found == 0 {
+        addresses = overVPN ? "Nebula only (\(found))" : "every adapter (\(found)), for a hub on a public address"
+        if overVPN && found == 0 {
             // iOS didn't show Nebula to WebRTC as a VPN: offer every adapter instead.
             peer?.close()
             local = try await gather(nebulaOnly: false)
@@ -164,9 +168,9 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
         return ringing
     }
 
-    /// Makes the peer connection and its offer, with all its addresses gathered. Nebula shows
-    /// to WebRTC as a VPN adapter, and the offer reaches the hub over Nebula, so that path is
-    /// known to work. With every adapter, WebRTC also checks pairs of addresses that can't
+    /// Makes the peer connection and its offer, with all its addresses gathered: with
+    /// `nebulaOnly`, for a hub on a private address, only the VPN's. Nebula shows to WebRTC as a
+    /// VPN adapter, and the offer reaches the hub over Nebula, so that path is known to work. With every adapter, WebRTC also checks pairs of addresses that can't
     /// connect, such as mobile data against the other side's Wi-Fi; audio then took 2.5–2.8 s
     /// to connect over Nebula.
     @MainActor
@@ -204,6 +208,50 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
 
     private static func candidates(_ description: RTCSessionDescription) -> Int {
         description.sdp.components(separatedBy: "a=candidate:").count - 1
+    }
+
+    /// Whether the hub is reached over a VPN, so the call offers only the VPN's addresses: its
+    /// address, looked up if it's a name, is a private one, as Nebula's is. A hub on a public
+    /// address gets every one of the phone's, since a VPN that's on, such as a work one, may
+    /// not reach it. If the lookup fails, the hub counts as private, as before public hubs.
+    static func overVPN(_ voiceURL: URL) async -> Bool {
+        guard let host = voiceURL.host() else { return true }
+        let found = await Task.detached { lookUp(host) }.value
+        return found.isEmpty || found.contains(where: isPrivate)
+    }
+
+    /// The addresses a host name stands for (or the address itself), as text.
+    static func lookUp(_ host: String) -> [String] {
+        var hints = addrinfo()
+        hints.ai_socktype = SOCK_STREAM
+        var first: UnsafeMutablePointer<addrinfo>?
+        guard getaddrinfo(host, nil, &hints, &first) == 0 else { return [] }
+        defer { freeaddrinfo(first) }
+        var found: [String] = []
+        var next = first
+        while let info = next {
+            var text = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            if getnameinfo(info.pointee.ai_addr, info.pointee.ai_addrlen, &text, socklen_t(text.count), nil, 0, NI_NUMERICHOST) == 0 {
+                found.append(text.withUnsafeBufferPointer { String(cString: $0.baseAddress!) })
+            }
+            next = info.pointee.ai_next
+        }
+        return found
+    }
+
+    /// Whether an address is a private one: 10/8, 172.16/12, 192.168/16, 100.64/10 (shared, as
+    /// some VPNs use), loopback and link-local; for IPv6, unique local (fc00::/7), loopback and
+    /// link-local.
+    static func isPrivate(_ address: String) -> Bool {
+        if let v4 = IPv4Address(address) {
+            let b = [UInt8](v4.rawValue)
+            return b[0] == 10 || (b[0] == 172 && b[1] & 0xF0 == 16) || (b[0] == 192 && b[1] == 168)
+                || (b[0] == 100 && b[1] & 0xC0 == 64) || b[0] == 127 || (b[0] == 169 && b[1] == 254)
+        }
+        if let v6 = IPv6Address(address) {
+            return [UInt8](v6.rawValue)[0] & 0xFE == 0xFC || v6.isLoopback || v6.isLinkLocal
+        }
+        return false
     }
 
     /// Tells the hub you answered a call whose offer went while the phone rang, so
