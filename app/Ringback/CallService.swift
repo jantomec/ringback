@@ -552,8 +552,9 @@ final class CallService: NSObject, CXProviderDelegate {
     private func callFailed(_ uuid: UUID, _ problem: String) {
         guard farewells[uuid] == nil else { return }
         tellWhy(problem, title: "The call ended")
+        let check = ConnectionCheck.overVPN ? "Check that your VPN is on." : "Check the phone's connection."
         sayThenEnd(uuid, problem == ConnectionCheck.message
-            ? "Ringback can't reach your hub. Check that your VPN is on." : "This call can't go on. The app says why.")
+            ? "Ringback can't reach your hub. \(check)" : "This call can't go on. The app says why.")
     }
 
     /// Says why on the app's banner and, as the phone may be locked, in a notification.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -150,4 +151,44 @@ func TestSecureCookie(t *testing.T) {
 			t.Errorf("serving TLS %v: %s", serving, w.Header().Get("Set-Cookie"))
 		}
 	}
+}
+
+// The portal says the phone needs the VPN on only for a hub on a private address.
+func TestPrivateHub(t *testing.T) {
+	for config, want := range map[string]bool{
+		`listen = "10.0.0.1:8787"`:                                          true,
+		`listen = "127.0.0.1:8787"`:                                         true,
+		`listen = "100.100.1.1:8787"`:                                       true,
+		`listen = "203.0.113.5:8787"`:                                       false,
+		"listen = \"0.0.0.0:8787\"\nurl = \"https://hub.example.com:8787\"": false,
+		"listen = \"10.0.0.1:8787\"\npublic_ip = \"203.0.113.5\"":           false,
+	} {
+		if got := privateHub(configFrom(t, config)); got != want {
+			t.Errorf("%q: %v", config, got)
+		}
+	}
+	before, _ := os.ReadFile(configPath)
+	defer os.WriteFile(configPath, before, 0o600)
+	for config, private := range map[string]bool{`listen = "10.0.0.1:8787"`: true, `listen = "203.0.113.5:8787"`: false} {
+		os.WriteFile(configPath, []byte(config+"\n"), 0o600)
+		var setup, status bytes.Buffer
+		portalPages["setup"].ExecuteTemplate(&setup, "base", page{CSRF: "c", Data: setupData(), Hold: currentHold()})
+		portalPages["status"].ExecuteTemplate(&status, "base", page{CSRF: "c", Data: statusData(), Hold: currentHold()})
+		if strings.Contains(setup.String(), "such as Nebula, on the phone too") != private ||
+			strings.Contains(status.String(), "over your VPN, such as Nebula.") != private ||
+			strings.Contains(status.String(), "over the internet.") == private {
+			t.Errorf("%q: the pages don't say what a hub there needs", config)
+		}
+	}
+}
+
+// configFrom reads a config as loadConfig does, from text.
+func configFrom(t *testing.T, text string) map[string]string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "hub.toml")
+	os.WriteFile(path, []byte(text+"\n"), 0o600)
+	saved := configPath
+	configPath = path
+	defer func() { configPath = saved }()
+	return loadConfig()
 }

@@ -461,8 +461,9 @@ tokens, the phones' keys and the calls' IDs would cross the internet unencrypted
 The hub has what it would need, checked offline only (`docs/setup.md`, "A public hub"): HTTPS
 and WSS (`[tls]` in `hub.toml`); every part pairing, rather than sharing tokens; the call's
 audio on its public address (`public_ip`) and a range of UDP ports a firewall can open
-(`udp_ports`); a limit on refused requests; and the app offering the call's audio every one of
-its addresses for a hub on a public address, not only its VPN's. Passkeys for the portal are
+(`udp_ports`); a limit on refused requests; the app offering the call's audio every one of its
+addresses for a hub on a public address, not only its VPN's, and saying what to check when it
+can't reach the hub by where the hub is; and the hub building and installing on Linux. Passkeys for the portal are
 still to do (Next).
 
 ## Security
@@ -797,6 +798,8 @@ how things look):
 - Macs and speech nodes pairing and linking with their own keys (a Mac's agent paired with
   a real hub and linked; the speech node only in its tests), and unpairing one that's linked;
 - the call's audio on a public address and a range of ports, and refused requests shut out;
+- what the app and the portal say about reaching the hub by whether it's on a private address
+  (for yours, the same words as before);
 - the hub on Linux: `hub/build.sh` building it there with libopus linked in, its checks and
   smoke test passing, and `install` making a systemd user service that came back 12 s after a
   kill (on the speech node's machine, then taken away);

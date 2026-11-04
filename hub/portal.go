@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -658,11 +659,22 @@ type setupPart struct {
 type setupView struct {
 	// How the phone, an agent and a speech node reach the hub.
 	PhoneHub, AgentHub, SpeechHub string
+	PrivateHub                    bool // the phone reaches the hub over a VPN (privateHub)
 	// A code just made to pair a speech node or a Mac (PairKind), as the command to run there.
 	PairKind, PairCommand, PairUntil             string
 	Config, SpeechToken, AgentToken, PushProblem string
 	SpeechSet, AgentSet                          bool
 	Node, Mac, Phone, Push                       setupPart
+}
+
+// privateHub says whether the phone reaches the hub on a private network, such as over Nebula:
+// it listens on a private address, and has no public_ip. The portal then says the phone needs
+// that VPN on.
+func privateHub(config map[string]string) bool {
+	host, _, _ := net.SplitHostPort(config["listen"])
+	ip := net.ParseIP(host)
+	_, shared, _ := net.ParseCIDR("100.64.0.0/10") // as some VPNs use
+	return config["public_ip"] == "" && ip != nil && (ip.IsPrivate() || ip.IsLoopback() || shared.Contains(ip))
 }
 
 func setupData() setupView {
@@ -684,7 +696,7 @@ func setupData() setupView {
 		macs = append(macs, fmt.Sprint(mac["name"]))
 	}
 	v := setupView{Config: shown, SpeechToken: config["tokens.speech"], AgentToken: config["tokens.agent"],
-		SpeechSet: set(config["tokens.speech"]), AgentSet: set(config["tokens.agent"])}
+		SpeechSet: set(config["tokens.speech"]), AgentSet: set(config["tokens.agent"]), PrivateHub: privateHub(config)}
 	// At the listen address, the shortest they can be; otherwise the hub's URL, which the
 	// agent turns into its link's.
 	v.PhoneHub, v.AgentHub, v.SpeechHub = config["listen"], config["listen"], "ws://"+config["listen"]+"/speech"

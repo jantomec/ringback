@@ -41,7 +41,7 @@
     <li><svg aria-hidden="true"><path class="wire w-asleep" d="M2 6h24"/></svg>Asleep or away</li>
     <li><svg aria-hidden="true"><path class="wire w-unset" d="M2 6h24"/></svg>Not set up</li>
   </ul>
-  <p class="legend">A speech node is the GPU computer that hears and speaks calls; without one, the phone can do it itself if its {{"On‑device"}} voice is on. Apple push rings the phone, and the call's audio goes between the hub and the phone over Nebula.</p>
+  <p class="legend">A speech node is the GPU computer that hears and speaks calls; without one, the phone can do it itself if its {{"On‑device"}} voice is on. Apple push rings the phone, and the call's audio goes between the hub and the phone over {{if .PrivateHub}}your VPN, such as Nebula{{else}}the internet{{end}}.</p>
 </section>
 
 <div class="columns">

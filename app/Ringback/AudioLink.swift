@@ -214,10 +214,17 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     /// address, looked up if it's a name, is a private one, as Nebula's is. A hub on a public
     /// address gets every one of the phone's, since a VPN that's on, such as a work one, may
     /// not reach it. If the lookup fails, the hub counts as private, as before public hubs.
+    /// A lookup that worked is kept for what the app says when it can't reach the hub
+    /// (`ConnectionCheck.hint`); one that failed, as while the phone is offline, isn't.
     static func overVPN(_ voiceURL: URL) async -> Bool {
         guard let host = voiceURL.host() else { return true }
         let found = await Task.detached { lookUp(host) }.value
-        return found.isEmpty || found.contains(where: isPrivate)
+        if found.isEmpty {
+            return true
+        }
+        let overVPN = found.contains(where: isPrivate)
+        UserDefaults.standard.set(overVPN, forKey: ConnectionCheck.overVPNKey)
+        return overVPN
     }
 
     /// The addresses a host name stands for (or the address itself), as text.

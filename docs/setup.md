@@ -464,4 +464,5 @@ address: 30 within a minute shut that address out for a minute (429).
 For a hub on a public address, the app offers the call's audio every one of its addresses
 (Wi-Fi, mobile data), rather than only its VPN's, so a VPN that's on, such as a work one,
 doesn't stand in the way; a hub's name counts as public if it looks up to a public address.
-Not ready: the app's messages for a hub it can't reach still talk about a VPN.
+For such a hub, the app's messages when it can't reach it say to check the phone's connection
+and the hub, not the VPN, and the portal doesn't say the phone needs one.

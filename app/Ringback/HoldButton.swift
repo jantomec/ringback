@@ -83,7 +83,7 @@ struct HoldButton: View {
                 state.hold = try await HoldSwitch.set(on)
             } catch {
                 state.hold = before
-                state.callBackProblem = "Can't reach your hub to \(on ? "hold" : "take") calls. If you reach it over Nebula or another VPN, check that it's on."
+                state.callBackProblem = "Can't reach your hub to \(on ? "hold" : "take") calls. \(ConnectionCheck.hint)"
             }
             isSetting = false
             await state.refreshWaiting()

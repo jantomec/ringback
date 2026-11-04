@@ -138,6 +138,7 @@ type statusView struct {
 	Sessions                     []sessionView
 	Phones                       []phoneView
 	Nodes, Macs                  []partView
+	PrivateHub                   bool // the phone reaches the hub over a VPN (privateHub)
 }
 
 // heardWithin is how recently a phone must have reached the hub (registering or on a
@@ -148,7 +149,7 @@ const heardWithin = 2 * time.Hour
 const onDevice = "On‑device"
 
 func statusData() statusView {
-	var v statusView
+	v := statusView{PrivateHub: privateHub(loadConfig())}
 	registryMu.Lock()
 	nodeLinks := make([]*link, 0, len(nodes))
 	for l := range nodes {

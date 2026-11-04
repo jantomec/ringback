@@ -68,7 +68,7 @@ token = "<span class="secret" data-secret="{{.AgentToken}}">••••••�
     <div><h2>Phone</h2><p>The iPhone the calls ring, with the ringback app. <span class="state{{if .Phone.Done}} done{{end}}">{{.Phone.Status}}</span></p></div>
   </div>
   <div class="group pad">
-    <div class="step"><span class="n">1</span><p>Install the app on the iPhone from Xcode, as the repository's <code>docs/setup.md</code> says, with Nebula on the phone too.</p></div>
+    <div class="step"><span class="n">1</span><p>Install the app on the iPhone from Xcode, as the repository's <code>docs/setup.md</code> says{{if .PrivateHub}}, with the VPN it reaches this hub over, such as Nebula, on the phone too{{end}}.</p></div>
     <div class="step"><span class="n">2</span><p>In the Settings app, under Apps, Ringback, set the hub's Address, so the app can reach it:</p></div>
     <pre class="code">{{.PhoneHub}}</pre>
     <div class="step"><span class="n">3</span><p>Open the app and allow notifications. Its banner says the hub needs the phone paired: tap Pair, sign in to this portal on the phone, and tap Pair this phone. Ringback opens and pairs, and the phone shows on the status page's map. To start from the portal instead, open <a href="/portal/pair">Pair this phone</a> on the iPhone.</p></div>
