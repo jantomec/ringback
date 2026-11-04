@@ -100,6 +100,15 @@ type problemView struct{ Text, Tone string } // Tone: bad, or wait
 type partView struct {
 	Kind, Name, State, Status string // Kind: speech or agent; State: working, problem or asleep
 	Gone                      bool   // not linked now, so it can be forgotten
+	Paired                    bool   // linked with its own key, so it can be unpaired
+}
+
+// linkedBy says how a part linked, for its status: with its own key, or the hub's token.
+func linkedBy(l *link) string {
+	if l.byKey {
+		return ", paired"
+	}
+	return ", with the hub's token"
 }
 
 type sessionView struct{ Project, Subject, Mac, Since string }
@@ -243,7 +252,8 @@ func statusData() statusView {
 		if len(a.sessions) == 0 {
 			count = "No sessions"
 		}
-		v.Macs = append(v.Macs, partView{Kind: "agent", Name: a.l.name, State: "working", Status: "Linked " + since(a.l.since)})
+		v.Macs = append(v.Macs, partView{Kind: "agent", Name: a.l.name, State: "working", Status: "Linked " + since(a.l.since) + linkedBy(a.l),
+			Paired: a.l.byKey})
 		part := mapPart{Kind: "mac", State: "working", Name: a.l.name, Sub: count, Wire: "working"}
 		if word := liveMacs[a.l.name]; word != "" {
 			part.Sub, part.Live, part.WireLive = word, true, true
@@ -271,7 +281,7 @@ func statusData() statusView {
 		if loaded, at := l.models(); loaded {
 			status = "Linked " + since(l.since) + ". Models loaded " + since(at)
 		}
-		v.Nodes = append(v.Nodes, partView{Kind: "speech", Name: l.name, State: "working", Status: status})
+		v.Nodes = append(v.Nodes, partView{Kind: "speech", Name: l.name, State: "working", Status: status + linkedBy(l), Paired: l.byKey})
 		part := mapPart{Kind: "node", State: "working", Name: l.name, Sub: "Ready", Wire: "working"}
 		if word := liveNodes[l.name]; word != "" {
 			part.Live, part.WireLive = true, true

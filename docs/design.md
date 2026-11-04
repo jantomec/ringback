@@ -248,7 +248,8 @@ after they were asked for, and the app stayed at about 30 MB: the model runs in 
 service.
 
 Nothing about speech nodes is set in the app. A node links to the hub by itself, with its
-token; adding one, or forgetting one that's gone for good, is done on the hub's portal.
+key from pairing or the hub's token; pairing one, unpairing it, or forgetting one that's gone
+for good, is done on the hub's portal.
 
 ## When calls ring
 
@@ -477,8 +478,10 @@ The private network is the outer wall: anything on it can reach the hub. Inside 
   pair` run there trades it at `/pair-link` for the part's own key (32 random bytes), written
   into its config, readable only by you; the hub keeps only the key's SHA-256, by the name it
   paired as (`parts.json`), and names its link by that name. Pairing again under the same
-  name replaces the key, and forgetting the part on the portal drops it; a part that's linked
-  can't be forgotten, so revoking one means stopping it first.
+  name replaces the key, and forgetting the part on the portal drops it. One that's linked
+  with its key can be unpaired there (Unpair, on the status page): its link closes, and it
+  can't link again until it pairs again. One linked with the hub's token can't, as it would
+  link straight back; its list entry says which it uses.
 - **The phone has no token.** A call's ID is the call's secret: random, at least 16
   characters, and it reaches the phone through Apple's push. The hub accepts an offer only
   for a call the agent that owns it knows. A session's ID is a secret of the same kind: with
@@ -547,7 +550,8 @@ every 5 s by a small script, with no framework; light and dark, and laid out for
 
 The portal changes three things: **the hold**, on every paired phone at once, so the app shows
 it too (work hours still end it at their next start, as they end the app's); **forgetting** a
-node or a Mac that's gone for good; and the **pairing codes** it makes. Everything else has
+node or a Mac that's gone for good, or **unpairing** one that's linked with its own key; and
+the **pairing codes** it makes. Everything else has
 one home: secrets and addresses in `hub.toml`, what the phone owns on the phone (shown on the
 portal, read-only).
 
@@ -791,7 +795,7 @@ how things look):
 - the hub serving HTTPS and WSS (`[tls]`), renewed without a restart, and the agent and the
   speech node linking to it; the app's side isn't tried at all;
 - Macs and speech nodes pairing and linking with their own keys (a Mac's agent paired with
-  a real hub and linked; the speech node only in its tests);
+  a real hub and linked; the speech node only in its tests), and unpairing one that's linked;
 - the call's audio on a public address and a range of ports, and refused requests shut out;
 - the hub on Linux: `hub/build.sh` building it there with libopus linked in, its checks and
   smoke test passing, and `install` making a systemd user service that came back 12 s after a

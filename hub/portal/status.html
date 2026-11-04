@@ -124,7 +124,7 @@
     <div class="row empty">No Mac has linked yet. <a href="/portal/setup#mac">Add one</a></div>
   {{- end}}
   </div>
-  <p class="foot">A Mac drops off while it sleeps and links again when it wakes. Forget a node or a Mac only once it's gone for good.</p>
+  <p class="foot">A Mac drops off while it sleeps and links again when it wakes. Forget a node or a Mac only once it's gone for good. Unpair one that's linked with its own key to close its link and keep it from linking again until it pairs again.</p>
 </section>
 </div>
 {{end}}{{end}}
@@ -136,12 +136,12 @@
         <div class="title">{{.Part.Name}}</div>
         <div class="sub">{{.Part.Status}}</div>
       </div>
-      {{- if .Part.Gone}}
+      {{- if or .Part.Gone .Part.Paired}}
       <form method="post" action="/portal/forget">
         <input type="hidden" name="csrf" value="{{.CSRF}}">
         <input type="hidden" name="kind" value="{{.Part.Kind}}">
         <input type="hidden" name="name" value="{{.Part.Name}}">
-        <button type="submit" class="btn quiet">Forget</button>
+        <button type="submit" class="btn quiet">{{if .Part.Gone}}Forget{{else}}Unpair{{end}}</button>
       </form>
       {{- end}}
     </div>

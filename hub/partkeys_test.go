@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -170,5 +171,78 @@ func TestPortalPairPart(t *testing.T) {
 	}
 	if _, err := pairPartWith(m[1], "agent", "build-mac"); err != nil {
 		t.Errorf("the portal's code: %v", err)
+	}
+}
+
+// A part linked with its own key can be unpaired from the portal: its link closes, its key
+// stops working, and it isn't left among the parts seen. One linked with the hub's token can't.
+func TestUnpairLinked(t *testing.T) {
+	for _, path := range []string{pairingPath, partKeysPath, seenPath} {
+		os.Remove(path)
+		defer os.Remove(path)
+	}
+	key, err := pairPartWith(makePartCode(t, "agent"), "agent", "unpair-mac")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		acceptLink(w, r, "agent", agentOpened, fromAgent, func(*link, []byte) {}, agentClosed)
+	}))
+	defer server.Close()
+	linkedNames := func() map[string]bool {
+		registryMu.Lock()
+		defer registryMu.Unlock()
+		names := map[string]bool{}
+		for l := range agents {
+			names[l.name] = true
+		}
+		return names
+	}
+	paired := linkWith(t, server, key, "unpair-mac")
+	defer paired.CloseNow()
+	shared := linkWith(t, server, "agent-secret-5678", "token-mac")
+	defer shared.CloseNow()
+	for end := time.Now().Add(2 * time.Second); len(linkedNames()) < 2 && time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+	}
+	macs := map[string]partView{}
+	for _, p := range statusData().Macs {
+		macs[p.Name] = p
+	}
+	if p := macs["unpair-mac"]; !p.Paired || !strings.HasSuffix(p.Status, ", paired") {
+		t.Errorf("the paired Mac on the status page: %+v", p)
+	}
+	if p := macs["token-mac"]; p.Paired || !strings.HasSuffix(p.Status, ", with the hub's token") {
+		t.Errorf("the Mac with the token: %+v", p)
+	}
+	var rendered bytes.Buffer
+	if err := portalPages["status"].ExecuteTemplate(&rendered, "base", page{CSRF: "c", Data: statusData(), Hold: currentHold()}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(rendered.String(), "Unpair</button>") != 1 || !strings.Contains(rendered.String(), `name="name" value="unpair-mac"`) {
+		t.Errorf("the status page doesn't offer to unpair the paired Mac alone:\n%s", rendered.String())
+	}
+
+	if forgot, _ := forgetPart("agent", "token-mac"); forgot || !linkedNames()["token-mac"] {
+		t.Error("a Mac linked with the token is unpaired")
+	}
+	if forgot, err := forgetPart("agent", "unpair-mac"); !forgot || err != nil {
+		t.Fatalf("the paired Mac isn't unpaired: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, _, err := paired.Read(ctx); err == nil || ctx.Err() != nil {
+		t.Errorf("its link isn't closed: %v", err)
+	}
+	if _, ok := pairedPart("agent", key); ok {
+		t.Error("its key still works")
+	}
+	for end := time.Now().Add(2 * time.Second); linkedNames()["unpair-mac"] && time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+	}
+	time.Sleep(200 * time.Millisecond) // a link that goes is noted among the parts seen after that
+	seenMu.Lock()
+	seen := loadSeen()
+	seenMu.Unlock()
+	if _, left := seen["agent"]["unpair-mac"]; left || !linkedNames()["token-mac"] {
+		t.Errorf("after unpairing, seen: %v, linked: %v", seen["agent"], linkedNames())
 	}
 }

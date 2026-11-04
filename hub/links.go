@@ -32,6 +32,8 @@ type link struct {
 	waitMu     sync.Mutex
 	waiting    map[int64]chan map[string]any
 	since      time.Time // when it linked
+	byKey      bool      // with its own key, from pairing, rather than the hub's token
+	unpaired   atomic.Bool
 	// A speech node's models: whether they're loaded, as it last said (`models`), and when.
 	modelsMu sync.Mutex
 	loaded   bool
@@ -126,7 +128,7 @@ func acceptLink(w http.ResponseWriter, r *http.Request, kind string, opened func
 	}
 	l.name = orDefault(str(hello, "name"), kind)
 	if byKey {
-		l.name = paired
+		l.name, l.byKey = paired, true
 	}
 	if l.send(map[string]any{"type": "welcome", "version": protocolVersion}) != nil {
 		return

@@ -47,7 +47,8 @@ Version 1. A hub refuses a hello with another version.
   "speech", "name": "…"}` trades a one-time code made for that kind (valid 10 minutes, once:
   the portal's Setup page, or `ringback-hub pair mac` or `node`) for `{"key": "…"}` (64 hex
   characters), or 403 `{"error": "pairing code not valid"}`. Pairing again under the same
-  name replaces the key; forgetting the part on the portal drops it.
+  name replaces the key; forgetting the part on the portal drops it, and unpairing it there
+  drops the key and closes its link.
 - Control is JSON in text frames: `{"type": "…", …}`. Times are ISO 8601 strings, durations
   are seconds as numbers.
 - A message that needs an answer carries `"id": n` (an integer the sender chooses); the

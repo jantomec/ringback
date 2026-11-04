@@ -33,8 +33,12 @@ func loadSeen() map[string]map[string]seenPart {
 	return seen
 }
 
-// sawLink notes a speech node or a Mac as it links (linked) and as it goes.
+// sawLink notes a speech node or a Mac as it links (linked) and as it goes; not one that goes
+// because it was unpaired, which forgetPart has taken off.
 func sawLink(l *link, linked bool) {
+	if l.unpaired.Load() {
+		return
+	}
 	seenMu.Lock()
 	defer seenMu.Unlock()
 	seen := loadSeen()
@@ -73,23 +77,44 @@ func partsGoneAtStart() {
 	}
 }
 
-// forgetPart takes a speech node or a Mac off seen.json, as the status page's Forget does, and
-// drops its key if it paired; false if it's linked now, or wasn't there.
+// forgetPart takes a speech node or a Mac off seen.json, as the status page's Forget and
+// Unpair do, and drops its key if it paired. One linked now with its own key is unpaired: its
+// link closes, and it can't link again until it pairs again. False if it's linked with the hub's
+// token, as it would only link again, or wasn't there.
 func forgetPart(kind, name string) (bool, error) {
 	registryMu.Lock()
-	linkedNow := false
+	var linked []*link
 	for l := range nodes {
-		linkedNow = linkedNow || (kind == "speech" && l.name == name)
+		if kind == "speech" && l.name == name {
+			linked = append(linked, l)
+		}
 	}
 	for l := range agents {
-		linkedNow = linkedNow || (kind == "agent" && l.name == name)
+		if kind == "agent" && l.name == name {
+			linked = append(linked, l)
+		}
 	}
 	registryMu.Unlock()
-	if linkedNow {
-		return false, nil
+	for _, l := range linked {
+		if !l.byKey {
+			return false, nil
+		}
 	}
 	if err := forgetPartKey(kind, name); err != nil {
 		return false, err
+	}
+	for _, l := range linked {
+		l.unpaired.Store(true)
+		l.cancel()
+		l.ws.CloseNow()
+		log("the " + partKinds[kind] + " " + name + ": unpaired, its link is closed")
+	}
+	if len(linked) > 0 {
+		seenMu.Lock()
+		defer seenMu.Unlock()
+		seen := loadSeen()
+		delete(seen[kind], name)
+		return true, writeJSON(seenPath, seen)
 	}
 	seenMu.Lock()
 	defer seenMu.Unlock()
