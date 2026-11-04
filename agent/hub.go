@@ -80,21 +80,28 @@ func (h *hubLink) address() string { return h.addr }
 // trustCA has the link trust the certificate authority in the PEM file at path as well as the
 // system's: for a hub whose certificate a CA of your own signed.
 func (h *hubLink) trustCA(path string) error {
+	client, err := caClient(path)
+	h.client = client
+	return err
+}
+
+// caClient is an HTTP client that trusts the certificate authority in the PEM file at path as
+// well as the system's.
+func caClient(path string) (*http.Client, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	pool, err := x509.SystemCertPool()
 	if err != nil {
 		pool = x509.NewCertPool()
 	}
 	if !pool.AppendCertsFromPEM(data) {
-		return fmt.Errorf("no certificate in %s", path)
+		return nil, fmt.Errorf("no certificate in %s", path)
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{RootCAs: pool}
-	h.client = &http.Client{Transport: transport}
-	return nil
+	return &http.Client{Transport: transport}, nil
 }
 
 // run keeps the link open until ctx ends.
@@ -129,7 +136,7 @@ func (h *hubLink) connect(ctx context.Context) (bool, error) {
 	cancel()
 	if err != nil {
 		if response != nil && response.StatusCode == http.StatusUnauthorized {
-			return false, errors.New("the hub refused the token (401)")
+			return false, errors.New("the hub refused the key or token (401)")
 		}
 		return false, fmt.Errorf("can't reach the hub at %s: %v", h.addr, err)
 	}

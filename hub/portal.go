@@ -34,6 +34,9 @@ func parsePortalPages() map[string]*template.Template {
 	funcs := template.FuncMap{
 		"n":    num, // a number in an SVG attribute
 		"part": func(csrf string, p partView) map[string]any { return map[string]any{"CSRF": csrf, "Part": p} },
+		"pairPart": func(csrf string, v setupView, kind string) map[string]any {
+			return map[string]any{"CSRF": csrf, "View": v, "Kind": kind}
+		},
 	}
 	base := template.Must(template.New("base").Funcs(funcs).ParseFS(portalFiles, "portal/base.html"))
 	pages := map[string]*template.Template{}
@@ -122,6 +125,8 @@ func portal(w http.ResponseWriter, r *http.Request) {
 			holdForm(w, r, s)
 		case "/portal/pair":
 			pairForm(w, r, s, base)
+		case "/portal/pair-part":
+			partPairForm(w, r, s, base)
 		case "/portal/forget":
 			// Any name the hub has seen, however long: a link's hello gives it, unbounded.
 			kind, name := r.PostFormValue("kind"), r.PostFormValue("name")
@@ -652,7 +657,9 @@ type setupPart struct {
 
 type setupView struct {
 	// How the phone, an agent and a speech node reach the hub.
-	PhoneHub, AgentHub, SpeechHub                string
+	PhoneHub, AgentHub, SpeechHub string
+	// A code just made to pair a speech node or a Mac (PairKind), as the command to run there.
+	PairKind, PairCommand, PairUntil             string
 	Config, SpeechToken, AgentToken, PushProblem string
 	SpeechSet, AgentSet                          bool
 	Node, Mac, Phone, Push                       setupPart

@@ -37,6 +37,8 @@ const pairingValid = 10 * time.Minute
 type pendingCode struct {
 	Hash    string    `json:"hash"`
 	Expires time.Time `json:"expires"`
+	// What it pairs: a phone (""), a Mac's agent ("agent") or a speech node ("speech").
+	For string `json:"for,omitempty"`
 }
 
 // pendingCodes are the codes still valid at t, read from pairingPath.
@@ -58,9 +60,9 @@ func savePendingCodes(codes []pendingCode) error {
 	return writePrivateJSON(pairingPath, codes)
 }
 
-// newPairingCode makes a one-time code, valid for pairingValid. The caller holds stateMu (or
-// is the `pair` command).
-func newPairingCode() (code string, expires time.Time, err error) {
+// newPairingCode makes a one-time code that pairs a phone (kind "") or a part of that kind
+// (partKinds), valid for pairingValid. The caller holds stateMu (or is the `pair` command).
+func newPairingCode(kind string) (code string, expires time.Time, err error) {
 	random := make([]byte, 32)
 	if _, err := rand.Read(random); err != nil {
 		return "", time.Time{}, err
@@ -68,12 +70,13 @@ func newPairingCode() (code string, expires time.Time, err error) {
 	code = base64.RawURLEncoding.EncodeToString(random)
 	t := now()
 	expires = t.Add(pairingValid)
-	codes := append(pendingCodes(t), pendingCode{Hash: hashOf(code), Expires: expires})
+	codes := append(pendingCodes(t), pendingCode{Hash: hashOf(code), Expires: expires, For: kind})
 	return code, expires, savePendingCodes(codes)
 }
 
-// takePairingCode uses a code up: true if it was one of the valid ones. The caller holds stateMu.
-func takePairingCode(code string) (bool, error) {
+// takePairingCode uses a code up: true if it was one of the valid ones, for that kind. The
+// caller holds stateMu.
+func takePairingCode(code, kind string) (bool, error) {
 	if code == "" {
 		return false, nil
 	}
@@ -81,7 +84,7 @@ func takePairingCode(code string) (bool, error) {
 	var kept []pendingCode
 	found := false
 	for _, c := range pendingCodes(now()) {
-		if !found && subtle.ConstantTimeCompare([]byte(c.Hash), []byte(hash)) == 1 {
+		if !found && subtle.ConstantTimeCompare([]byte(c.Hash), []byte(hash)) == 1 && c.For == kind {
 			found = true
 			continue
 		}
@@ -176,7 +179,7 @@ func pair(body map[string]any) (map[string]any, error) {
 		return nil, errBadRequest
 	}
 	device := orDefault(str(body, "device"), "a phone")
-	taken, err := takePairingCode(str(body, "code"))
+	taken, err := takePairingCode(str(body, "code"), "")
 	if err != nil {
 		return nil, err
 	}

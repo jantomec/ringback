@@ -73,8 +73,8 @@ func partsGoneAtStart() {
 	}
 }
 
-// forgetPart takes a speech node or a Mac off seen.json, as the status page's Forget does;
-// false if it's linked now, or wasn't there.
+// forgetPart takes a speech node or a Mac off seen.json, as the status page's Forget does, and
+// drops its key if it paired; false if it's linked now, or wasn't there.
 func forgetPart(kind, name string) (bool, error) {
 	registryMu.Lock()
 	linkedNow := false
@@ -87,6 +87,9 @@ func forgetPart(kind, name string) (bool, error) {
 	registryMu.Unlock()
 	if linkedNow {
 		return false, nil
+	}
+	if err := forgetPartKey(kind, name); err != nil {
+		return false, err
 	}
 	seenMu.Lock()
 	defer seenMu.Unlock()

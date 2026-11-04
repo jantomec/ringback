@@ -34,9 +34,10 @@ func installService() {
 	if listen == "" {
 		fail("No listen address in " + configPath + ": fill it in first (hub/hub.example.toml).")
 	}
+	// The tokens are optional, since the Macs and speech nodes can pair instead.
 	for _, kind := range []string{"agent", "speech"} {
-		if len(config["tokens."+kind]) < 16 {
-			fail("No [tokens] " + kind + " in " + configPath + ": make it a long random string, such as `openssl rand -hex 32` prints.")
+		if token := config["tokens."+kind]; token != "" && len(token) < 16 {
+			fail("[tokens] " + kind + " in " + configPath + " is short: make it a long random string, such as `openssl rand -hex 32` prints, or leave it out and pair instead.")
 		}
 	}
 	if _, err := tlsConfig(config); err != nil {

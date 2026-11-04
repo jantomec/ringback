@@ -17,14 +17,18 @@ import (
 	"ringback/speech/internal/wav"
 )
 
-const usage = `usage: ringback-speech [--config FILE] install | uninstall | serve | say TEXT OUT.wav
-       | phonemes TEXT | hear FILE.wav | listen [--sensitivity S] [--gate G] FILE.wav...
+const usage = `usage: ringback-speech [--config FILE] install | uninstall | serve | pair HUB CODE
+       | say TEXT OUT.wav | phonemes TEXT | hear FILE.wav
+       | listen [--sensitivity S] [--gate G] FILE.wav...
 
   install   run the node as a service (a systemd user unit): now, at boot, and again
             whenever it stops; again after building a new binary, to restart it;
             uninstall stops it and takes it away
   serve     dial the hub and hear and speak for its calls: the models load in a worker
             process when a call is coming, which exits when it has been idle
+  pair      pair the node with the hub, with a one-time code from its portal (Setup) or
+            ringback-hub pair node: writes the hub's address and the node's own key into
+            the settings
   say       speak TEXT as the voice does, into a WAV file (24 kHz)
   phonemes  print the phonemes the voice would speak for TEXT, chunk by chunk
   hear      print Parakeet's words for a WAV file (16 kHz, one stretch of speech)
@@ -33,8 +37,8 @@ const usage = `usage: ringback-speech [--config FILE] install | uninstall | serv
             heard as JSON lines (tools/short-answers)
 
   --config FILE  the settings (default: speech.toml in the install directory, the folder
-                 above the binary's); the hub's address, the token and the idle time in it
-                 can be overridden with --hub URL, --token TOKEN and --idle SECONDS`
+                 above the binary's); the hub's address, the key or token and the idle time
+                 in it can be overridden with --hub URL, --token SECRET and --idle SECONDS`
 
 func main() {
 	args := os.Args[1:]
@@ -62,6 +66,11 @@ func main() {
 		return
 	}
 	c, err := loadConfig(cfgPath)
+	if args[0] == "pair" && len(args) == 3 {
+		// No settings yet is fine: pairing makes them.
+		pairNode(c, cfgPath, args[1], args[2])
+		return
+	}
 	if err != nil {
 		fail(err.Error())
 	}
@@ -69,7 +78,7 @@ func main() {
 		c.hub = hub
 	}
 	if token != "" {
-		c.token = token
+		c.key, c.token = "", token
 	}
 	if idle != "" {
 		if c.idle, err = idleTime(idle); err != nil {
@@ -81,8 +90,8 @@ func main() {
 	case args[0] == "install" && len(args) == 1:
 		installService(c)
 	case args[0] == "serve" && len(args) == 1:
-		if c.hub == "" || c.token == "" {
-			fail("No hub or token in " + c.path + ".")
+		if c.hub == "" || c.secret() == "" {
+			fail("No hub, or key or token, in " + c.path + ": `ringback-speech pair` writes them.")
 		}
 		if c.client, err = hubClient(c.ca); err != nil {
 			fail("Can't read the hub's CA (ca in " + c.path + "): " + err.Error())

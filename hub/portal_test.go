@@ -39,6 +39,7 @@ func TestMain(m *testing.M) {
 	accountPath = filepath.Join(stateDir, "portal-user.json")
 	seenPath = filepath.Join(stateDir, "seen.json")
 	pairingPath = filepath.Join(stateDir, "pairing.json")
+	partKeysPath = filepath.Join(stateDir, "parts.json")
 	configPath = filepath.Join(dir, "hub.toml")
 	config := "listen = \"127.0.0.1:18899\"\n[tokens]\nspeech = \"speech-secret-1234\"\nagent = \"agent-secret-5678\"\n"
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {

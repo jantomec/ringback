@@ -76,8 +76,9 @@ On the always-on Mac, fill in `~/.config/ringback/hub.toml`:
 - `listen` is the hub's address on your private network, such as its Nebula address, and its
   port, which it needs: 8787 is the app's default. It listens only there. The call's audio
   uses the same address, on UDP ports it picks.
-- `[tokens]` are what the speech node and the agents link with: make each a long random
-  string, such as `openssl rand -hex 32` prints.
+- `[tokens]` are optional: shared secrets the speech nodes and the agents can link with
+  instead of pairing (steps 4 and 5), each a long random string, such as
+  `openssl rand -hex 32` prints. Leave them out to have each pair.
 - `[apns]` is your team ID and the app's bundle ID, and `[apns.sandbox]` the key: its key ID
   and the path of its `.p8` file.
 
@@ -103,7 +104,7 @@ launchd tries again):
 ~/.local/bin/ringback-hub install
 ```
 
-`install` refuses while the config lacks `listen` or the tokens, has a `[tls]` it can't read,
+`install` refuses while the config lacks `listen`, has a token that's short or a `[tls]` it can't read,
 or while something else listens on the address, such as a hub started by hand. Its log is
 `~/Library/Logs/ringback-hub.log`. After copying a new binary over the old one, run `install`
 again to restart it; `ringback-hub uninstall` stops it and takes the launchd agent away. To
@@ -203,15 +204,19 @@ each archive checked against a pinned SHA-256, which took 69 s on a fast connect
 (`speech/README.md` lists what's where). Running it again keeps what's right and fetches only
 what's missing; a run you stop keeps what it fetched. It needs curl or wget, tar, bzip2, gzip,
 unzip and sha256sum, and installs Go into the folder too if the machine has none. `build.sh`
-needs a C compiler (gcc; `sudo apt install build-essential` on Debian or Ubuntu). Then, in
-`~/ringback-speech/speech.toml`, set the hub's address and its speech token:
+needs a C compiler (gcc; `sudo apt install build-essential` on Debian or Ubuntu). Then pair
+it with the hub: on the portal's Setup page, under Speech node, tap Make a pairing code (or run
+`ringback-hub pair node` on the hub's machine), and run the command it gives on the node,
+within 10 minutes:
 
-```toml
-hub = "ws://10.0.0.1:8787/speech"
-token = "…"   # [tokens] speech in the hub's hub.toml
+```sh
+~/ringback-speech/bin/ringback-speech pair http://10.0.0.1:8787 CODE
 ```
 
-and install it as a service, a systemd user unit: it starts now, at boot, and again whenever
+It writes the hub's address and the node's own key into `~/ringback-speech/speech.toml`, and
+pairs by the machine's host name unless `name` is set there. (Instead of pairing, `hub` can be
+`ws://10.0.0.1:8787/speech` with `token` set to `[tokens] speech` in the hub's `hub.toml`.)
+Then install it as a service, a systemd user unit: it starts now, at boot, and again whenever
 it stops:
 
 ```sh
@@ -219,8 +224,8 @@ it stops:
 journalctl --user -u ringback-speech -f      # its log
 ```
 
-`install` refuses while `speech.toml` lacks the hub or the token, or while a node started by
-hand runs. It also turns on lingering for you (`loginctl enable-linger`), so the node runs
+`install` refuses while `speech.toml` lacks the hub, or the key or token, or while a node
+started by hand runs. It also turns on lingering for you (`loginctl enable-linger`), so the node runs
 from boot, not only while you're logged in; where that needs an administrator, it says so.
 After building a new binary, run `install` again to restart it; `ringback-speech uninstall`
 stops it and takes the unit away. To try it in a terminal instead:
@@ -237,21 +242,29 @@ speaking, and its memory before, during and after a call.
 ## 5. The agent (every Mac that runs sessions)
 
 ```sh
-mkdir -p ~/.local/bin ~/.config/ringback
+mkdir -p ~/.local/bin
 (cd agent && go build -o ~/.local/bin/ringback-agent .)
-cp agent/agent.example.toml ~/.config/ringback/agent.toml
 ```
 
-In `agent.toml`, set `hub` to the hub's address and port, as in its `listen`, and `token` to
-`[tokens] agent` in the hub's `hub.toml`; the portal's Setup page shows both. Then install it
-as a service, a launchd agent, from a terminal where `claude` runs: it starts now, at login,
-and again whenever it stops.
+Pair it with the hub: on the portal's Setup page, under Mac, tap Make a pairing code (or run
+`ringback-hub pair mac` on the hub's machine), and run the command it gives on this Mac, within
+10 minutes:
+
+```sh
+~/.local/bin/ringback-agent pair http://10.0.0.1:8787 CODE
+```
+
+It writes the hub's address and this Mac's own key into `~/.config/ringback/agent.toml`,
+making it if there's none (`agent/agent.example.toml` has the other settings). Instead of
+pairing, `hub` can be the hub's address and port, as in its `listen`, with `token` set to
+`[tokens] agent` in the hub's `hub.toml`. Then install it as a service, a launchd agent, from a
+terminal where `claude` runs: it starts now, at login, and again whenever it stops.
 
 ```sh
 ~/.local/bin/ringback-agent install
 ```
 
-`install` refuses while the config lacks the hub or the token, while `claude` isn't on your
+`install` refuses while the config lacks the hub, or the key or token, while `claude` isn't on your
 `PATH` (the service gets its folder on its own `PATH`), or while an agent started by hand runs.
 Its log is `~/Library/Logs/ringback-agent.log`. After copying a new binary over the old one,
 run `install` again to restart it; `ringback-agent uninstall` stops it and takes the launchd

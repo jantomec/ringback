@@ -20,7 +20,7 @@ type pairView struct {
 
 func pairForm(w http.ResponseWriter, r *http.Request, s *portalSession, base page) {
 	stateMu.Lock()
-	code, expires, err := newPairingCode()
+	code, expires, err := newPairingCode("")
 	stateMu.Unlock()
 	if err != nil {
 		log("portal: can't make a pairing code: " + err.Error())
@@ -33,6 +33,29 @@ func pairForm(w http.ResponseWriter, r *http.Request, s *portalSession, base pag
 	base.Title, base.Page, base.Open = "Pair this phone", "setup", link
 	base.Data = pairView{Link: link, Until: expires.Local().Format("15:04")}
 	render(w, http.StatusOK, "pair", base)
+}
+
+// partPairForm makes a one-time code that pairs a speech node or a Mac, and shows the Setup
+// page with the command that pairs it, run there.
+func partPairForm(w http.ResponseWriter, r *http.Request, s *portalSession, base page) {
+	kind := r.PostFormValue("kind")
+	if partKinds[kind] == "" {
+		http.Error(w, "needs a speech node or a Mac", http.StatusBadRequest)
+		return
+	}
+	stateMu.Lock()
+	code, expires, err := newPairingCode(kind)
+	stateMu.Unlock()
+	if err != nil {
+		log("portal: can't make a pairing code: " + err.Error())
+		http.Error(w, "can't make a pairing code", http.StatusInternalServerError)
+		return
+	}
+	log("portal: " + s.name + " made a code to pair a " + partKinds[kind] + ", from " + address(r))
+	view := setupData()
+	view.PairKind, view.PairCommand, view.PairUntil = kind, partCommand(kind, code), expires.Local().Format("15:04")
+	base.Title, base.Page, base.Data, base.Hold = "Setup", "setup", view, currentHold()
+	render(w, http.StatusOK, "setup", base)
 }
 
 // portalPath is next if it's a page of the portal's own (/portal/…, a path alone), the only

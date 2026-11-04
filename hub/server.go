@@ -22,14 +22,14 @@ var (
 type endpoint func(body map[string]any) (map[string]any, error)
 
 // serve answers the phone (/pair, /register, /events, /check, /waiting, /contacts, /hold),
-// and the links the agents and the speech nodes open: over plain HTTP on a private network
+// the Macs and speech nodes pairing (/pair-link), and the links they open: over plain HTTP on a private network
 // such as Nebula, or HTTPS and WSS with [tls] in hub.toml (tlsConfig). The phone's requests are small
 // and rare, and are handled one at a time (stateMu); each gets at most 5 s, so a stalled
 // connection can't hold the next one past the app's 10 s timeout. Meanwhile it asks the
 // phones to check their connection every 30 min.
 func serve(listen string) {
 	endpoints := map[string]endpoint{
-		"/pair": pair, "/register": register, "/events": event, "/check": checkIn, "/waiting": waiting,
+		"/pair": pair, "/pair-link": pairPart, "/register": register, "/events": event, "/check": checkIn, "/waiting": waiting,
 		"/contacts": contacts, "/hold": holdSwitch,
 	}
 	listener, err := net.Listen("tcp4", listen)

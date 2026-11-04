@@ -359,6 +359,27 @@ check "TLS: /ping over HTTPS" 200 "$(status --cacert "$tls/first.pem" "$tls_url/
 check "TLS: a certificate it doesn't trust fails" 000 "$(curl -s -o /dev/null -w '%{http_code}' "$tls_url/ping")"
 check "TLS: plain HTTP on its port is refused" 400 "$(status "http://127.0.0.1:18790/ping")"
 check "TLS: the agent link without a token gets 401" 401 "$(status --cacert "$tls/first.pem" "$tls_url/agent")"
+# Pairing a Mac, over TLS: the command `pair mac` prints carries a code the running hub takes
+# once, for a key the agent link opens with, as the token's does.
+upgrade() {  # the link's status with a key or token: 101 is opened
+    curl -s -o /dev/null -w '%{http_code}' --max-time 2 --cacert "$tls/first.pem" -H 'Connection: Upgrade' \
+        -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+        -H "Authorization: Bearer $1" "$tls_url/agent" || true
+}
+pairing=$(HOME="$home" "$bin" pair mac)
+check "pair mac: the command to run on the Mac" yes "$(yes_if has "$pairing" "^~/\.local/bin/ringback-agent pair $tls_url [A-Za-z0-9_-]{43}$")"
+code=$(printf '%s\n' "$pairing" | tail -1 | awk '{print $4}')
+as_mac=$(printf '{"code": "%s", "kind": "agent", "name": "smoke-mac"}' "$code")
+paired=$(body --cacert "$tls/first.pem" -d "$as_mac" "$tls_url/pair-link")
+key=$(printf '%s' "$paired" | sed -n 's/.*"key":"\([0-9a-f]*\)".*/\1/p')
+check "pair-link: the code makes the Mac a key" 64 "${#key}"
+check "pair-link: once" 403 "$(status --cacert "$tls/first.pem" -d "$as_mac" "$tls_url/pair-link")"
+node_code=$(printf '{"code": "%s", "kind": "agent", "name": "x"}' "$(HOME="$home" "$bin" pair node | tail -1 | awk '{print $4}')")
+check "pair-link: a node's code doesn't pair a Mac" 403 "$(status --cacert "$tls/first.pem" -d "$node_code" "$tls_url/pair-link")"
+check "the agent link opens with its key" 101 "$(upgrade "$key")"
+check "and with the token" 101 "$(upgrade smoke-agent-token-0001)"
+check "not with another key" 401 "$(upgrade 0000000000000000000000000000000000000000000000000000000000000000)"
+check "the keys are kept as hashes" no "$(yes_if grep -qF "$key" "$home/.local/state/ringback/parts.json")"
 make_cert 24h
 check "TLS: renewed, the new certificate is served" 200 "$(status --cacert "$tls/fullchain.pem" "$tls_url/ping")"
 check "TLS: and the first one no longer" 000 "$(curl -s -o /dev/null -w '%{http_code}' --cacert "$tls/first.pem" "$tls_url/ping")"

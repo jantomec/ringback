@@ -439,8 +439,8 @@ service.
 | From | To | What |
 |---|---|---|
 | phone | hub | requests (`docs/protocol.md`, "The phone"), the call's audio (WebRTC over UDP), or with On-device voice its text link |
-| agent | hub | one WebSocket (`/agent`) with the agent token |
-| speech node | hub | one WebSocket (`/speech`) with the speech token |
+| agent | hub | one WebSocket (`/agent`) with the Mac's key, or the agent token |
+| speech node | hub | one WebSocket (`/speech`) with the node's key, or the speech token |
 | hub | Apple | pushes (HTTPS) |
 | Apple | phone | VoIP pushes that ring, background pushes for the connection check, notifications |
 | mod | agent | HTTP over a Unix socket on the same Mac |
@@ -454,21 +454,32 @@ phone reaches the hub from anywhere) should work, but hasn't been tried.
 
 **A public address isn't supported yet.** Over plain HTTP, the portal's password, the links'
 tokens, the phones' keys and the calls' IDs would cross the internet unencrypted (Security).
-The hub can serve HTTPS and WSS instead (`[tls]` in `hub.toml`, `docs/setup.md`), but the rest
-a public hub needs is still to do (Next): the Macs and speech nodes paired, and the call's
-audio on the public address.
+The hub can serve HTTPS and WSS instead (`[tls]` in `hub.toml`, `docs/setup.md`), and the Macs
+and speech nodes can pair rather than share tokens, but the rest a public hub needs is still to
+do (Next): the call's audio on the public address, and limits on what the internet could
+send it.
 
 ## Security
 
 The private network is the outer wall: anything on it can reach the hub. Inside it:
 
-- **The links.** An agent or a speech node links only with its token (`[tokens]` in
-  `hub.toml`, sent as `Authorization: Bearer`); anything else gets 401.
+- **The links.** An agent or a speech node links only with its own key, from pairing, or a
+  token in `hub.toml` (`[tokens]`, optional), sent as `Authorization: Bearer`; anything else
+  gets 401.
+- **Macs and speech nodes pair** as the phone does: the portal's Setup page, or
+  `ringback-hub pair mac` (or `node`), makes a one-time code for that kind of part (32 random
+  bytes, valid 10 minutes, kept only as a hash), and `ringback-agent pair` or `ringback-speech
+  pair` run there trades it at `/pair-link` for the part's own key (32 random bytes), written
+  into its config, readable only by you; the hub keeps only the key's SHA-256, by the name it
+  paired as (`parts.json`), and names its link by that name. Pairing again under the same
+  name replaces the key, and forgetting the part on the portal drops it; a part that's linked
+  can't be forgotten, so revoking one means stopping it first.
 - **The phone has no token.** A call's ID is the call's secret: random, at least 16
   characters, and it reaches the phone through Apple's push. The hub accepts an offer only
   for a call the agent that owns it knows. A session's ID is a secret of the same kind: with
   it, a call to that session can pass it messages, which it takes as prompts.
-- **Calls and sessions come only from agents,** over their links, with the agent token.
+- **Calls and sessions come only from agents,** over their links, with a Mac's key or the
+  agent token.
 - **A phone pairs before the hub trusts it.** The portal, signed in, makes a one-time pairing
   code (32 random bytes, valid 10 minutes, kept only as a hash, in a file only the hub's user
   can read), which opens Ringback as a link (`ringback://pair`); `ringback-hub pair` makes one
@@ -761,6 +772,8 @@ how things look):
 - no call again when you said "bye" over the session's answer, or anything else;
 - the hub serving HTTPS and WSS (`[tls]`), renewed without a restart, and the agent and the
   speech node linking to it; the app's side isn't tried at all;
+- Macs and speech nodes pairing and linking with their own keys (a Mac's agent paired with
+  a real hub and linked; the speech node only in its tests);
 - the weak-signal settings in the hub;
 - Interruption Sensitivity and Ignore Background Noise, with real noise or someone talking
   near you;
@@ -791,7 +804,8 @@ host unable to read their calls.
   domain name; the phone, the Macs and the speech nodes paired with the hub (a one-time code
   from the portal) instead of trusting the network; the call's audio on the public address
   (its UDP ports open); then passkeys for the portal. Ready: the phone's pairing (tried on the
-  phone), and HTTPS and WSS (`[tls]`, checked offline).
+  phone), and HTTPS and WSS (`[tls]`) and the Macs' and speech nodes' pairing (checked
+  offline).
 - [ ] **A hosted hub for several users.** Someone runs the hub, and each user has their own
   account and sees only their own phones, Macs, sessions and calls: a call rings only its
   user's phones, the portal shows each user only theirs, and each Mac's agent links as its

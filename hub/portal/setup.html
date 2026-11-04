@@ -2,7 +2,7 @@
 <div class="head">
   <h1>Setup</h1>
 </div>
-<p class="lede">What each part needs to work with this hub. Addresses and tokens come from the hub's config, <code>{{.Config}}</code>, which the portal never changes: to change a token, edit it there, restart the hub, and change it wherever it's used.</p>
+<p class="lede">What each part needs to work with this hub. Speech nodes and Macs pair with it, each with a key of its own. Addresses, and the shared tokens they could link with before pairing, come from the hub's config, <code>{{.Config}}</code>, which the portal never changes: to change a token, edit it there, restart the hub, and change it wherever it's used.</p>
 <ul class="jump" aria-label="Parts">
   <li><a href="#node"{{if .Node.Done}} class="done"{{end}}><svg class="ic" aria-hidden="true"><use href="#{{if .Node.Done}}b-done{{else}}m-node{{end}}"/></svg>Speech node{{if .Node.Done}}<span class="visually-hidden">: set up</span>{{end}}</a></li>
   <li><a href="#mac"{{if .Mac.Done}} class="done"{{end}}><svg class="ic" aria-hidden="true"><use href="#{{if .Mac.Done}}b-done{{else}}m-mac{{end}}"/></svg>Mac{{if .Mac.Done}}<span class="visually-hidden">: set up</span>{{end}}</a></li>
@@ -19,15 +19,15 @@
     <div class="step"><span class="n">1</span><p>On that machine, with a copy of the repository, install it (2.7 GB to download) and build it:</p></div>
     <pre class="code">speech/install.sh
 speech/build.sh</pre>
-    <div class="step"><span class="n">2</span><p>Set the hub's address and the speech token in <code>~/ringback-speech/speech.toml</code>:</p></div>
+    <div class="step"><span class="n">2</span><p>Pair it with the hub: make a one-time code, then run the command it gives on that machine. It writes the hub's address and the node's own key into <code>~/ringback-speech/speech.toml</code>.</p></div>
+    {{- template "pair-part" (pairPart $.CSRF . "speech")}}
     {{- if .SpeechSet}}
+    <p>Or, as before pairing, set the hub's address and its speech token there:</p>
     <div class="snippet">
       <pre class="code">hub = "{{.SpeechHub}}"
 token = "<span class="secret" data-secret="{{.SpeechToken}}">••••••••••••••••</span>"</pre>
       <div class="actions"><button type="button" class="btn" data-reveal>Show token</button><button type="button" class="btn" data-copy>Copy</button></div>
     </div>
-    {{- else}}
-    <p class="notice">The hub's config has no speech token yet. Set <code>speech</code> under <code>[tokens]</code> to a long random string, such as <code>openssl rand -hex 32</code> prints, and restart the hub.</p>
     {{- end}}
     <div class="step"><span class="n">3</span><p>Install it as a service: it starts now, at boot, and again whenever it stops. It links to the hub and shows on the status page's map.</p></div>
     <pre class="code">~/ringback-speech/bin/ringback-speech install
@@ -45,15 +45,15 @@ journalctl --user -u ringback-speech -f      # its log</pre>
     <pre class="code">mkdir -p ~/.local/bin ~/.config/ringback
 (cd agent &amp;&amp; go build -o ~/.local/bin/ringback-agent .)
 cp agent/agent.example.toml ~/.config/ringback/agent.toml</pre>
-    <div class="step"><span class="n">2</span><p>Set the hub's address and the agent token in <code>~/.config/ringback/agent.toml</code>:</p></div>
+    <div class="step"><span class="n">2</span><p>Pair it with the hub: make a one-time code, then run the command it gives on the Mac. It writes the hub's address and the Mac's own key into <code>~/.config/ringback/agent.toml</code>.</p></div>
+    {{- template "pair-part" (pairPart $.CSRF . "agent")}}
     {{- if .AgentSet}}
+    <p>Or, as before pairing, set the hub's address and its agent token there:</p>
     <div class="snippet">
       <pre class="code">hub = "{{.AgentHub}}"
 token = "<span class="secret" data-secret="{{.AgentToken}}">••••••••••••••••</span>"</pre>
       <div class="actions"><button type="button" class="btn" data-reveal>Show token</button><button type="button" class="btn" data-copy>Copy</button></div>
     </div>
-    {{- else}}
-    <p class="notice">The hub's config has no agent token yet. Set <code>agent</code> under <code>[tokens]</code> to a long random string, such as <code>openssl rand -hex 32</code> prints, and restart the hub.</p>
     {{- end}}
     <div class="step"><span class="n">3</span><p>Install it as a service, from a terminal where <code>claude</code> runs: it starts now, at login, and again whenever it stops. It links to the hub and shows on the status page's map, with its sessions.</p></div>
     <pre class="code">~/.local/bin/ringback-agent install</pre>
@@ -99,3 +99,19 @@ key_file = "~/.config/ringback/AuthKey_XYZ9876543.p8"</pre>
 
 <p class="foot">The whole setup, the hub's too, is in the repository's <code>docs/setup.md</code>.</p>
 {{end}}{{end}}
+
+{{define "pair-part"}}
+    {{- if eq .View.PairKind .Kind}}
+    <div class="snippet">
+      <pre class="code">{{.View.PairCommand}}</pre>
+      <div class="actions"><button type="button" class="btn" data-copy>Copy</button></div>
+    </div>
+    <p class="foot">It works once, until {{.View.PairUntil}}. On the hub's machine, <code>ringback-hub pair {{if eq .Kind "speech"}}node{{else}}mac{{end}}</code> makes one too.</p>
+    {{- else}}
+    <form method="post" action="/portal/pair-part">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input type="hidden" name="kind" value="{{.Kind}}">
+      <button type="submit" class="btn">Make a pairing code</button>
+    </form>
+    {{- end}}
+{{end}}

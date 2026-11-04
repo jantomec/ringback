@@ -62,7 +62,7 @@ later and its driver, 580 or later (CUDA 13):
 ```sh
 speech/install.sh                   # into ~/ringback-speech, or the folder given
 speech/build.sh                     # into its bin/
-# set hub and token in ~/ringback-speech/speech.toml
+~/ringback-speech/bin/ringback-speech pair HUB CODE   # a code from the hub's portal (Setup)
 ~/ringback-speech/bin/ringback-speech install   # a service: now, at boot, and whenever it stops
 ```
 
@@ -99,7 +99,7 @@ Everything lives in that one folder, nothing outside it:
 | `espeak-ng/` | 3 MB | `lib/libespeak-ng.so.1` and `espeak-ng-data/` (only `en_dict`, `phon*`, `intonations`, `lang/`, `voices/`), from the `espeakng-loader` 0.2.4 wheel, as misaki uses; optional |
 | `go/` | 283 MB | Go 1.27.3, if there's no Go on PATH as recent as `go.mod` asks; `build.sh` puts Go's caches in `gopath/` and `gocache/` (read-only: `chmod -R u+w gopath` before deleting it) |
 | `env.sh` | | sets `LD_LIBRARY_PATH` to `sherpa-onnx/lib` and `lib`: source it before running |
-| `speech.toml` | | the settings, copied from `speech.example.toml` if there are none: set `hub` and `token` |
+| `speech.toml` | | the settings, copied from `speech.example.toml` if there are none: `pair` writes `hub` and `key` (or set `hub` and `token`) |
 | `bin/` | 22 MB | `ringback-speech` and `fakehub`, from `build.sh` (which can build into another folder, such as `bin-next/`, to try a build beside the one that runs) |
 
 ## As a service
@@ -110,7 +110,7 @@ install directory with `env.sh`'s environment and starts it again whenever it st
 and starts it, and turns on lingering, so it runs from boot rather than only while you're
 logged in. The stop signal goes to `serve` alone, which stops its worker. Its log is the
 journal's (`journalctl --user -u ringback-speech -f`). `install` refuses while `speech.toml`
-lacks the hub or the token, or while a node started by hand runs; run it again after a new
+lacks the hub, or the key or token, or while a node started by hand runs; run it again after a new
 build to restart the node; `ringback-speech uninstall` stops it and removes the unit.
 
 On the speech node (2026-11-03), installed over a node that a unit made with `systemd-run`

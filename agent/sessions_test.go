@@ -362,7 +362,7 @@ func TestHubLink(t *testing.T) {
 	})
 	cancel()
 	mu.Lock()
-	check(t, "and logged", len(lines) > 0 && strings.Contains(lines[0], "the hub refused the token (401)"), lines)
+	check(t, "and logged", len(lines) > 0 && strings.Contains(lines[0], "the hub refused the key or token (401)"), lines)
 	mu.Unlock()
 	_, err := refused.request(ctx, map[string]any{"type": "place"})
 	check(t, "a request while unlinked fails at once", err == errNotLinked, err)

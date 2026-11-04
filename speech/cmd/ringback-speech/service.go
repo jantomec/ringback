@@ -31,8 +31,8 @@ func installService(c config) {
 	if runtime.GOOS != "linux" {
 		fail("install sets the speech node up with systemd, on Linux.")
 	}
-	if c.hub == "" || strings.Contains(c.hub, "HUB-ADDRESS") || c.token == "" || strings.Contains(c.token, "SAME AS") {
-		fail("Set hub and token in " + c.path + " first: the hub's address and its [tokens] speech.")
+	if c.hub == "" || strings.Contains(c.hub, "HUB-ADDRESS") || (c.key == "" && (c.token == "" || strings.Contains(c.token, "SAME AS"))) {
+		fail("Pair the node first (`ringback-speech pair`, with a code from the hub's portal), or set hub and token in " + c.path + ".")
 	}
 	exe, err := os.Executable()
 	if err == nil {

@@ -5,7 +5,9 @@ hub = "ws://HUB-ADDRESS:PORT/speech"  # the hub's address with its port, as `lis
                                       # or if it serves HTTPS ([tls]), its URL: "https://NAME:PORT"
 # ca = "hub-ca.pem"                   # a CA to trust for the hub's certificate besides the system's,
                                       # for one a CA of your own signed (optional)
-token = "SAME AS [tokens] speech IN THE HUB'S CONFIG"
+# key = "…"                          # the node's own key: `ringback-speech pair HUB CODE` writes
+                                      # it here, with hub, from a code the hub's portal makes
+token = "SAME AS [tokens] speech IN THE HUB'S CONFIG"  # before pairing, instead of key
 name = "speech node"                  # for the hub's log
 provider = "cuda"                     # or "cpu"
 threads = 2                           # CPU threads for Parakeet and Kokoro

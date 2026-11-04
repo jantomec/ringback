@@ -15,7 +15,8 @@ type config struct {
 	hub      string // the hub's speech link, ws://…/speech or wss://…/speech (linkURL)
 	ca       string // a CA to trust for the hub's certificate, besides the system's (hubClient)
 	client   *http.Client
-	token    string
+	key      string // the node's own key, from pairing (pair.go)
+	token    string // or the hub's shared speech token
 	name     string
 	provider string // "cuda" or "cpu", for Parakeet and Kokoro
 	threads  int    // CPU threads per model
@@ -24,6 +25,14 @@ type config struct {
 	idle time.Duration
 	// The models, relative to the config file's folder.
 	silero, smartTurn, parakeet, kokoro, espeak string
+}
+
+// secret is what the node links with: its own key once paired, or the hub's token.
+func (c config) secret() string {
+	if c.key != "" {
+		return c.key
+	}
+	return c.token
 }
 
 // defaultConfig is speech.toml in the install directory, the folder above the binary's.
@@ -91,6 +100,7 @@ func loadConfig(path string) (config, error) {
 		path:      path,
 		hub:       linkURL(values["hub"]),
 		ca:        rel("ca", ""),
+		key:       values["key"],
 		token:     values["token"],
 		name:      values["name"],
 		provider:  values["provider"],

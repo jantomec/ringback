@@ -22,7 +22,7 @@ import (
 )
 
 const usage = `usage: ringback-agent install | uninstall | serve [--socket PATH] [--config PATH]
-       | mcp SOCKET [TOOL...]
+       | pair HUB CODE | mcp SOCKET [TOOL...]
 
   install  run the agent as a service (a launchd agent), with the default socket and
            config: now, at login, and again whenever it stops; again after updating the
@@ -30,11 +30,17 @@ const usage = `usage: ringback-agent install | uninstall | serve [--socket PATH]
   serve    place this Mac's sessions' calls through the hub, and talk on them with Haiku.
            Sessions' mods reach it at PATH (default ~/.local/state/ringback/voice.sock).
            The config (default ~/.config/ringback/agent.toml) says:
-             hub = "10.0.0.1:8787"   the hub's address and port, as its listen
-             token = "…"             the hub's [tokens] agent
+             hub = "10.0.0.1:8787"   the hub's address and port, as its listen, or
+                                     its URL
+             key = "…"               this Mac's own key, which pair writes
+             token = "…"             or the hub's [tokens] agent, before pairing
+             ca = "…"                a CA to trust for the hub's certificate
              name = "…"              this Mac, for the hub's log (default: on macOS its
                                      local host name, as set in Sharing; elsewhere its
                                      host name)
+  pair     pair this Mac with the hub, with a one-time code from its portal (Setup) or
+           ringback-hub pair mac: writes the hub's address and this Mac's key into the
+           config, making it if there's none
   mcp      the voice's tools for Claude Code, relayed to the call over SOCKET (Haiku
            starts it)`
 
@@ -50,6 +56,11 @@ func main() {
 		uninstallService()
 	case "serve":
 		serve(parseOptions(args[1:], "--socket", "--config"))
+	case "pair":
+		if len(args) != 3 {
+			fail(usage)
+		}
+		pairMac(args[1], args[2])
 	case "mcp":
 		os.Exit(mcpMain(args[1:], os.Stdin, os.Stdout))
 	case "-h", "--help":
@@ -66,8 +77,9 @@ func serve(options map[string]string) {
 	if err != nil {
 		fail(fmt.Sprintf("No config at %s: %v", configPath, err))
 	}
-	if config["hub"] == "" || config["token"] == "" {
-		fail("The config at " + configPath + " needs hub and token.")
+	secret := or(config["key"], config["token"])
+	if config["hub"] == "" || secret == "" {
+		fail("The config at " + configPath + " needs hub, and key or token: `ringback-agent pair` writes them.")
 	}
 	name := config["name"]
 	if name == "" {
@@ -75,7 +87,7 @@ func serve(options map[string]string) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	hub := newHubLink(config["hub"], config["token"], name, logLine)
+	hub := newHubLink(config["hub"], secret, name, logLine)
 	if ca := config["ca"]; ca != "" {
 		if err := hub.trustCA(expand(ca)); err != nil {
 			fail(fmt.Sprintf("Can't read the hub's CA (ca in %s): %v", configPath, err))

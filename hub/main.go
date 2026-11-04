@@ -8,11 +8,12 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	_ "time/tzdata" // the phones' time zones, wherever the hub runs
 )
 
 const usage = `usage: ringback-hub install | uninstall | serve | ring [--project NAME] [--subject TEXT]
-       | check | devices | pair | portal-user NAME
+       | check | devices | pair [mac | node] | portal-user NAME
 
   install  run the hub as a service (a launchd agent): now, at login, and again whenever
            it stops; again after updating the binary, to restart it; uninstall stops it
@@ -28,7 +29,8 @@ const usage = `usage: ringback-hub install | uninstall | serve | ring [--project
   devices  list the phones, whether each has paired, when it last checked in, its work
            hours and its hold switch
   pair     print a one-time link that pairs a phone, valid 10 min: open it on the phone
-           (the portal's Pair this phone does the same)
+           (the portal's Pair this phone does the same); with mac or node, the command
+           that pairs a Mac's agent or a speech node, run there (as the portal's Setup)
   portal-user NAME
            make the account for the hub's portal (/portal/ on its address), or replace
            it: asks for its password and prints the setup key for an authenticator app`
@@ -70,9 +72,18 @@ func main() {
 			fmt.Println(line)
 		}
 	case "pair":
-		code, expires, err := newPairingCode()
+		kind := map[string]string{"mac": "agent", "node": "speech"}[strings.Join(args[1:], " ")]
+		if len(args) > 2 || (len(args) == 2 && kind == "") {
+			fail(usage)
+		}
+		code, expires, err := newPairingCode(kind)
 		if err != nil {
 			fail("Can't make a pairing code: " + err.Error())
+		}
+		if kind != "" {
+			fmt.Println("Run this on the " + partKinds[kind] + " before " + timeOfDay(expires.Local()) + "; it works once:")
+			fmt.Println(partCommand(kind, code))
+			return
 		}
 		fmt.Println("Open this on the phone, in Safari or from a message to yourself, before " +
 			timeOfDay(expires.Local()) + "; it works once:")

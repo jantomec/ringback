@@ -99,7 +99,7 @@ func link(ctx context.Context, c config, r *relay) (welcomed bool, err error) {
 	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	conn, _, err := websocket.Dial(dialCtx, c.hub, &websocket.DialOptions{
 		HTTPClient: c.client,
-		HTTPHeader: http.Header{"Authorization": {"Bearer " + c.token}},
+		HTTPHeader: http.Header{"Authorization": {"Bearer " + c.secret()}},
 	})
 	cancel()
 	if err != nil {

@@ -32,7 +32,7 @@ func makeCode(t *testing.T) string {
 	t.Helper()
 	stateMu.Lock()
 	defer stateMu.Unlock()
-	code, _, err := newPairingCode()
+	code, _, err := newPairingCode("")
 	if err != nil {
 		t.Fatal(err)
 	}

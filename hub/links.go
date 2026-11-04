@@ -94,15 +94,17 @@ func (l *link) request(ctx context.Context, message map[string]any) (map[string]
 }
 
 // tokens are the ones the hub accepts on each link, from its config (`[tokens] speech = "…"`,
-// `agent = "…"`).
+// `agent = "…"`), if it has them.
 func linkToken(kind string) string { return loadConfig()["tokens."+kind] }
 
-// acceptLink upgrades a request on /speech or /agent, checks its token and hello, and reads it
-// until it closes, giving each message to handle.
+// acceptLink upgrades a request on /speech or /agent, checks its key or token and its hello,
+// and reads it until it closes, giving each message to handle. A part that links with its own
+// key (partkeys.go) is named as it paired, whatever its hello says.
 func acceptLink(w http.ResponseWriter, r *http.Request, kind string, opened func(*link), handle func(*link, map[string]any), audio func(*link, []byte), closed func(*link)) {
 	want := linkToken(kind)
 	got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if want == "" || subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+	paired, byKey := pairedPart(kind, got)
+	if !byKey && (want == "" || subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1) {
 		http.Error(w, `{"ok": false}`, http.StatusUnauthorized)
 		return
 	}
@@ -123,6 +125,9 @@ func acceptLink(w http.ResponseWriter, r *http.Request, kind string, opened func
 		return
 	}
 	l.name = orDefault(str(hello, "name"), kind)
+	if byKey {
+		l.name = paired
+	}
 	if l.send(map[string]any{"type": "welcome", "version": protocolVersion}) != nil {
 		return
 	}

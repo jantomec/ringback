@@ -30,10 +30,10 @@ func installService() {
 	configPath := expand("~/.config/ringback/agent.toml")
 	config, err := loadConfig(configPath)
 	if err != nil {
-		fail("No config at " + configPath + ": copy agent/agent.example.toml there and fill it in.")
+		fail("No config at " + configPath + ": pair this Mac with the hub first (`ringback-agent pair`), or copy agent/agent.example.toml there and fill it in.")
 	}
-	if config["hub"] == "" || config["token"] == "" || strings.Contains(config["token"], "…") {
-		fail("The config at " + configPath + " needs hub (the hub's address and port) and token (its [tokens] agent).")
+	if config["hub"] == "" || (config["key"] == "" && (config["token"] == "" || strings.Contains(config["token"], "…"))) {
+		fail("The config at " + configPath + " needs hub and key, which `ringback-agent pair` writes, or the hub's token.")
 	}
 	// launchd starts it with a bare PATH, and on a call it runs `claude`.
 	claude, err := exec.LookPath("claude")

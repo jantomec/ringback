@@ -5,7 +5,10 @@
 # URL, such as "https://hub.example.com:8787".
 hub = "10.0.0.1:8787"
 
-# The hub's agent token ([tokens] agent in its hub.toml).
+# This Mac's own key, which `ringback-agent pair HUB CODE` writes here, with hub, from a
+# one-time code the hub's portal makes (Setup, Mac). Before pairing, the hub's agent token
+# ([tokens] agent in its hub.toml) instead.
+# key = "…"
 token = "…"
 
 # A certificate authority to trust for the hub's certificate as well as the system's, as a PEM

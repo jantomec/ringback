@@ -39,9 +39,15 @@ over their links.
 Version 1. A hub refuses a hello with another version.
 
 - The hub listens on the same address as its HTTP endpoints. `GET /speech` and `GET /agent`
-  upgrade to a WebSocket. The request carries `Authorization: Bearer <token>`; the hub
-  compares it with the tokens in its config (`[tokens] speech = "…"`, `agent = "…"`) and
-  answers 401 to anything else.
+  upgrade to a WebSocket. The request carries `Authorization: Bearer <key or token>`: the
+  part's own key, or one of the tokens in the hub's config (`[tokens] speech = "…"`,
+  `agent = "…"`), if it has them; the hub answers 401 to anything else. A part that links
+  with its key is named as it paired, whatever its hello says.
+- A part gets its key by pairing: `POST /pair-link` with `{"code": "…", "kind": "agent" or
+  "speech", "name": "…"}` trades a one-time code made for that kind (valid 10 minutes, once:
+  the portal's Setup page, or `ringback-hub pair mac` or `node`) for `{"key": "…"}` (64 hex
+  characters), or 403 `{"error": "pairing code not valid"}`. Pairing again under the same
+  name replaces the key; forgetting the part on the portal drops it.
 - Control is JSON in text frames: `{"type": "…", …}`. Times are ISO 8601 strings, durations
   are seconds as numbers.
 - A message that needs an answer carries `"id": n` (an integer the sender chooses); the
