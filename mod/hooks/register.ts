@@ -506,7 +506,8 @@ async function hold(
       }
       if (polled.error) why = `Lost the phone's answer: ${polled.error}`
       if (got?.verdict === 'terminal' || got?.status === 'terminal') why = 'You sent it to the Claude app from the phone'
-      // `none`, `terminal`, a failed request, or stopped.
+      if (got?.verdict === 'cancelled' || got?.status === 'cancelled') why = 'You cancelled the call that would ask it'
+      // `none`, `terminal`, `cancelled`, a failed request, or stopped.
       if (got?.verdict !== 'pending' && got?.status !== 'pending') return undefined
     }
   } finally {

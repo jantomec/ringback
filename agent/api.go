@@ -35,8 +35,8 @@ const longestWait = 25 * time.Second
 //     it (`"placed"`), or held outside your work hours (`"held"`, with `held_until`), and
 //     answered with its id; 502 if no call can be placed;
 //   - `GET .../{ask}?wait=S` waits up to S seconds (at most 25) for the answer: a
-//     permission's `verdict` (allow, deny, none, terminal or pending), or the questions'
-//     `status` (answered, none, terminal or pending) and `answers`, with your `said`, and
+//     permission's `verdict` (allow, deny, none, terminal, cancelled or pending), or the questions'
+//     `status` (answered, none, terminal, cancelled or pending) and `answers`, with your `said`, and
 //     `"held": true` while its call is held. None: you hung up without answering it.
 //     Terminal: you sent the held call's question to the Claude app, so the session asks in
 //     its own dialog. A call you didn't answer leaves it pending, for the next call with the

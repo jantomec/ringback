@@ -98,8 +98,9 @@ private struct CallRow: View {
 }
 
 /// A call that waits for your work hours, at the top of the history, in orange, with when it
-/// rings, and whether it has a question. Tapping it calls it now. One with a question has a
-/// swipe action, "Claude App", that sends the question to the session's own dialog, which Remote
+/// rings, and whether it has a question. Tapping it calls it now. Its swipe actions: "Cancel
+/// Call", so it never rings (asked first if the session waits for your answer); and, with a
+/// question, "Claude App", that sends the question to the session's own dialog, which Remote
 /// Control shows in the Claude app (ringback turns it on in the session); the call then never
 /// rings.
 private struct WaitingRow: View {
@@ -108,6 +109,8 @@ private struct WaitingRow: View {
     let calls: CallService
     let showDetails: () -> Void
     @State private var isSending = false
+    @State private var isCancelling = false
+    @State private var confirming = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -119,6 +122,12 @@ private struct WaitingRow: View {
             InfoButton(action: showDetails)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button {
+                if call.question { confirming = true } else { cancel() }
+            } label: {
+                Label("Cancel Call", systemImage: "phone.down.fill")
+            }
+            .tint(.red)
             if call.question {
                 Button {
                     isSending = true
@@ -132,12 +141,27 @@ private struct WaitingRow: View {
                 .tint(.indigo)
             }
         }
+        .confirmationDialog(CancelCall.confirmTitle, isPresented: $confirming, titleVisibility: .visible) {
+            Button("Cancel Call", role: .destructive) { cancel() }
+            Button("Keep Call", role: .cancel) {}
+        } message: {
+            Text(CancelCall.confirmMessage)
+        }
+    }
+
+    private func cancel() {
+        isCancelling = true
+        Task {
+            await CancelCall.send(call, state: state)
+            isCancelling = false
+        }
     }
 
     /// "Rings at 08:00 · subject", or "Question · rings at 08:00 · subject"; "Not answered ·
     /// call it back" after a call's last try.
     private var detail: String {
         if isSending { return "Sending its question to the Claude app…" }
+        if isCancelling { return "Cancelling…" }
         let rings: String
         if let when = call.rings(sentence: true) {
             rings = call.question ? "Question · rings \(when)" : "Rings \(when)"

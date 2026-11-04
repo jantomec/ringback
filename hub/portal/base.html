@@ -75,5 +75,11 @@
         <div class="sub">{{.Why}}. {{.Rings}}.</div>
         {{- if .Subject}}<div class="sub quiet">{{.Subject}}</div>{{end}}
       </div>
+      <form method="post" action="/portal/cancel"{{if .Question}} data-confirm="The session still waits for your answer to its question. Cancel the call? The session asks it in the terminal instead."{{end}}>
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <input type="hidden" name="call" value="{{.Short}}">
+        <input type="hidden" name="from" value="{{.From}}">
+        <button type="submit" class="btn quiet">Cancel call</button>
+      </form>
     </div>
 {{- end}}

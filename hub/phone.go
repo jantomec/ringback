@@ -180,7 +180,7 @@ func reask(w http.ResponseWriter, r *http.Request) {
 
 // phoneRoutes are the phone's endpoints for its calls.
 var phoneRoutes = map[string]http.HandlerFunc{
-	"/offer": offer, "/answered": answered, "/claude-app": claudeApp, "/reask": reask,
+	"/offer": offer, "/answered": answered, "/claude-app": claudeApp, "/reask": reask, "/cancel": cancelCall,
 }
 
 // withDeadline bounds a request: the phone's give it 15 s, as its offer does.

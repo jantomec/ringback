@@ -1124,6 +1124,21 @@ test('a held question you send to the Claude app shows the dialog at once', asyn
   expect(asked.logs.at(-1)).toBe("You sent it to the Claude app from the phone, so it's asked here.")
 })
 
+test('a permission on a waiting call you cancel is left to its prompt', above(observing), async ($, on) => {
+  mock.clock(on)
+  const asked = engine(on, {
+    created: { status: 200, body: { permission: 'p1', call: 'held', held_until: written(at(30, 8)) } },
+    answers: [{ verdict: 'cancelled', said: null }],
+  })
+  tools(on)
+  await start($)
+  await $.tool.call(bash)
+  await settle()
+  // No decision: the prompt stays, as for the Claude app.
+  expect(answers(asked.debug)).toEqual([{}])
+  expect(asked.logs.at(-1)).toBe("You cancelled the call that would ask it, so it's asked here.")
+})
+
 test('a permission on that call is left to its prompt, which shows anyway', above(observing), async ($, on) => {
   mock.clock(on)
   const asked = engine(on, {

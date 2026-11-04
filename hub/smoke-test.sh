@@ -355,6 +355,14 @@ check "line: the missed call waits to ring again, at a time" yes "$(yes_if has "
 check "line: listed as waiting, missed" yes "$(yes_if has_text "$(body -d "$me_only" "$url/waiting")" '"call_id":"line0001-000000000000","held_until":')"
 status -d '{"call_id": "line0001-000000000000", "event": "called now"}' "$url/events" > /dev/null
 check "line: called now, the next rings" "$rings" "$(place_raw line0002-000000000000)"
+# Cancelled on the phone: a waiting call leaves the list at once, and its agent hears so when it
+# asks about it again (cancel.go).
+check "cancel: a third waits in turn" '{"held":true,"ok":true,"reason":"in turn"}' "$(place_raw line0003-000000000000)"
+check "cancel: from the phone" 200 "$(status -d '{"call_id": "line0003-000000000000"}' "$url/cancel")"
+check "cancel: no longer listed" no "$(yes_if has_text "$(body -d "$me_only" "$url/waiting")" 'line0003')"
+check "cancel: again, it doesn't wait" 403 "$(status -d '{"call_id": "line0003-000000000000"}' "$url/cancel")"
+check "cancel: a call that rings can't be" 403 "$(status -d '{"call_id": "line0002-000000000000"}' "$url/cancel")"
+check "cancel: asked about again, its agent hears it was cancelled" '{"by":"phone","cancelled":true,"ok":true}' "$(place_raw line0003-000000000000)"
 status -d '{"call_id": "line0002-000000000000", "event": "ended"}' "$url/events" > /dev/null
 sleep 1
 kill $server

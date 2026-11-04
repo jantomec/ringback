@@ -77,6 +77,11 @@
     button.textContent = text;
     setTimeout(() => { button.textContent = before; }, 1500);
   };
+  // A form that asks first (data-confirm): cancelling a call whose session waits for an answer.
+  document.addEventListener("submit", (event) => {
+    const form = event.target.closest("form[data-confirm]");
+    if (form && !window.confirm(form.dataset.confirm)) event.preventDefault();
+  });
   document.addEventListener("click", (event) => {
     const reveal = event.target.closest("[data-reveal]");
     if (reveal) {

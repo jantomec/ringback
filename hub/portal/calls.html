@@ -8,7 +8,7 @@
 {{- if .Waiting}}
 <h2 class="day">Waiting</h2>
 <div class="group">
-  {{- range .Waiting}}{{template "waitingrow" .}}{{end}}
+  {{- range .Waiting}}{{template "waitingrow" (waitingRow $.CSRF "calls" .)}}{{end}}
 </div>
 {{- end}}
 {{- range .Days}}

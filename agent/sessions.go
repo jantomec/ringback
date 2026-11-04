@@ -129,6 +129,9 @@ const (
 	// you call its session (as every call does meanwhile). Until then, a call you didn't answer
 	// is held until its next try, a time.
 	callBack = "call back"
+	// cancelledBy starts what askHub gives for a call you cancelled, with where you did
+	// ("phone" or "portal"); it's never a held call's heldUntil.
+	cancelledBy = "cancelled by "
 	// The longest tool input and context the voice gets: the mod sends at most about this much.
 	inputMost   = 2000
 	contextMost = 1500
@@ -314,6 +317,7 @@ type Ask struct {
 	Request Request // as the mod sent it, checked
 	// allow, deny or answered; none if you hung up without one; terminal if you sent the held
 	// call's question to the Claude app, so the session asks in its own dialog or prompt;
+	// cancelled if you cancelled the waiting call, so the session asks it there too;
 	// withdrawn; "" while it waits
 	Outcome string
 	Said    *string // your words, as the voice heard them
@@ -546,7 +550,8 @@ type Call struct {
 	holding context.CancelFunc // asks the hub again
 	// Signalled while held, to ask the hub again at once: a question joined the call.
 	reask chan struct{}
-	// Why it's forgotten unanswered, for its session, when that isn't that it rang out.
+	// Why it's forgotten unanswered, for its session's note after "The call about …", when that
+	// isn't that it rang out.
 	dropped string
 	// When it was placed, or its briefing replaced while it was held, as Unix seconds, for how
 	// long ago.
@@ -609,9 +614,10 @@ type Calls struct {
 	asks    ordered[*Ask]        // what sessions ask you, by its id
 	// What each session asked on calls you didn't answer, by id, until you answer one of its
 	// calls or it's withdrawn or answered elsewhere.
-	pool map[string]*ordered[*Ask]
-	past ordered[pastCall]  // forgotten calls, and when, for a day
-	seen ordered[time.Time] // when each session's mod last collected
+	pool    map[string]*ordered[*Ask]
+	past    ordered[pastCall]  // forgotten calls, and when, for a day
+	seen    ordered[time.Time] // when each session's mod last collected
+	started time.Time          // when the agent started, as the sessions' mods find it again
 	// Since when each session listens (Unix seconds), and its project and folder, as its mod
 	// says them when it collects: the app's Sessions tab.
 	since   map[string]float64
@@ -626,7 +632,7 @@ type Calls struct {
 func newCalls(hub placer, log func(string), state string) *Calls {
 	return &Calls{
 		hub: hub, log: log, state: state, waiting: map[string][]Message{}, pool: map[string]*ordered[*Ask]{},
-		since: map[string]float64{}, named: map[string][2]string{}, changed: make(chan struct{}, 1),
+		since: map[string]float64{}, named: map[string][2]string{}, changed: make(chan struct{}, 1), started: time.Now(),
 	}
 }
 
@@ -728,6 +734,11 @@ func (c *Calls) askHub(call *Call, question bool) (string, error) {
 		}
 		return "", errors.New(text)
 	}
+	if was, _ := reply["cancelled"].(bool); was {
+		// You cancelled it while this agent couldn't be told.
+		by, _ := reply["by"].(string)
+		return cancelledBy + by, nil
+	}
 	if heldUntil, _ := reply["held_until"].(string); heldUntil != "" {
 		return heldUntil, nil
 	}
@@ -795,6 +806,9 @@ func (c *Calls) hold(ctx context.Context, call *Call) {
 			if left == 0 {
 				break
 			}
+			if c.unheard(call) {
+				return
+			}
 		}
 		select {
 		case <-call.reask:
@@ -817,6 +831,11 @@ func (c *Calls) hold(ctx context.Context, call *Call) {
 		}
 		if heldUntil == "" {
 			break
+		}
+		if by, was := strings.CutPrefix(heldUntil, cancelledBy); was {
+			c.cancelLocked(call, by)
+			c.mu.Unlock()
+			return
 		}
 		if heldUntil != call.HeldUntil {
 			c.logCall(call, "now held "+until(heldUntil))
@@ -853,6 +872,58 @@ func (c *Calls) reask(ids []string) int {
 		}
 	}
 	return n
+}
+
+// cancel: you cancelled a waiting call on the phone or the hub's portal (by), so it never
+// rings. 403 "not waiting" if it doesn't wait here: it rang meanwhile, or is on.
+func (c *Calls) cancel(id, by string) (int, string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	call, ok := c.calls.get(id)
+	if !ok || call.HeldUntil == "" {
+		c.log("call " + prefix(id, 8) + ": cancelled on the " + by + ", refused: not waiting here")
+		return 403, "not waiting"
+	}
+	c.cancelLocked(call, by)
+	return 0, ""
+}
+
+// cancelLocked forgets a waiting call you cancelled, which tells its session and the hub
+// (drop); what it asked settles as cancelled, so the session asks it in the terminal. The
+// caller holds c.mu.
+func (c *Calls) cancelLocked(call *Call, by string) {
+	asks := call.Link.asks.list()
+	for _, a := range asks {
+		a.settle("cancelled", nil, nil)
+	}
+	call.Link.asks.clear()
+	where := map[string]string{"phone": "on the phone", "portal": "on the hub's portal"}[by]
+	call.dropped = strings.TrimSpace("won't ring: the developer cancelled it "+where) + " without hearing it."
+	if len(asks) > 0 {
+		call.dropped += " What it asked is asked in the terminal instead."
+	}
+	c.logCall(call, strings.TrimSpace("cancelled "+where)+", it won't ring")
+	c.forget(call)
+	c.notifyChanged()
+}
+
+// unheard: a held call whose session no longer listens (ringback is off in it, or it ended)
+// won't ring: it's forgotten, which tells the hub, and what it asked settles as none. Not in the
+// agent's first listeningFor, while the sessions' mods find it again. True if it went.
+func (c *Calls) unheard(call *Call) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if time.Since(c.started) < listeningFor || c.listening(call.Session) {
+		return false
+	}
+	if got, ok := c.calls.get(call.ID); !ok || got != call || call.HeldUntil == "" {
+		return false
+	}
+	c.logCall(call, "its session no longer listens, so it won't ring")
+	call.dropped = "won't ring: ringback is off in the session, or it has ended."
+	call.Link.listening = false
+	c.forget(call)
+	return true
 }
 
 // missed: the hub says you didn't answer a call it rang, or declined it, so it's held to ring
@@ -906,7 +977,7 @@ func (c *Calls) dropMissed(session, except string) {
 	for _, call := range c.calls.list() {
 		if call.Session == session && call.ID != except && call.Rang && call.HeldUntil != "" {
 			c.logCall(call, "you called its session, so it won't ring again")
-			call.dropped = "the developer called the session since, so it doesn't ring again."
+			call.dropped = "wasn't answered, and the developer called the session since, so it doesn't ring again."
 			c.forget(call)
 		}
 	}
@@ -1712,7 +1783,7 @@ func outcome(call *Call, transcript *string) string {
 		return withTranscript("The developer " + how + " and it lasted " + duration(*call.Lasted) + ".")
 	}
 	if call.dropped != "" {
-		return about + " wasn't answered, and " + call.dropped
+		return about + " " + call.dropped
 	}
 	if !call.answered() {
 		took := duration(time.Since(call.Placed).Seconds())

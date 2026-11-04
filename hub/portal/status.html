@@ -60,7 +60,7 @@
       <div class="meta">{{.For}}</div>
     </div>
   {{- end}}
-  {{- range .Waiting}}{{template "waitingrow" .}}{{end}}
+  {{- range .Waiting}}{{template "waitingrow" (waitingRow $.CSRF "status" .)}}{{end}}
   {{- if and (not .Live) (not .Waiting)}}
     <div class="row empty">No call is live or waiting.</div>
   {{- end}}

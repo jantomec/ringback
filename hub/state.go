@@ -216,12 +216,17 @@ func loadWaiting() map[string]map[string]string {
 	return calls
 }
 
-// freshWaiting are the calls refreshed within waitingStale; the log says which are dropped.
+// freshWaiting are the calls refreshed within waitingStale, and those cancelled within
+// cancelKept (cancel.go); the log says which are dropped.
 func freshWaiting() map[string]map[string]string {
 	calls := loadWaiting()
 	for id, call := range calls {
 		refreshed, ok := parseISO8601(call["refreshed"])
-		if ok && now().Sub(refreshed) <= waitingStale {
+		limit := waitingStale
+		if call["reason"] == cancelled {
+			limit = cancelKept
+		}
+		if ok && now().Sub(refreshed) <= limit {
 			continue
 		}
 		if !ok {
@@ -316,6 +321,9 @@ func listWaiting() ([]map[string]any, error) {
 	})
 	listed := []map[string]any{}
 	for _, id := range ids {
+		if calls[id]["reason"] == cancelled {
+			continue
+		}
 		item := map[string]any{"call_id": id, "question": calls[id]["question"] != ""}
 		for _, key := range []string{"project", "subject", "voice", "held_until", "session_id", "reason"} {
 			if value, ok := calls[id][key]; ok {

@@ -120,6 +120,7 @@ type liveView struct {
 
 type waitingView struct {
 	Project, Subject, Why, Rings string
+	Short                        string // its ID's first 8 characters, which the cancel form names it by
 	Question, NoSpeech           bool
 }
 
@@ -547,6 +548,8 @@ func waitingViews(calls []map[string]any) []waitingView {
 	var views []waitingView
 	for _, call := range calls {
 		wv := waitingView{Question: call["question"] == true}
+		id, _ := call["call_id"].(string)
+		wv.Short = prefix(id, 8)
 		wv.Project, _ = call["project"].(string)
 		wv.Subject, _ = call["subject"].(string)
 		switch until, _ := call["held_until"].(string); {

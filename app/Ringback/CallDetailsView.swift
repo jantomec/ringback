@@ -78,12 +78,15 @@ struct CallDetailsView: View {
 }
 
 /// A call that waits for your work hours: who, buttons to call it now and, with a question,
-/// to send it to the Claude app, when it rings, and what it's about.
+/// to send it to the Claude app, when it rings, what it's about, and a button to cancel it.
 struct WaitingDetailsView: View {
     let id: String
     let state: AppState
     let calls: CallService
     @State private var isSending = false
+    @State private var isCancelling = false
+    @State private var confirming = false
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         List {
@@ -127,6 +130,20 @@ struct WaitingDetailsView: View {
                 if let subject = call.subject {
                     Section("Subject") { Text(subject) }
                 }
+                Section {
+                    Button(isCancelling ? "Cancelling…" : "Cancel Call", role: .destructive) {
+                        if call.question { confirming = true } else { cancel(call) }
+                    }
+                    .disabled(isCancelling)
+                } footer: {
+                    Text(cancelFooter(call))
+                }
+                .confirmationDialog(CancelCall.confirmTitle, isPresented: $confirming, titleVisibility: .visible) {
+                    Button("Cancel Call", role: .destructive) { cancel(call) }
+                    Button("Keep Call", role: .cancel) {}
+                } message: {
+                    Text(CancelCall.confirmMessage)
+                }
             }
         }
         .listStyle(.insetGrouped)
@@ -134,6 +151,28 @@ struct WaitingDetailsView: View {
     }
 
     private var call: WaitingCall? { state.waiting.first { $0.id == id } }
+
+    /// What cancelling does, under its button.
+    private func cancelFooter(_ call: WaitingCall) -> String {
+        var text = "It won't ring, and the session is told. Its next call rings as usual."
+        if call.question {
+            text += " Its question goes back to the session, which asks it in the terminal and the Claude app."
+        }
+        if call.reason == "missed" || call.reason == "call back" {
+            text += " The calls waiting after it can ring then."
+        }
+        return text
+    }
+
+    /// Cancels it, and once it's gone, goes back to Recents.
+    private func cancel(_ call: WaitingCall) {
+        isCancelling = true
+        Task {
+            let cancelled = await CancelCall.send(call, state: state)
+            isCancelling = false
+            if cancelled { dismiss() }
+        }
+    }
 }
 
 /// The top of a details screen, as the Phone app's: a large round monogram, and the name.

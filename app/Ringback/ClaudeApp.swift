@@ -14,8 +14,9 @@ enum ClaudeApp {
         "no question": "This call has no question any more.",
     ]
 
-    /// Sends it. Taken, the call leaves the list, here and at the hub ("claude app").
-    /// Otherwise an alert says why, and the list is fetched again. It first reaches the hub,
+    /// Sends it. Taken, the call leaves the list, here and at the hub ("claude app");
+    /// otherwise an alert says why. Either way the list is fetched again, for the badge and
+    /// the widget. It first reaches the hub,
     /// as a call does, for a Nebula tunnel that's gone stale.
     @MainActor
     static func send(_ call: WaitingCall, state: AppState) async {
@@ -35,10 +36,10 @@ enum ClaudeApp {
             if status == 200 {
                 state.waiting.removeAll { $0.id == call.id }
                 Switchboard.report(callID: call.id, event: "claude app")
-                return
+            } else {
+                let error = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+                state.callBackProblem = refusals[error ?? ""] ?? "The Mac that's calling didn't take it (HTTP \(status))."
             }
-            let error = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
-            state.callBackProblem = refusals[error ?? ""] ?? "The Mac that's calling didn't take it (HTTP \(status))."
         } catch {
             state.callBackProblem = unreachable
         }

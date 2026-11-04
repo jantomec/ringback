@@ -212,6 +212,11 @@ func placeCall(mac string, body map[string]any) (map[string]any, error) {
 		about = ": " + subject
 	}
 	log("call " + prefix(callID, 8) + ": asked by " + mac + " for " + project + about)
+	if entry := loadWaiting()[callID]; entry["reason"] == cancelled {
+		// You cancelled it while its agent couldn't be told: it is now.
+		log("call " + prefix(callID, 8) + ": it was cancelled on the " + entry["cancelled_by"] + "; its agent is told")
+		return map[string]any{"ok": true, "cancelled": true, "by": entry["cancelled_by"]}, nil
+	}
 	noteCall(callID, project, subject)
 	if held, until := heldUntil(now()); held {
 		question, _ := body["question"].(bool)
@@ -364,6 +369,8 @@ func event(body map[string]any) (map[string]any, error) {
 			return nil, err
 		} else if removed {
 			log("call " + prefix(callID, 8) + ": no longer waiting, " + why)
+			// A missed call that held the others up no longer does.
+			nextInTurn()
 		}
 	}
 	return ok, nil

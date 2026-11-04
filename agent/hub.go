@@ -347,6 +347,11 @@ func (a *agent) handle(m map[string]any) {
 			}
 		}
 		a.calls.reask(ids)
+	case "cancel":
+		// You cancelled a waiting call on the phone or the hub's portal.
+		by, _ := m["by"].(string)
+		status, why := a.calls.cancel(id, by)
+		a.hub.answer(m, status, why)
 	case "missed":
 		// You didn't answer a call the hub rang, or declined it: it's held to ring again.
 		heldUntil, _ := m["held_until"].(string)

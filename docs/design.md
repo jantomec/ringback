@@ -281,6 +281,22 @@ ring one at a time, in turn.
 they ring ("Rings tomorrow at 08:00"). Tapping one calls it now: an outgoing call that
 doesn't ring, whose voice opens with the briefing and knows you called while it waited.
 
+**Cancelling a waiting call**, from its swipe action or its details in the app ("Cancel Call"),
+or the portal's Status or Calls page ("Cancel call"): it never rings. The hub acts first, so
+it works while the Mac that holds the call sleeps: the call leaves the waiting calls at once,
+the calls after it can ring (a missed call no longer holds them up), and the hub keeps it as
+cancelled for 3 days, unlisted, so its agent hears of it when it next asks about the call. The
+agent, told now or then, forgets it and leaves the session a note ("won't ring: the developer
+cancelled it on the phone without hearing it"); what the call asked, a permission or a
+question the session waits on, goes back to the session's terminal (and the Claude app),
+neither allowed nor denied, and the app asks first for a call with a question. Nothing else is
+lost: the briefing stays the session's latest, which a call from Sessions opens with, and the
+session's next briefing places a new call. A call that rings can't be cancelled; decline it.
+
+**A session that stops listening** (ringback off in it, or the session ended) has its waiting
+calls dropped, as its agent sees within half a minute: they won't ring, since the session
+couldn't act on what you said.
+
 **One call at a time.** Every Mac's calls share one line, which the hub keeps (`hub/line.go`).
 While a call rings or you're on one, a call that would ring is held in turn, as a held call is:
 its agent keeps it and asks again, and once the line is free the hub asks the call that's
@@ -561,10 +577,10 @@ every 5 s by a small script, with no framework; light and dark, and laid out for
   through a refresh, with an Open Ringback link should Safari not follow), and the app trades
   the code for the phone's key (Security).
 
-The portal changes three things: **the hold**, on every paired phone at once, so the app shows
+The portal changes four things: **the hold**, on every paired phone at once, so the app shows
 it too (work hours still end it at their next start, as they end the app's); **forgetting** a
-node or a Mac that's gone for good, or **unpairing** one that's linked with its own key; and
-the **pairing codes** it makes. Everything else has
+node or a Mac that's gone for good, or **unpairing** one that's linked with its own key;
+**cancelling** a waiting call; and the **pairing codes** it makes. Everything else has
 one home: secrets and addresses in `hub.toml`, what the phone owns on the phone (shown on the
 portal, read-only).
 
@@ -670,7 +686,8 @@ with a certificate, or a private certificate authority installed on each device 
 ## Limits and risks
 
 - **A missed call can hold every call up for long.** After its last try, nothing rings until
-  you call its session back, however many calls wait; the app lists them under Waiting. And a
+  you call its session back or cancel it, however many calls wait; the app lists them under
+  Waiting. And a
   call waiting its turn on a Mac that went to sleep holds the line until its agent asks again,
   or until the hub drops it 25 min after it last asked.
 - **The phone's tunnel can stop receiving.** Once (2026-11-03), after the phone moved from
@@ -815,6 +832,9 @@ how things look):
 - Macs and speech nodes pairing and linking with their own keys (a Mac's agent paired with
   a real hub and linked; the speech node only in its tests), and unpairing one that's linked;
 - the call's audio on a public address and a range of ports, and refused requests shut out;
+- cancelling a waiting call from the app or the portal, also while its Mac sleeps, and a
+  session's waiting calls dropped once it stops listening (the hub's tests and smoke test, the
+  agent's and the mod's tests; the app's screens not looked at);
 - one call at a time, and a call you don't answer ringing again 5 min to 6 h after, with
   nothing else ringing meanwhile, and waiting after its last try until you call back (the hub's
   tests, its smoke test and hub-check, and the agent's tests);

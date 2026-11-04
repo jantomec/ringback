@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -35,6 +36,12 @@ func parsePortalPages() map[string]*template.Template {
 	funcs := template.FuncMap{
 		"n":    num, // a number in an SVG attribute
 		"part": func(csrf string, p partView) map[string]any { return map[string]any{"CSRF": csrf, "Part": p} },
+		"waitingRow": func(csrf, from string, w waitingView) any {
+			return struct {
+				waitingView
+				CSRF, From string
+			}{w, csrf, from}
+		},
 		"pairPart": func(csrf string, v setupView, kind string) map[string]any {
 			return map[string]any{"CSRF": csrf, "View": v, "Kind": kind}
 		},
@@ -128,6 +135,28 @@ func portal(w http.ResponseWriter, r *http.Request) {
 			pairForm(w, r, s, base)
 		case "/portal/pair-part":
 			partPairForm(w, r, s, base)
+		case "/portal/cancel":
+			// A waiting call, by the start of its ID (the portal never shows a whole one).
+			stateMu.Lock()
+			id := waitingByShort(r.PostFormValue("call"))
+			err := errNotWaiting
+			if id != "" {
+				err = cancelWaiting(id, "portal")
+			}
+			stateMu.Unlock()
+			if err != nil && !errors.Is(err, errNotWaiting) {
+				log("portal: can't cancel a call: " + err.Error())
+				http.Error(w, "can't cancel the call", http.StatusInternalServerError)
+				return
+			}
+			if err == nil {
+				log("portal: " + s.name + " cancelled call " + prefix(id, 8) + ", from " + address(r))
+			}
+			back := "/portal/#calls"
+			if r.PostFormValue("from") == "calls" {
+				back = "/portal/calls"
+			}
+			http.Redirect(w, r, back, http.StatusSeeOther)
 		case "/portal/forget":
 			// Any name the hub has seen, however long: a link's hello gives it, unbounded.
 			kind, name := r.PostFormValue("kind"), r.PostFormValue("name")
@@ -465,7 +494,7 @@ func byDay(calls []recentView) []callDay {
 // finalEvents are the events that say how a call ended, as the call's outcome.
 var finalEvents = map[string]string{
 	"ended": "Answered", "missed": "Missed", "declined": "Declined", "failed": "Failed",
-	"claude app": "Its question went to the Claude app",
+	"claude app": "Its question went to the Claude app", "cancelled": "Cancelled",
 }
 
 var badOutcomes = map[string]bool{"Missed": true, "Declined": true, "Failed": true, "Audio failed": true, "Answered, its audio failed": true}

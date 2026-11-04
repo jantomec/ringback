@@ -13,7 +13,7 @@ names the phone is its push token, with the key it got when it paired: `/pair` t
 one-time code from the portal (`ringback://pair?hub=…&code=…`, "The hub's portal" in
 `docs/design.md`) for that key, and every request that carries the push token (`token`) must
 carry the key (`key`) too, or the hub answers 401 `{"error": "not paired"}`. Each request gets
-at most 5 s, or 15 s for `/offer`, `/answered`, `/claude-app` and `/reask`.
+at most 5 s, or 15 s for `/offer`, `/answered`, `/claude-app`, `/reask` and `/cancel`.
 
 | Endpoint | What it's for |
 |---|---|
@@ -27,6 +27,7 @@ at most 5 s, or 15 s for `/offer`, `/answered`, `/claude-app` and `/reask`.
 | `/offer` | the call's WebRTC offer, with the call's ID: made while the phone rings (`"ringing": true`), or for a waiting call called now (`"now": true`), a call back (`"back": true`) or a session called from Sessions (`"contact"`: the session's ID); the agent that owns the call accepts or refuses it, and the hub answers with its SDP. With no speech node linked: 503 `no speech node` |
 | `/answered` | you answered a call whose offer came while it rang |
 | `/claude-app` | sends a waiting call's question to the session's own dialog, which Remote Control shows in the Claude app |
+| `/cancel` | `{"call_id"}`: cancels a waiting call, so it never rings; 200, or 403 `{"error": "not waiting"}` (it rang, or was cancelled already). The hub drops it from the waiting calls at once and tells its agent (`cancel`), or, not linked, answers its next `place` for it `{"ok": true, "cancelled": true, "by": "phone"}` for 3 days |
 | `/reask` | you took calls: the held ones among them ask again now |
 | `/ping` | `GET`: whether the hub can be reached, checked while the phone rings |
 | `/phone-speech` | a WebSocket, for a call the phone hears and speaks itself (the last section) |
@@ -122,6 +123,7 @@ the phone with the reply's `status` and `error`.
 |---|---|
 | hub → agent | `{"type": "offer", "id": 2, "call_id", "kind": "ring" \| "now" \| "back" \| "contact", "session_id" (for contact), "ringing": true}`. Reply: `{"ok": true}` (the call goes ahead; the agent readies its Haiku) or a refusal (`403 unknown call`, `403 not listening`…). The phone's offer itself carries the sensitivity and background filter, which the hub keeps for the hearing stream |
 | hub → agent | `{"type": "claude_app", "id": 3, "call_id"}`, from `/claude-app`. Reply: ok, or `403 not waiting`, `409 not listening`, `409 no question` |
+| hub → agent | `{"type": "cancel", "id": 4, "call_id", "by": "phone"}` (or `"portal"`), from `/cancel` or the portal: the agent forgets the waiting call, settles what it asked as `cancelled`, tells the session and sends `drop`. Reply: ok, or `403 not waiting` |
 
 ### During a call
 
@@ -186,7 +188,7 @@ JSON bodies; `agent/api.go` has the details.
 | `GET /sessions/{id}/messages?project=…&cwd=…` | collects what waits for the session, once a second, which also tells the agent the session listens: each message has a `kind` (`message`, what the voice passed on; `outcome`, how a call went), its `text`, and the call's `transcript` if there is one |
 | `POST /sessions/{id}/news` | the session's answer: `{"live": true}` if the voice told the call you're on, false if the session should call you |
 | `POST /sessions/{id}/permissions`, `POST /sessions/{id}/questions` | asks your permission for a tool call, or asks you questions with their options. It's put to the call you're on with the session (`"call": "live"`), to one placed to ask it (`"placed"`), or held outside your work hours (`"held"`, with `held_until`), and answered with its `id`; 502 if no call can be placed |
-| `GET /sessions/{id}/{permissions\|questions}/{ask}?wait=S` | waits up to S seconds (at most 25) for the answer: a permission's `verdict` (`allow`, `deny`, `none`, `terminal` or `pending`), or the questions' `status` (`answered`, `none`, `terminal` or `pending`) and `answers`, with what you `said`, and `"held": true` while its call is held. `none`: you hung up without answering. `terminal`: you sent the held call's question to the Claude app, so the session asks in its own dialog |
+| `GET /sessions/{id}/{permissions\|questions}/{ask}?wait=S` | waits up to S seconds (at most 25) for the answer: a permission's `verdict` (`allow`, `deny`, `none`, `terminal`, `cancelled` or `pending`), or the questions' `status` (`answered`, `none`, `terminal`, `cancelled` or `pending`) and `answers`, with what you `said`, and `"held": true` while its call is held. `none`: you hung up without answering. `terminal`: you sent the held call's question to the Claude app, so the session asks in its own dialog. `cancelled`: you cancelled the waiting call, so the session asks there too |
 | `DELETE /sessions/{id}/{permissions\|questions}/{ask}` | withdraws it: the session no longer waits for an answer |
 
 `POST /sessions/{id}/messages` and `POST /sessions/{id}/{permissions|questions}/{ask}` leave a
