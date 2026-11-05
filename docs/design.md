@@ -452,9 +452,9 @@ since setting it to 0 can clear the notifications delivered (not checked).
   phone while the computer catches up, which would hide the network's delay.
 
 The notification is a communication notification, as a message's is: iOS shows the project as
-the sender, with its monogram as the app draws it, which needs the Communication
-Notifications capability. Whether iOS shows that and the picture together isn't checked on the
-phone. Files are at most 100 MB.
+the sender, with its monogram as the app draws it (tried on the phone), which needs the
+Communication Notifications capability on the app, not its extension. Files are at most
+100 MB.
 
 ## Staying up
 
@@ -881,16 +881,16 @@ current code, and what has only been checked offline.
 - What a session shows you (2026-11-05, unlocked, on Wi-Fi, by hand through the agent and
   hub): an image, a PDF and a clip each arrived as a notification, and the clip played, with
   its controls. The image didn't zoom, and nothing listed them in the app; both since fixed
-  (the viewer's zoom, and the Shown shelf), checked offline only. How the notifications
-  looked, as from the session, wasn't looked at.
+  (the viewer's zoom, and the Shown shelf), since tried (below).
 - A model's live view (2026-11-05, unlocked, on Wi-Fi, through the hub, with Apple's
   renderer on the Mac): it opened, turned, moved, zoomed and played. The picture was blurry at
   first, as the phone asked for it at the size of the viewer while it was still opening (96 ×
   64); sharp once it waited for its size. Turning felt smoother once the Mac rendered each
   move as it came, at up to 60 frames a second, and the phone sent them on a channel that
   neither orders nor resends. How long a turn takes to show on the phone isn't measured.
-  The Shown shelf in Recents was looked at and kept; Sessions' cards opening what a session
-  showed, with their count, are only on the screenshots.
+  The Shown shelf in Recents was looked at and kept, and Sessions' cards open what a session
+  showed, with their count. The notifications come as from the session: its name and
+  monogram, as a message's sender.
 - In the app, apart from the hub, with an earlier build whose code for them hasn't changed:
   ringing as call waiting during another call, a call recorded as ended when the app is
   closed mid-call, the call screens.
