@@ -53,16 +53,26 @@ no API key, and no server of ours in between.
 - **You can call back.** Every session with ringback on is one tap away, and so are your recent
   calls. Ask for a better model and Opus takes over the call.
 
+## What a session shows you
+
+A call can't show you a render. So a session can also send you something to look at: an
+image, a PDF, a short clip or a 3D model. It arrives as a message from the session, with a
+picture, and opens full screen in the app. A 3D model (USD, USDZ, GLB, STL) stays on the
+computer that runs the session, which renders it as you turn, move and zoom it on the phone,
+and plays its animation. Recents keeps what sessions showed you for a week, and each
+session's card in Sessions opens what it showed. It isn't messaging: what you want done about
+it, you say on a call or in the terminal.
+
 ## The app
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/screens-dark.png">
-    <img src="docs/images/screens-light.png" width="820" alt="Three iPhone screens: Recents with two calls waiting while calls are on hold, Sessions with a card for each session, and a waiting question swiped to send it to the Claude app">
+    <img src="docs/images/screens-light.png" width="820" alt="Three iPhone screens: Recents with two calls waiting while calls are on hold and a shelf of what sessions showed, Sessions with a card for each session and a count of what it showed that's unopened, and a waiting call swiped to send its question to the Claude app or cancel it">
   </picture>
 </p>
 
-<p align="center"><sub>Recents, with calls on hold &nbsp;·&nbsp; Sessions, a tap to call each one &nbsp;·&nbsp; a waiting question, sent to the Claude app</sub></p>
+<p align="center"><sub>Recents, with calls on hold and what sessions showed you &nbsp;·&nbsp; Sessions, each with its call button &nbsp;·&nbsp; a waiting question, sent to the Claude app</sub></p>
 
 Built like the Phone app, with one switch of its own: the pill beside the tabs holds every call
 until you let them through, and breathes while it does. It's in Control Center too, and the
@@ -107,6 +117,8 @@ You need:
 - a Mac with Xcode, and Go, CMake, XcodeGen and pkg-config from Homebrew, to build the app, the
   hub and the agent; Go and a copy of this repository on each Mac that runs sessions;
 - an iPhone on iOS 26 or later, and a paid Apple Developer account, for VoIP pushes;
+- to show you 3D models, nothing more on a Mac: Apple's own renderer is the fallback, and
+  OpenUSD's, which opens more and renders better, is optional ([render/README.md](render/README.md));
 - a private network all of them reach, the phone too on mobile data: Nebula, with a lighthouse
   that relays, is the one it's tested on.
 
@@ -136,7 +148,9 @@ Ringback is a working prototype: everything below is built and passes its offlin
   call;
 - pairing the phone from the portal, from the app's banner;
 - a call that can't reach the hub ending by itself, with the app saying why;
-- the hub's portal, from the phone.
+- the hub's portal, from the phone;
+- a session showing you an image, a PDF, a clip and a 3D model, as messages from it, and
+  turning, moving and playing the model live, rendered on the Mac (on Wi-Fi).
 
 **Not yet tried on the phone:** work hours, the hold switch, its breathing light and the
 Lock Screen widget; calling a waiting call now, or cancelling it; calls ringing one at a time,
@@ -158,7 +172,8 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 - [ ] A better On-device Voice: it works, but doesn't sound good enough yet (later)
 - [ ] On-device Voice on a weak signal (later)
 - [ ] A phone-network fallback
-- [ ] Showing you things: images and other things a call can't say
+- [x] Showing you things: images, PDFs, clips and 3D models a call can't say
+- [ ] 3D models on Linux: OpenUSD's live view, and an agent there
 - [ ] The call history in iCloud
 
 <details>

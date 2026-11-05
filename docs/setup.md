@@ -292,6 +292,21 @@ work hours, the calls to call back, what sessions asked you and what waits for t
 call you're on when it restarts ends, and its session is told so. (Tried offline, not yet on
 the phone.)
 
+**To show you 3D models** (optional; images, PDFs and clips need nothing more), the agent needs
+a renderer beside it or on its `PATH` (`render/README.md`). On a Mac, Apple's fallback builds
+with Xcode alone; OpenUSD's renderer, which opens glTF and GLB too and renders better, builds
+against OpenUSD from conda-forge (with pixi), or on Linux the system's:
+
+```sh
+render/build.sh apple && ln -sf "$PWD/render/build/ringback-render-apple" ~/.local/bin/
+render/build.sh       && ln -sf "$PWD/render/build/ringback-render" ~/.local/bin/   # or OpenUSD's
+~/.local/bin/ringback-agent install   # restarts it, so it finds the renderer
+```
+
+Without either, a session that shows you a model is told this Mac can't render 3D models, and
+what it lacks. The agent remembers where each model it showed is, for its live view, in
+`shown-models.json` beside its socket.
+
 ## 6. The ringback mod (every Mac that runs sessions)
 
 The mod is how a session calls you. To load it in every session, add it to
@@ -346,6 +361,9 @@ xcrun devicectl device install app --device <UDID> app/build/Build/Products/Debu
 - If Xcode's sign-in to your Apple account has expired, signing falls back to a profile
   without push, and the build fails on the push entitlement. Sign in again in Xcode →
   Settings → Accounts.
+- The app has a notification service extension, which fetches what a session shows you, and
+  the Communication Notifications capability, so it shows as a message from the session.
+  Automatic signing adds both to your App IDs the first time, with Xcode signed in.
 
 Open the app and allow the microphone and notifications. Its settings are in the Settings
 app, under **Settings → Apps → Ringback** (the app's banner, "Set up Ringback", has a button
@@ -437,6 +455,11 @@ These need uv (`brew install uv`); they run in the tools' Python environment
       (cd hub && go build -o build/ringback-hub .) && uv run --project tools tools/hub-check/hub_check.py
 
 - **The speech node,** on the node (step 4): `speech/check.sh` (about 2.5 min).
+- **A model's live view,** through a hub, an agent and the renderer started on this Mac, with
+  a stand-in phone that decodes its video (about 20 s; build the three first, as its README
+  says):
+
+      uv run --project tools tools/view-check/view_check.py
 
 ## 10. A public hub (prepared, not tried)
 

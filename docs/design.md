@@ -62,11 +62,12 @@ no server of anyone else's in between, apart from Apple's push service.
 
 | Part | Runs on | Does |
 |---|---|---|
-| **app** (`app/`, Swift) | an iPhone on iOS 26 or later | rings through CallKit when a VoIP push comes; carries the call's audio to the hub (WebRTC, Opus), or with On-device voice hears and speaks the call itself; Recents, Sessions and the hold switch; its settings are in the Settings app |
-| **hub** (`hub/`, Go) | one always-on machine | the phone's endpoints; pushes through Apple (APNs); work hours, the hold and the calls that wait; the sessions you can call; each call's audio (WebRTC through Pion, Opus through libopus) and its timing; the portal |
+| **app** (`app/`, Swift) | an iPhone on iOS 26 or later | rings through CallKit when a VoIP push comes; carries the call's audio to the hub (WebRTC, Opus), or with On-device voice hears and speaks the call itself; Recents, Sessions and the hold switch; what sessions show you, with its notification extension, and a model's live view; its settings are in the Settings app |
+| **hub** (`hub/`, Go) | one always-on machine | the phone's endpoints; pushes through Apple (APNs); work hours, the hold and the calls that wait; the sessions you can call; each call's audio (WebRTC through Pion, Opus through libopus) and its timing; what sessions show you, kept a week, and a model's live view, relayed; the portal |
 | **speech node** (`speech/`, Go with sherpa-onnx) | a Linux machine with an NVIDIA GPU | hearing: Silero VAD v5, Smart Turn v3.2, Parakeet TDT 0.6B v2; speaking: Kokoro v1.0 with the `af_heart` voice |
-| **agent** (`agent/`, Go) | each Mac that runs sessions | the mods' socket; each call's state; the call's Haiku, and Opus on request, as `claude -p` on your Claude subscription; the call transcripts |
-| **mod** (`mod/`, TypeScript) | each Claude Code session, as a plugin | `/ringback`; has the session write its call briefing; brings what you say on a call to the session as a prompt; puts permissions and questions to the call |
+| **agent** (`agent/`, Go) | each Mac that runs sessions | the mods' socket; each call's state; the call's Haiku, and Opus on request, as `claude -p` on your Claude subscription; the call transcripts; sends what sessions show you to the hub, and streams a model's live view from its renderer |
+| **renderer** (`render/`, C++ and Swift) | beside the agent, optional | renders a 3D model a session shows you: its picture, and its live view as H.264; OpenUSD's Storm, or on a Mac without it, Apple's SceneKit |
+| **mod** (`mod/`, TypeScript) | each Claude Code session, as a plugin | `/ringback`; has the session write its call briefing; brings what you say on a call to the session as a prompt; puts permissions and questions to the call; the `show` tool |
 
 **Who dials whom.** The agent and the speech node each open one WebSocket to the hub, with a
 token from the hub's config, and keep it open. The phone makes requests to the hub and
@@ -74,8 +75,9 @@ connects the call's audio to it. The hub pushes to the phone through Apple. Noth
 Macs, the speech node or the phone, so only the hub needs an address the others can reach.
 
 The hub is built for macOS (`hub/build.sh`: one binary for Intel and Apple silicon, libopus
-linked in, needing nothing installed). Its code has nothing Mac-only in it, but it hasn't been
-built or run on Linux. The agent runs where the sessions run, on a Mac.
+linked in, needing nothing installed), and builds and passes its checks on Linux too, where
+`install` makes it a systemd service. The agent runs where the sessions run, on a Mac; it
+builds on Linux too, but has no service there yet.
 
 ### Who does what in a call
 
@@ -999,9 +1001,11 @@ host unable to read their calls.
   node linked, since only text crosses the network.
 - [ ] **A phone-network fallback** for where data is too weak: SIP trunks from a local
   operator, or an LTE modem with an ordinary SIM on the hub's machine, priced first.
-- [ ] **Showing you things:** a session sends you something to look at, as a notification from
-  it ("Showing you things"). Ready: images, PDFs and clips (tried on the phone), a model's
-  picture, rendered with OpenUSD's Storm (on Linux) or Apple's fallback (on a Mac), its live
-  view with Apple's fallback, and the app's Shown shelf (checked offline). Left: the live view
-  with OpenUSD's renderer, and an agent on Linux.
+- [x] **Showing you things** (tried on the phone): a session sends you an image, a PDF, a clip
+  or a 3D model, as a message from it ("Showing you things"); a model you turn, move, zoom
+  and play live, rendered on its own computer, with Apple's renderer on a Mac.
+- [ ] **3D models on Linux:** OpenUSD's renderer renders a model's picture on Linux (checked on
+  a workstation with an NVIDIA card) but can't stream its live view yet, which needs `serve`
+  in `ringback-render`, encoding H.264 there (NVENC); and the agent needs a service on Linux
+  (systemd, as the hub's and the speech node's), with the mod in its sessions.
 - [ ] **The call history in iCloud,** rather than on the phone only.
