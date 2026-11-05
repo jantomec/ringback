@@ -15,14 +15,13 @@
 #include <cstdlib>
 #include <string>
 
+#include <unistd.h>
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
-#else
-#include <unistd.h>
 #endif
 
-// The folder this binary is in, its links followed.
-static std::string here() {
+// This binary, its links followed.
+static std::string self() {
     char path[PATH_MAX] = {0};
 #if defined(__APPLE__)
     uint32_t size = sizeof path;
@@ -31,18 +30,23 @@ static std::string here() {
     if (readlink("/proc/self/exe", path, sizeof path - 1) < 0) return ".";
 #endif
     char resolved[PATH_MAX];
-    std::string self = realpath(path, resolved) ? resolved : path;
-    return self.substr(0, self.find_last_of('/'));
+    return realpath(path, resolved) ? resolved : path;
 }
 
-// Adobe's glTF and STL plugins, which build.sh puts beside the binary. Set before OpenUSD reads
-// its plugins, at its first use.
-static void findPlugins() {
-    std::string plugins = here() + "/plugins/plugin/usd";
-    if (const char* already = getenv("PXR_PLUGINPATH_NAME"); already && *already) plugins += std::string(":") + already;
-    setenv("PXR_PLUGINPATH_NAME", plugins.c_str(), 1);
+// Adobe's glTF and STL plugins, which build.sh puts beside the binary, on OpenUSD's plugin path.
+// A monolithic OpenUSD, as Arch's, reads that path as it loads, before main, so the binary runs
+// itself again with it set; it then finds it there.
+static void findPlugins(char** argv) {
+    const std::string binary = self();
+    const std::string plugins = binary.substr(0, binary.find_last_of('/')) + "/plugins/plugin/usd";
+    const char* already = getenv("PXR_PLUGINPATH_NAME");
+    if (already && std::string(already).find(plugins) != std::string::npos) return;
+    const std::string path = already && *already ? plugins + ":" + already : plugins;
+    setenv("PXR_PLUGINPATH_NAME", path.c_str(), 1);
     // A glTF's materials as UsdPreviewSurface, which Storm draws without MaterialX.
     setenv("USD_FILEFORMATS_WRITE_OPENPBR", "0", 0);
+    execv(binary.c_str(), argv);
+    // If it can't, the plugins are left out: USD files still open.
 }
 
 static int usage() {
@@ -52,7 +56,7 @@ static int usage() {
 
 int main(int argc, char** argv) {
     if (argc < 2) return usage();
-    findPlugins();
+    findPlugins(argv);
     const std::string command = argv[1];
     if (command == "info" && argc == 2) {
         printf("{\"renderer\": \"storm\", \"formats\": [\"usd\", \"usda\", \"usdc\", \"usdz\", \"glb\", \"gltf\", \"stl\"]}\n");

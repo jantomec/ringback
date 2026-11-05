@@ -3,6 +3,7 @@
 #include <pxr/base/arch/align.h>
 #include <pxr/base/gf/camera.h>
 #include <pxr/base/gf/frustum.h>
+#include <pxr/base/gf/half.h>
 #include <pxr/imaging/cameraUtil/framing.h>
 #include <pxr/imaging/glf/simpleLight.h>
 #include <pxr/imaging/glf/simpleMaterial.h>
@@ -91,12 +92,14 @@ std::vector<uint8_t> Renderer::readRGBA8(HgiTextureHandle texture) {
     hgi->SubmitCmds(blit.get(), HgiSubmitWaitTypeWaitUntilCompleted);
 
     std::vector<uint8_t> pixels(size_t(w) * h * 4);
-    const __fp16* half = static_cast<const __fp16*>(buffer);
+    const bool half = described.format == HgiFormatFloat16Vec4;
     for (int y = 0; y < h; ++y) {
-        const __fp16* row = half + size_t(h - 1 - y) * w * 4;
+        const size_t from = size_t(h - 1 - y) * w * 4;
         uint8_t* out = pixels.data() + size_t(y) * w * 4;
         for (int x = 0; x < w * 4; ++x) {
-            out[x] = (x % 4 == 3) ? 255 : uint8_t(std::clamp(float(row[x]), 0.f, 1.f) * 255.f + 0.5f);
+            const float value = half ? float(static_cast<const GfHalf*>(buffer)[from + x])
+                                     : static_cast<const uint8_t*>(buffer)[from + x] / 255.f;
+            out[x] = (x % 4 == 3) ? 255 : uint8_t(std::clamp(value, 0.f, 1.f) * 255.f + 0.5f);
         }
     }
     ArchAlignedFree(buffer);

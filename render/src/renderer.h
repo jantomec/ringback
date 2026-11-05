@@ -27,7 +27,7 @@ public:
     bool ready(std::string& why) const;
 
     // Renders the model from the view at a time code, lit from the camera, into Storm's color
-    // texture (RGBA, 16-bit float, bottom row first), which it returns.
+    // texture (RGBA, bottom row first: 16-bit float on Metal), which it returns.
     HgiTextureHandle render(const Scene& scene, const View& view, double time);
     // That texture, read back as 8-bit RGBA, top row first.
     std::vector<uint8_t> readRGBA8(HgiTextureHandle texture);

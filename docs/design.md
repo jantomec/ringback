@@ -430,7 +430,7 @@ since setting it to 0 can clear the notifications delivered (not checked).
 - **3D models** (USD, USDZ, STL, GLB/glTF): the model stays on the computer that runs the
   session, which may hold gigabytes of it, and that computer renders it (`render/README.md`):
   with OpenUSD's own renderer, Hydra Storm, where it's installed, as on a Linux workstation
-  with an NVIDIA card (not built for Linux yet); on a Mac without it, with Apple's SceneKit
+  with an NVIDIA card, through EGL with no display; on a Mac without it, with Apple's SceneKit
   and Model I/O, the fallback, which mishandles some USD files and can't open glTF. The
   notification shows its picture, and the app shows that picture for now. Without a renderer,
   or with one that can't open the file, the session is told why and what's missing. Next, the
@@ -905,8 +905,9 @@ how things look):
 - a session showing you a model: the agent rendering its picture with Apple's fallback on
   this Mac, and refusing a GLB, saying why (by hand, through the agent and hub as installed,
   2026-11-05; the agent's tests with a stand-in renderer); OpenUSD's renderer rendering USD,
-  GLB and STL (by hand, against conda-forge's OpenUSD in a scratch folder: `render/build.sh`
-  isn't run yet); the app's Shown shelf, its gallery and the viewer's zoom
+  GLB and STL, built with `render/build.sh` on a Linux workstation with an NVIDIA card, and on
+  a Mac against conda-forge's OpenUSD in a scratch folder (`build.sh` isn't run on a Mac); no
+  agent runs on Linux yet to show them; the app's Shown shelf, its gallery and the viewer's zoom
   (`tools/app-screens`);
 - the weak-signal settings in the hub;
 - Interruption Sensitivity and Ignore Background Noise, with real noise or someone talking
@@ -974,6 +975,7 @@ host unable to read their calls.
   operator, or an LTE modem with an ordinary SIM on the hub's machine, priced first.
 - [ ] **Showing you things:** a session sends you something to look at, as a notification from
   it ("Showing you things"). Ready: images, PDFs and clips (tried on the phone), a model's
-  picture, and the app's Shown shelf (checked offline). Left: OpenUSD's renderer on Linux, and
-  the model's live view, streamed through the hub with orbit, pan, zoom and playback controls.
+  picture, rendered with OpenUSD's Storm (on Linux) or Apple's fallback (on a Mac), and the
+  app's Shown shelf (checked offline). Left: an agent on Linux, and the model's live view,
+  streamed through the hub with orbit, pan, zoom and playback controls.
 - [ ] **The call history in iCloud,** rather than on the phone only.

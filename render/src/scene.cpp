@@ -46,8 +46,14 @@ bool openScene(const std::string& path, Scene& scene, std::string& why) {
     // frame is then a fraction of a time code.
     if (scene.timeCodesPerSecond <= 0) scene.timeCodesPerSecond = 24;
     if (scene.framesPerSecond <= 0) scene.framesPerSecond = scene.timeCodesPerSecond;
+    // Its box over its animation, sampled at its start, its end and three frames between, so a
+    // part that moves stays in the picture.
     UsdGeomBBoxCache cache(UsdTimeCode(scene.start), {UsdGeomTokens->default_, UsdGeomTokens->render});
-    scene.bounds = cache.ComputeWorldBound(stage->GetPseudoRoot()).ComputeAlignedRange();
+    const int samples = scene.animated() ? 5 : 1;
+    for (int i = 0; i < samples; ++i) {
+        cache.SetTime(UsdTimeCode(scene.timeOf(i * (scene.frames() - 1) / std::max(samples - 1, 1))));
+        scene.bounds.UnionWith(cache.ComputeWorldBound(stage->GetPseudoRoot()).ComputeAlignedRange());
+    }
     if (scene.bounds.IsEmpty()) {
         why = path + " has nothing to draw";
         return false;

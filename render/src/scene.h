@@ -14,7 +14,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 // A model: its stage, how big it is and which way is up, and its animation if it has one.
 struct Scene {
     UsdStageRefPtr stage;
-    GfRange3d bounds;  // in world space, at its first time code
+    GfRange3d bounds;  // in world space, over its animation
     bool zUp = false;
     double start = 0, end = 0;
     double timeCodesPerSecond = 24, framesPerSecond = 24;
