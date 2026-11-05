@@ -58,7 +58,7 @@ struct ShownGallery: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 12, alignment: .top)], spacing: 16) {
                 ForEach(days, id: \.day) { day in
                     Section {
-                        ForEach(day.items) { item in ShownTile(item: item, state: state, size: 104) }
+                        ForEach(day.items) { item in ShownTile(item: item, state: state, size: 104, named: session == nil) }
                     } header: {
                         Text(day.day.dayLabel).font(.headline).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
                     }
@@ -107,12 +107,15 @@ struct ShownGallery: View {
     }
 }
 
-/// One shown item as a small picture: the project and when under it, a dot until you open it,
-/// and a mark for a PDF, a clip or a model. Tapping it opens it.
+/// One shown item as a small picture: the project (or, in one session's list, what it is) and
+/// when under it, a dot until you open it, and a mark for a PDF, a clip or a model. Tapping it
+/// opens it.
 struct ShownTile: View {
     let item: ShownItem
     let state: AppState
     let size: CGFloat
+    /// Under it, its project; in one session's list, what it is.
+    var named = true
 
     var body: some View {
         Button {
@@ -132,7 +135,7 @@ struct ShownTile: View {
                     if !state.hasSeen(item) {
                         Circle().fill(.tint).frame(width: 7, height: 7)
                     }
-                    Text(item.project).font(.caption).lineLimit(1)
+                    Text(named ? item.project : item.title).font(.caption).lineLimit(1)
                 }
                 Text(item.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.secondary)
             }

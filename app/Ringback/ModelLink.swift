@@ -1,12 +1,15 @@
-import Foundation
+import CoreImage
+import UIKit
 import WebRTC
 import simd
 
 /// A model's live view ("Showing you things" in docs/design.md): a WebRTC connection the phone
 /// opens to the hub (/view), which receives the model as video, rendered on the computer
-/// whose session showed it, and a data channel. On the channel go where you look from and the
-/// frame you want (ModelView); back come the renderer's ready, with the model's home view, and
-/// its frame and whether it plays. It ends when you close the view, the hub says, or the
+/// whose session showed it, and two data channels. Where you look from goes on "camera" as
+/// your fingers move: unordered and never resent, so a late or lost one never holds up the
+/// next, which says it all anew; the rest goes on "control", which is reliable, as does where
+/// you look from once you let go: the frame you want, and play. Back on it come the renderer's
+/// ready, with the model's home view, and its frame and whether it plays. It ends when you close the view, the hub says, or the
 /// connection fails.
 @Observable
 final class ModelLink: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDelegate {
@@ -36,11 +39,22 @@ final class ModelLink: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDelega
 
     private var peer: RTCPeerConnection?
     private var channel: RTCDataChannel?
+    private var camera: RTCDataChannel?
     private var stopped = false
+    /// Keeps the last frame, to share.
+    private let grabber = FrameGrabber()
 
     /// Opens the view of a model, rendered at width × height pixels.
     @MainActor
     func start(_ item: ShownItem, width: Int, height: Int) async {
+        #if DEBUG
+        if Seed.isOn {
+            // Screenshots: ready, as if a computer rendered it, with no video.
+            ready = Ready(frames: 48, fps: 24, animated: true)
+            status = .live
+            return
+        }
+        #endif
         guard let base = Shared.switchboard, let token = Shared.token else {
             return end("Your hub isn't set up.")
         }
@@ -66,8 +80,13 @@ final class ModelLink: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDelega
             receiving.direction = .recvOnly
             let transceiver = peer.addTransceiver(of: .video, init: receiving)
             video = transceiver?.receiver.track as? RTCVideoTrack
+            video?.add(grabber)
             channel = peer.dataChannel(forLabel: "control", configuration: RTCDataChannelConfiguration())
             channel?.delegate = self
+            let unreliable = RTCDataChannelConfiguration()
+            unreliable.isOrdered = false
+            unreliable.maxRetransmits = 0
+            camera = peer.dataChannel(forLabel: "camera", configuration: unreliable)
             let offer = try await peer.offer(for: none)
             try await peer.setLocalDescription(offer)
             for _ in 0..<60 where peer.iceGatheringState != .complete {
@@ -103,11 +122,24 @@ final class ModelLink: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDelega
         return error.prefix(1).uppercased() + error.dropFirst() + "."
     }
 
-    /// Sends the renderer where you look from, the frame you want, or play or pause.
+    /// Sends the renderer the frame you want, play or pause, or where you look from once you
+    /// let go.
     func send(_ input: [String: Any]) {
+        send(input, on: channel)
+    }
+
+    /// Sends the renderer where you look from, while your fingers move.
+    func moving(_ input: [String: Any]) {
+        send(input, on: camera)
+    }
+
+    private func send(_ input: [String: Any], on channel: RTCDataChannel?) {
         guard let channel, channel.readyState == .open, let data = try? JSONSerialization.data(withJSONObject: input) else { return }
         channel.sendData(RTCDataBuffer(data: data, isBinary: false))
     }
+
+    /// The picture as it shows now; nil before the first frame.
+    func picture() -> UIImage? { grabber.picture() }
 
     /// Shows the frame and the playing at once, before the renderer says so.
     func expect(frame: Int, playing: Bool) {
@@ -117,6 +149,8 @@ final class ModelLink: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDelega
 
     func stop() {
         stopped = true
+        video?.remove(grabber)
+        camera?.close()
         channel?.close()
         peer?.close()
         peer = nil
@@ -178,6 +212,30 @@ final class ModelLink: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDelega
     func peerConnection(_ peer: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {}
     func peerConnection(_ peer: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
     func peerConnection(_ peer: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
+}
+
+/// Keeps the last frame of the model's video, and makes a picture of it.
+private final class FrameGrabber: NSObject, RTCVideoRenderer {
+    private let lock = NSLock()
+    private var last: RTCVideoFrame?
+
+    func setSize(_ size: CGSize) {}
+
+    func renderFrame(_ frame: RTCVideoFrame?) {
+        lock.lock()
+        last = frame
+        lock.unlock()
+    }
+
+    func picture() -> UIImage? {
+        lock.lock()
+        let frame = last
+        lock.unlock()
+        guard let pixels = (frame?.buffer as? RTCCVPixelBuffer)?.pixelBuffer else { return nil }
+        let image = CIImage(cvPixelBuffer: pixels)
+        guard let picture = CIContext().createCGImage(image, from: image.extent) else { return nil }
+        return UIImage(cgImage: picture)
+    }
 }
 
 /// Where you look at a model from: a camera orbiting a target point, at a distance, turned

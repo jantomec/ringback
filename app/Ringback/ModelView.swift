@@ -5,13 +5,14 @@ import WebRTC
 /// turn it, and streams it here. One finger turns it around the model, two move it, a pinch
 /// comes closer, and a double tap, or Reset, goes back to where it started. A model that moves
 /// has the clip's playback controls. Its picture shows while it connects, and if it can't,
-/// with why.
+/// with why. Share shares the picture as you see it.
 struct ModelView: View {
     let item: ShownItem
     @State private var link = ModelLink()
     @State private var camera: OrbitCamera?
     @State private var poster: UIImage?
-    @State private var sent: OrbitCamera?
+    @State private var started = false
+    @State private var sharing: URL?
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
@@ -28,18 +29,25 @@ struct ModelView: View {
                     orbit: { dx, dy in move { $0.orbit(dx: dx, dy: dy) } },
                     pan: { dx, dy in move { $0.pan(dx: dx, dy: dy, height: space.size.height) } },
                     zoom: { scale in move { $0.zoom(by: scale) } },
-                    reset: reset)
+                    letGo: letGo, reset: reset)
                 status
             }
-            .task {
-                // The size it's rendered at: this space's shape, at most 1280 on its long side.
-                let scale = min(displayScale, 1280 / max(space.size.width, space.size.height))
-                let width = Int(space.size.width * scale) / 2 * 2, height = Int(space.size.height * scale) / 2 * 2
-                async let started: Void = link.start(item, width: width, height: height)
-                poster = (try? await ShownFiles.fetch(item.id, part: "poster", into: ShownView.folder))
-                    .flatMap { UIImage(contentsOfFile: $0.path) }
-                await started
+            .onChange(of: space.size, initial: true) { start(at: space.size) }
+            .overlay(alignment: .bottomTrailing) {
+                if link.ready != nil {
+                    // Labelled, on the model, apart from the toolbar's buttons.
+                    Button("Reset", systemImage: "arrow.counterclockwise", action: reset)
+                        .font(.body.weight(.medium))
+                        .buttonStyle(.glass)
+                        .controlSize(.large)
+                        .accessibilityLabel("Reset View")
+                        .padding(16)
+                }
             }
+        }
+        .task {
+            poster = (try? await ShownFiles.fetch(item.id, part: "poster", into: ShownView.folder))
+                .flatMap { UIImage(contentsOfFile: $0.path) }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let ready = link.ready, ready.animated {
@@ -47,19 +55,12 @@ struct ModelView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Reset View", systemImage: "arrow.counterclockwise", action: reset).disabled(link.ready == nil)
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Share", systemImage: "square.and.arrow.up", action: share).disabled(link.status != .live)
             }
         }
-        // Sends where you look from at most 30 times a second, only when it changed.
-        .task {
-            while !Task.isCancelled {
-                if let camera, camera != sent {
-                    link.send(camera.input)
-                    sent = camera
-                }
-                try? await Task.sleep(for: .milliseconds(33))
-            }
+        .sheet(isPresented: Binding(get: { sharing != nil }, set: { if !$0 { sharing = nil } })) {
+            if let sharing { ShareSheet(file: sharing) }
         }
         .onChange(of: link.ready) { camera = camera ?? link.ready?.home }
         .onDisappear { link.stop() }
@@ -83,14 +84,43 @@ struct ModelView: View {
         }
     }
 
+    /// Opens the view once the space has its size: as the viewer opens, the space starts tiny,
+    /// and the picture would be rendered that small. Rendered at the screen's pixels, at most
+    /// 1920 on its long side.
+    private func start(at size: CGSize) {
+        guard !started, size.width >= 200, size.height >= 200 else { return }
+        started = true
+        let scale = min(displayScale, 1920 / max(size.width, size.height))
+        let width = Int(size.width * scale) / 2 * 2, height = Int(size.height * scale) / 2 * 2
+        Task { await link.start(item, width: width, height: height) }
+    }
+
+    /// Shares the picture as you see it, as a PNG named for its project.
+    private func share() {
+        guard let picture = link.picture()?.pngData() else { return }
+        let file = FileManager.default.temporaryDirectory.appending(path: "\(item.project).png")
+        guard (try? picture.write(to: file)) != nil else { return }
+        sharing = file
+    }
+
+    /// Moves the camera as your fingers do, and sends it at once: as often as the screen
+    /// redraws, the touches coming that often.
     private func move(_ change: (inout OrbitCamera) -> Void) {
         guard var moved = camera, link.status == .live else { return }
         change(&moved)
         camera = moved
+        link.moving(moved.input)
+    }
+
+    /// Where you let go, sent so it surely arrives.
+    private func letGo() {
+        if let camera { link.send(camera.input) }
     }
 
     private func reset() {
-        if let home = link.ready?.home { camera = home }
+        guard let home = link.ready?.home else { return }
+        camera = home
+        link.send(home.input)
     }
 
     /// The playback controls, as a clip's: stepping pauses it, and the end is its last frame.
@@ -111,6 +141,17 @@ struct ModelView: View {
             link.expect(frame: to, playing: false)
         }
     }
+}
+
+/// The share sheet, for a file.
+private struct ShareSheet: UIViewControllerRepresentable {
+    let file: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [file], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 /// The model's video, fitted to the space it has.
@@ -137,6 +178,7 @@ private struct OrbitSurface: UIViewRepresentable {
     let orbit: (Double, Double) -> Void
     let pan: (Double, Double) -> Void
     let zoom: (Double) -> Void
+    let letGo: () -> Void
     let reset: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -173,17 +215,24 @@ private struct OrbitSurface: UIViewRepresentable {
             let moved = recognizer.translation(in: recognizer.view)
             recognizer.setTranslation(.zero, in: recognizer.view)
             surface?.orbit(moved.x, moved.y)
+            ended(recognizer)
         }
 
         @objc func move(_ recognizer: UIPanGestureRecognizer) {
             let moved = recognizer.translation(in: recognizer.view)
             recognizer.setTranslation(.zero, in: recognizer.view)
             surface?.pan(moved.x, moved.y)
+            ended(recognizer)
         }
 
         @objc func pinch(_ recognizer: UIPinchGestureRecognizer) {
             surface?.zoom(recognizer.scale)
             recognizer.scale = 1
+            ended(recognizer)
+        }
+
+        private func ended(_ recognizer: UIGestureRecognizer) {
+            if recognizer.state == .ended || recognizer.state == .cancelled { surface?.letGo() }
         }
 
         @objc func twice(_ recognizer: UITapGestureRecognizer) {

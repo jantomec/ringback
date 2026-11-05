@@ -97,6 +97,8 @@ class Phone:
         self.gathered = self.answered = 0.0
         self.pc.addTransceiver("video", direction="recvonly")
         self.channel = self.pc.createDataChannel("control")
+        # As the app's: where it looks from while it moves, unordered and never resent.
+        self.camera = self.pc.createDataChannel("camera", ordered=False, maxRetransmits=0)
         self.frames: list[tuple[float, np.ndarray]] = []
         self.said: list[dict] = []
         self.channel.on("message", lambda m: self.said.append(json.loads(m)))
@@ -127,6 +129,9 @@ class Phone:
     def send(self, message: dict) -> None:
         self.channel.send(json.dumps(message))
 
+    def moving(self, message: dict) -> None:
+        self.camera.send(json.dumps(message))
+
     def latest(self) -> np.ndarray | None:
         return self.frames[-1][1] if self.frames else None
 
@@ -137,6 +142,19 @@ class Phone:
 
 def differs(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.abs(a.astype(int) - b.astype(int)).mean())
+
+
+def psnr(a: np.ndarray, b: np.ndarray) -> float:
+    """How close two pictures are, in dB: 40 or more looks the same, under 30 visibly worse."""
+    error = float(np.mean((a.astype(float) - b.astype(float)) ** 2))
+    return 99.0 if error == 0 else 10 * np.log10(255**2 / error)
+
+
+def picture(path: Path) -> np.ndarray:
+    import av
+
+    with av.open(str(path)) as container:
+        return next(container.decode(video=0)).to_ndarray(format="rgb24")
 
 
 async def main() -> int:
@@ -224,21 +242,33 @@ async def main() -> int:
             check(f"the frames are as big as asked: {frame.shape[1] if frame is not None else 0} × {frame.shape[0] if frame is not None else 0}",
                   frame is not None and frame.shape[:2] == (480, 640))  # fmt: skip
 
-            # Turned, the picture changes.
+            # Settled, the home view is as sharp as the renderer's own still of it.
             await asyncio.sleep(1)
+            subprocess.run([str(renderer), "still", str(model), str(home / "still.png"), "640", "480"], capture_output=True)
+            still = picture(home / "still.png")
+            came_first, settled = psnr(phone.frames[0][1], still), psnr(phone.latest(), still)
+            check(f"settled, the view matches the renderer's still: {settled:.1f} dB (its first frame {came_first:.1f} dB)", settled >= 32)
+
+            # Turned, the picture changes.
             before = phone.latest()
             home_view = ready["home"]
             turned = dict(home_view, yaw=home_view["yaw"] + 1.2)
             sent = time.monotonic()
-            phone.send({"camera": turned})
+            phone.moving({"camera": turned})
             took = await until(lambda: differs(phone.latest(), before) > 8, 5)
-            saved = {"first": phone.frames[0][1], "turned": phone.latest()}
+            saved = {"first": phone.frames[0][1], "settled": before, "turned": phone.latest()}
             check(f"turning the camera changes the picture in {took or 0:.3f} s (hub, agent and renderer on this computer)"
                   if took else "turning the camera changed nothing in 5 s", took is not None)  # fmt: skip
             await asyncio.sleep(1)
             settled = len(phone.frames)
             await asyncio.sleep(1)
             check(f"still, it sends nothing more: {len(phone.frames) - settled} frames in 1 s", len(phone.frames) - settled <= 2)
+            # Settled after the turn, the view is as sharp as a key frame of it.
+            turned_settled = phone.latest()
+            phone.send({"keyframe": True})
+            await asyncio.sleep(1)
+            sharp = psnr(turned_settled, phone.latest())
+            check(f"settled after a turn, the view matches a key frame of it: {sharp:.1f} dB", sharp >= 32)
 
             # It plays, and goes to a frame.
             phone.send({"play": True})

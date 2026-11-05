@@ -4,8 +4,9 @@ package main
 // connection (/view) for a model a session showed, and the hub asks its agents for it (`view`);
 // the one whose session showed it streams it from its renderer. The hub passes its frames,
 // H.264 over the agent's link (binary "V", the view's ID, then the frame), on to the phone as a
-// video track, and what its renderer says (`view_message`) on the phone's data channel; the
-// phone's camera, frame and play, on that channel, go back to the agent (`view_input`), and
+// video track, and what its renderer says (`view_message`) on the phone's "control" channel;
+// the phone's camera, frame and play, on that channel and its "camera" one, go back to the
+// agent (`view_input`), and
 // so does a request for a key frame when the phone lost one, or has just connected. A view
 // ends when the phone closes it, its connection fails, the agent ends it (`view_ended`) or
 // goes away; the agent is told (`view_end`).
@@ -169,11 +170,15 @@ func newModelView(id, name, offer string, network audioNet) (*modelView, string,
 	}
 	v.track = track
 	go v.readFeedback(sender)
+	// The phone's channels: "control", reliable, which carries what the renderer says too, and
+	// "camera", unordered and never resent, for where it looks from while it moves.
 	pc.OnDataChannel(func(channel *webrtc.DataChannel) {
-		v.mu.Lock()
-		v.channel = channel
-		v.mu.Unlock()
-		channel.OnOpen(v.channelOpened)
+		if channel.Label() == "control" {
+			v.mu.Lock()
+			v.channel = channel
+			v.mu.Unlock()
+			channel.OnOpen(v.channelOpened)
+		}
 		channel.OnMessage(func(message webrtc.DataChannelMessage) {
 			var input map[string]any
 			if json.Unmarshal(message.Data, &input) == nil {

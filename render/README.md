@@ -34,9 +34,12 @@ yet). On stdin, one JSON object a line: `{"camera": {"yaw", "pitch", "distance",
 (from 0, pausing), `{"play": true | false}` and `{"keyframe": true}`. On stdout, packets of a
 4-byte big-endian length, then a kind: `R`, JSON, ready, with the model's facts, its `home`
 view and the `fov`; `S`, JSON, `{"frame", "playing"}`; and `V`, a frame: H.264 Constrained
-Baseline in Annex B, its parameter sets before each key frame. It renders when something
-changes, or while it plays, at most 30 frames a second, and 15 more after a change for the
-picture to sharpen, then nothing; it ends when stdin closes. `tools/view-check` runs it through
+Baseline in Annex B, its parameter sets before each key frame, with 4× multisampling, at up to 8
+Mbit/s. It renders when something changes, as soon as it does, or while it plays, at most 60
+frames a second, and 15 more after a change, the last a key frame, for the picture to sharpen,
+then nothing; it ends when stdin closes. From a camera to its frame on stdout took 8.6–8.9 ms
+(median of two runs; 18–26 ms at most) at 1170 × 1920 on a recent Apple silicon Mac, from 16 ms
+(54 ms at most) when it rendered only on its 30 Hz tick (`tools/view-check/render_latency.py`). `tools/view-check` runs it through
 the hub and the agent.
 
 ## Building

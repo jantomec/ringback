@@ -12,8 +12,10 @@
 //   "R", JSON: it's ready, with the model's facts, its home view and the field of view;
 //   "S", JSON: {"frame", "playing"}, when they change, and a few times a second while playing;
 //   "V": a frame, H.264 in Annex B, with its parameter sets before each key frame.
-// It renders only when something changes, or while it plays, at most 30 frames a second, and
-// a few more after a change, for the picture to sharpen. It ends when stdin closes.
+// It renders only when something changes, as soon as it does, or while it plays, at most 60
+// frames a second, with 4× multisampling, and a few more after a change, the last of them a key frame: the frames
+// just after a change get few bits, and the same picture again adds no detail, so without one
+// the view would stay as blurry as it first came. It ends when stdin closes.
 import CoreMedia
 import CoreVideo
 import Foundation
@@ -22,7 +24,7 @@ import SceneKit
 import VideoToolbox
 
 final class Streamer {
-    static let fps = 30
+    static let fps = 60
     /// Frames sent after the last change, for the encoder to sharpen a still picture.
     static let settleFrames = 15
 
@@ -30,10 +32,14 @@ final class Streamer {
     let width: Int, height: Int
     let renderer: Renderer
     let queue: MTLCommandQueue
+    /// What it renders into, 4 samples a pixel, resolved into the encoder's buffer.
+    let color: MTLTexture
     let depth: MTLTexture
     var cache: CVMetalTextureCache?
     var session: VTCompressionSession?
     let writing = NSLock()
+    /// Wakes the render loop when the agent says something.
+    let wake = DispatchSemaphore(value: 0)
 
     /// What stdin's thread changes, under lock.
     let lock = NSLock()
@@ -53,10 +59,18 @@ final class Streamer {
         let device = renderer.renderer.device!
         guard let queue = device.makeCommandQueue() else { fail("Metal has no command queue") }
         self.queue = queue
-        let described = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float, width: width, height: height, mipmapped: false)
-        described.usage = .renderTarget
-        described.storageMode = .private
-        guard let depth = device.makeTexture(descriptor: described) else { fail("Metal can't make a depth buffer") }
+        func multisampled(_ format: MTLPixelFormat) -> MTLTexture? {
+            let described = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format, width: width, height: height, mipmapped: false)
+            described.textureType = .type2DMultisample
+            described.sampleCount = 4
+            described.usage = .renderTarget
+            described.storageMode = .private
+            return device.makeTexture(descriptor: described)
+        }
+        guard let color = multisampled(.bgra8Unorm_srgb), let depth = multisampled(.depth32Float) else {
+            fail("Metal can't make the buffers to render into")
+        }
+        self.color = color
         self.depth = depth
         view = View.framing(model, aspect: Double(width) / Double(height))
         CVMetalTextureCacheCreate(nil, nil, device, nil, &cache)
@@ -80,7 +94,7 @@ final class Streamer {
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel)
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: Self.fps as CFNumber)
-        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: 3_000_000 as CFNumber)
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: 8_000_000 as CFNumber)
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: 4 as CFNumber)
         VTCompressionSessionPrepareToEncodeFrames(session)
     }
@@ -94,13 +108,19 @@ final class Streamer {
                      "target": [home.target.x, home.target.y, home.target.z]],
         ])
         Thread.detachNewThread { self.listen() }
-        let tick = 1.0 / Double(Self.fps)
-        var next = Date()
+        let interval = 1.0 / Double(Self.fps)
+        var last = Date.distantPast
         while true {
+            // Idle, it waits for the agent; busy, for its next frame's time, or sooner if the
+            // agent says something: a turn is rendered as soon as it comes.
+            lock.lock()
+            let busy = changed || settle > 0 || playing != nil
+            lock.unlock()
+            _ = wake.wait(timeout: busy ? .now() + interval : .distantFuture)
+            let since = Date().timeIntervalSince(last)
+            if since < interval { Thread.sleep(forTimeInterval: interval - since) }
+            last = Date()
             renderIfNeeded()
-            next += tick
-            let wait = next.timeIntervalSinceNow
-            if wait > 0 { Thread.sleep(forTimeInterval: wait) } else { next = Date() }
         }
     }
 
@@ -133,6 +153,7 @@ final class Streamer {
                 changed = true
             }
             lock.unlock()
+            wake.signal()
         }
         exit(0)
     }
@@ -145,21 +166,29 @@ final class Streamer {
     private func renderIfNeeded() {
         lock.lock()
         if let playing {
-            let played = Int(Date().timeIntervalSince(playing.at) * model.fps)
-            frame = (playing.from + played) % model.frames
-            changed = true
-            if encoded % 6 == 0 { tellState() }
+            let next = (playing.from + Int(Date().timeIntervalSince(playing.at) * model.fps)) % model.frames
+            if next != frame {
+                frame = next
+                changed = true
+                if next % 6 == 0 { tellState() }
+            }
         }
         if changed {
             settle = Self.settleFrames
             changed = false
+        } else if playing != nil {
+            // Playing, it renders the model's own frames only.
+            lock.unlock()
+            return
         } else if settle > 0 {
             settle -= 1
         } else {
             lock.unlock()
             return
         }
-        let view = self.view, frame = self.frame, keyframe = self.keyframe
+        // The last frame after a change is a key frame, for the picture to come out sharp.
+        let sharpen = settle == 0 && playing == nil
+        let view = self.view, frame = self.frame, keyframe = self.keyframe || sharpen
         self.keyframe = false
         lock.unlock()
         encode(view: view, frame: frame, keyframe: keyframe)
@@ -176,11 +205,12 @@ final class Streamer {
             let wrapped, let texture = CVMetalTextureGetTexture(wrapped), let commands = queue.makeCommandBuffer()
         else { return }
         let pass = MTLRenderPassDescriptor()
-        pass.colorAttachments[0].texture = texture
+        pass.colorAttachments[0].texture = color
+        pass.colorAttachments[0].resolveTexture = texture
         pass.colorAttachments[0].loadAction = .clear
         // The still's background, in linear light, as the sRGB texture takes it.
         pass.colorAttachments[0].clearColor = MTLClearColor(red: 0.0130, green: 0.0130, blue: 0.0168, alpha: 1)
-        pass.colorAttachments[0].storeAction = .store
+        pass.colorAttachments[0].storeAction = .multisampleResolve
         pass.depthAttachment.texture = depth
         pass.depthAttachment.loadAction = .clear
         pass.depthAttachment.clearDepth = 1

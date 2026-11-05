@@ -440,10 +440,13 @@ since setting it to 0 can clear the notifications delivered (not checked).
   as you turn it (one finger), move it (two) and zoom (a pinch), with a double tap or Reset to
   go back, plays its animation with the same controls as a clip, if it has one, and streams it
   as H.264 video through the hub, as a call's audio goes, with where you look from going back
-  on a data channel. The phone sends the camera itself (where it looks from, and at what), at
-  most 30 times a second while it moves, so nothing a slow network loses adds up; the
-  computer renders only when something changes, and a few frames more for the picture to
-  sharpen. The hub relays: the agent sends the frames over its link, and the hub puts them on
+  on a data channel. It's rendered at the phone's screen pixels, at most 1920 on its long side,
+  with 4× multisampling, at up to 8 Mbit/s. The phone sends the camera itself (where it looks
+  from, and at what) as your fingers move, on a data channel that neither orders nor resends,
+  so nothing a slow network loses adds up or holds up the next; where you let go goes on the
+  reliable channel too. The computer renders a move as soon as it comes, at most 60 frames a
+  second, only when something changes, and a few frames more, the last a key frame, for the
+  picture to sharpen. Reset is a button on the model, apart from the toolbar's. The hub relays: the agent sends the frames over its link, and the hub puts them on
   the phone's video track. Only Apple's fallback streams so far; OpenUSD's renderer makes the
   picture, and its live view is next. Not done either: drawing the last frame turned on the
   phone while the computer catches up, which would hide the network's delay.
@@ -880,6 +883,14 @@ current code, and what has only been checked offline.
   its controls. The image didn't zoom, and nothing listed them in the app; both since fixed
   (the viewer's zoom, and the Shown shelf), checked offline only. How the notifications
   looked, as from the session, wasn't looked at.
+- A model's live view (2026-11-05, unlocked, on Wi-Fi, through the hub, with Apple's
+  renderer on the Mac): it opened, turned, moved, zoomed and played. The picture was blurry at
+  first, as the phone asked for it at the size of the viewer while it was still opening (96 ×
+  64); sharp once it waited for its size. Turning felt smoother once the Mac rendered each
+  move as it came, at up to 60 frames a second, and the phone sent them on a channel that
+  neither orders nor resends. How long a turn takes to show on the phone isn't measured.
+  The Shown shelf in Recents was looked at and kept; Sessions' cards opening what a session
+  showed, with their count, are only on the screenshots.
 - In the app, apart from the hub, with an earlier build whose code for them hasn't changed:
   ringing as call waiting during another call, a call recorded as ended when the app is
   closed mid-call, the call screens.
@@ -913,10 +924,10 @@ how things look):
   smoke test passing, and `install` making a systemd user service that came back 12 s after a
   kill (on the speech node's machine, then taken away);
 - a model's live view, through the real hub, agent and Apple's renderer on one Mac, with a
-  stand-in phone decoding the video (`tools/view-check`): the first frame 0.14 s after the
-  phone opens it, a turn of the camera changing the picture 0.07 s after it's sent, playing,
-  going to a frame, and closing it stopping the renderer; with no network between, so the
-  phone will see more;
+  stand-in phone decoding the video (`tools/view-check`): the first frame 0.15 s after the
+  phone opens it, a turn of the camera changing the picture 0.05 s after it's sent, the
+  settled view as sharp as the renderer's own still (43 dB), playing, going to a frame, and
+  closing it stopping the renderer; with no network between, so the phone will see more;
 - a session showing you a model: the agent rendering its picture with Apple's fallback on
   this Mac, and refusing a GLB, saying why (by hand, through the agent and hub as installed,
   2026-11-05; the agent's tests with a stand-in renderer); OpenUSD's renderer rendering USD,
