@@ -18,3 +18,7 @@ token = "…"
 # This Mac, for the hub's log and its portal (optional; by default its local host name, as
 # set in System Settings, General, Sharing).
 # name = "studio"
+
+# ringback-render (render/ in the repository), which renders a 3D model's picture when a
+# session shows you one (optional; by default the one beside ringback-agent, or on the PATH).
+# render = "~/ringback/render/build/ringback-render"

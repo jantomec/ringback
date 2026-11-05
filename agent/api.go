@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"math"
 	"net"
@@ -42,7 +43,11 @@ const longestWait = 25 * time.Second
 //     its own dialog. A call you didn't answer leaves it pending, for the next call with the
 //     session you answer;
 //   - `POST .../{ask}` records an answer, as the voice does (for tools);
-//   - `DELETE .../{ask}` withdraws it: the session no longer waits for an answer.
+//   - `DELETE .../{ask}` withdraws it: the session no longer waits for an answer;
+//   - `POST /sessions/{id}/show` shows you a file (show.go): `{"path", "caption", "project",
+//     "cwd"}`. The answer has the hub's `id` for it once the hub has it, or `"sending": true`
+//     if it's still on its way after 25 s; 400 if it can't be shown, 502 if the hub can't be
+//     reached or refuses it.
 func sessionSide(c *Calls) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /calls", func(w http.ResponseWriter, r *http.Request) {
@@ -88,6 +93,27 @@ func sessionSide(c *Calls) http.Handler {
 			return
 		}
 		reply(w, 200, map[string]any{"live": c.news(r.PathValue("id"), body["text"].(string))})
+	})
+	mux.HandleFunc("POST /sessions/{id}/show", func(w http.ResponseWriter, r *http.Request) {
+		body, ok := bodyOf(r, "path", "project")
+		if !ok {
+			reply(w, 400, map[string]any{"error": "needs path and project"})
+			return
+		}
+		link, _ := c.hub.(*hubLink)
+		answer, err := show(link, showRequest{
+			Session: r.PathValue("id"), Project: body["project"].(string), Cwd: pyString(body["cwd"]),
+			Path: body["path"].(string), Caption: pyString(body["caption"]),
+		}, c.log)
+		var problem errShow
+		switch {
+		case errors.As(err, &problem):
+			reply(w, 400, map[string]any{"error": err.Error()})
+		case err != nil:
+			reply(w, 502, map[string]any{"error": err.Error()})
+		default:
+			reply(w, 200, answer)
+		}
 	})
 	asks(mux, c, "permission")
 	asks(mux, c, "question")

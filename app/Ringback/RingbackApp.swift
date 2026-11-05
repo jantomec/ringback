@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UserNotifications
 
 @main
 struct RingbackApp: App {
@@ -12,7 +13,7 @@ struct RingbackApp: App {
     }
 }
 
-final class AppDelegate: NSObject, UIApplicationDelegate {
+final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     let state = AppState()
     lazy var calls = CallService(state: state)
     lazy var push = PushService(calls: calls, state: state)
@@ -28,8 +29,25 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         #endif
         // A VoIP push relaunches the app in the background, so PushKit must be set up at launch.
         _ = push
+        UNUserNotificationCenter.current().delegate = self
         application.registerForRemoteNotifications()
         return true
+    }
+
+    /// What a session shows you shows while the app is open too, and joins its list; other
+    /// notifications don't, since the app says the same.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter, willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        guard notification.request.content.userInfo["shown"] != nil else { return [] }
+        await state.refreshShown()
+        return [.banner, .list, .sound]
+    }
+
+    /// Tapping what a session showed you opens it.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        guard let id = response.notification.request.content.userInfo["shown"] as? String else { return }
+        await state.openShown(id: id)
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {

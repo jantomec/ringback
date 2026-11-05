@@ -24,6 +24,7 @@ targets:
     dependencies:
       - package: WebRTC
       - target: RingbackControls
+      - target: RingbackNotifications
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(RINGBACK_BUNDLE_ID)
@@ -41,6 +42,9 @@ targets:
         aps-environment: development
         # Shared with the Control Center extension: the hub's address, the token, the hold switch.
         keychain-access-groups: [$(AppIdentifierPrefix)$(RINGBACK_BUNDLE_ID).shared]
+        # What a session shows you arrives as a message from it (Notifications): the app has
+        # the capability, its extension can't.
+        com.apple.developer.usernotifications.communication: true
     info:
       path: Ringback/Info.plist
       properties:
@@ -48,6 +52,8 @@ targets:
         RingbackKeychainGroup: $(AppIdentifierPrefix)$(RINGBACK_BUNDLE_ID).shared
         UILaunchScreen: {}
         UIBackgroundModes: [voip, audio, remote-notification]
+        # What a session shows you arrives as a message from it (Notifications).
+        NSUserActivityTypes: [INSendMessageIntent]
         NSMicrophoneUsageDescription: Ringback uses the microphone so you can talk to your Claude Code sessions.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
@@ -83,5 +89,38 @@ targets:
         RingbackKeychainGroup: $(AppIdentifierPrefix)$(RINGBACK_BUNDLE_ID).shared
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+  # Fetches what a session shows you for its notification, and makes the notification a
+  # message from the session (Notifications/NotificationService.swift).
+  RingbackNotifications:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Notifications
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(RINGBACK_BUNDLE_ID).notifications
+        DEVELOPMENT_TEAM: $(RINGBACK_TEAM_ID)
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+    entitlements:
+      path: Notifications/RingbackNotifications.entitlements
+      properties:
+        keychain-access-groups: [$(AppIdentifierPrefix)$(RINGBACK_BUNDLE_ID).shared]
+    info:
+      path: Notifications/Info.plist
+      properties:
+        CFBundleDisplayName: Ringback
+        RingbackKeychainGroup: $(AppIdentifierPrefix)$(RINGBACK_BUNDLE_ID).shared
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+          NSExtensionAttributes:
+            IntentsSupported: [INSendMessageIntent]
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

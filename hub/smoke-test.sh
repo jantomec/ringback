@@ -364,6 +364,37 @@ check "cancel: again, it doesn't wait" 403 "$(status -d '{"call_id": "line0003-0
 check "cancel: a call that rings can't be" 403 "$(status -d '{"call_id": "line0002-000000000000"}' "$url/cancel")"
 check "cancel: asked about again, its agent hears it was cancelled" '{"by":"phone","cancelled":true,"ok":true}' "$(place_raw line0003-000000000000)"
 status -d '{"call_id": "line0002-000000000000", "event": "ended"}' "$url/events" > /dev/null
+
+# What a session shows you (shown.go): its agent uploads it, with its poster and thumbnail, with
+# the agent's token, and the paired phone lists it and fetches its parts with its key.
+printf '%%PDF made up' > "$home/plan.pdf"
+printf 'a made-up poster' > "$home/poster.png"
+printf 'a made-up thumbnail' > "$home/thumb.jpg"
+show_meta='{"session_id": "session-show", "project": "demo", "kind": "pdf", "name": "plan.pdf", "caption": "The plan"}'
+show() {
+    secret=$1; shift
+    body -H "Authorization: Bearer $secret" -F "meta=$show_meta" -F "file=@$home/plan.pdf;type=application/pdf" "$@" \
+        -F "thumb=@$home/thumb.jpg;type=image/jpeg" "$url/show"
+}
+shown=$(show smoke-agent-token-0001 -F "poster=@$home/poster.png;type=image/png")
+shown_id=$(printf '%s' "$shown" | sed -nE 's/.*"id":"([0-9a-f-]{36})".*/\1/p')
+check "show: an agent's PDF and its poster are kept" 36 "${#shown_id}"
+check "show: each phone is told" yes "$(yes_if has "$shown" '"phones":\["shown [0-9a-f]{8} → ')"
+check "show: with a wrong token, 401" yes "$(yes_if has_text "$(show wrong -F "poster=@$home/poster.png")" '"error":"not allowed"')"
+check "show: a PDF without its poster, 400" yes "$(yes_if has_text "$(show smoke-agent-token-0001)" '"error":"needs a poster"')"
+check "show: the phone lists it" yes "$(yes_if has_text "$(body -d "$me_only" "$url/shown")" "\"id\":\"$shown_id\"")"
+check "show: not without the key" 401 "$(status -d '{"token": "aaaa1111bbbb2222"}' "$url/shown")"
+part() { printf '{%s, "id": "%s", "part": "%s"}' "$me" "$shown_id" "$1"; }
+fetched_poster=$(part poster)
+fetched_file=$(part file)
+check "show: the phone fetches its poster" 'a made-up poster' "$(body -d "$fetched_poster" "$url/shown/file")"
+fetched_thumb=$(part thumb)
+check "show: and its thumbnail" 'a made-up thumbnail' "$(body -d "$fetched_thumb" "$url/shown/file")"
+check "show: and the PDF, as it came" "%PDF made up application/pdf" \
+    "$(curl -s -D "$home/headers" -d "$fetched_file" "$url/shown/file") $(tr -d '\r' < "$home/headers" | sed -nE 's/^content-type: //ip')"
+other_key=$(printf '{"token": "aaaa1111bbbb2222", "key": "%064d", "id": "%s", "part": "file"}' 0 "$shown_id")
+check "show: not by another key" 401 "$(status -d "$other_key" "$url/shown/file")"
+check "show: kept only to the hub's user" 700 "$(perms "$home/.local/state/ringback/shown/$shown_id")"
 sleep 1
 kill $server
 wait $server 2> /dev/null || true

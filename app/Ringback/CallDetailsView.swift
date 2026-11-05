@@ -39,6 +39,7 @@ struct CallDetailsView: View {
                         Text(subject)
                     }
                 }
+                ShownSection(items: state.shown.filter { $0.session == call.session }, state: state)
             }
         }
         .listStyle(.insetGrouped)

@@ -48,6 +48,8 @@ type fakeHub struct {
 	token  string
 	// The answer to place: ringing by default.
 	place func(m map[string]any) map[string]any
+	// What answers /show, what a session shows you; none by default.
+	show http.HandlerFunc
 
 	mu       sync.Mutex
 	changed  *sync.Cond
@@ -82,6 +84,10 @@ func (h *fakeHub) addr() string {
 }
 
 func (h *fakeHub) serve(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/show" && h.show != nil && r.Header.Get("Authorization") == "Bearer "+h.token {
+		h.show(w, r)
+		return
+	}
 	if r.URL.Path != "/agent" || r.Header.Get("Authorization") != "Bearer "+h.token {
 		h.mu.Lock()
 		h.refusals++

@@ -28,6 +28,8 @@ type Voice = {
   stored?: Record<string, unknown>
   // Running `/remote-control` fails, as in a Claude Code without it.
   isRemoteRefused?: boolean
+  // What the agent answers a file to show: by default, it's on the one phone.
+  shown?: { status: number; body: object }
 }
 
 // What the engine beneath the mod is asked, and what the tests answer it. `logs` are the dim
@@ -44,6 +46,7 @@ function engine(on: On, voice: Voice = {}) {
     stored: new Map<string, unknown>(Object.entries(voice.stored ?? {})),
     slept: [] as string[],
     commands: [] as string[],
+    tools: [] as string[],
   }
   on('store.get', (_, e) => ({ value: asked.stored.get(e.key) }))
   on('store.set', (_, e) => (asked.stored.set(e.key, e.value), { value: undefined }))
@@ -56,6 +59,7 @@ function engine(on: On, voice: Voice = {}) {
     return { value: { exitCode: 0, stdout: '', stderr: '' } } as any
   })
   on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('tool.register', (_, e) => (asked.tools.push(e.name), { value: { tool: `mcp__ringback__${e.name}` } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: 'session-1234' }))
   on('session.cwd', () => {
@@ -96,6 +100,10 @@ function engine(on: On, voice: Voice = {}) {
     if (e.url.endsWith('/news')) return ok({ live: voice.live ?? false })
     if (new URL(e.url).pathname.endsWith('/messages')) return ok({ messages: voice.waiting?.splice(0) ?? [] })
     if (e.url.endsWith('/calls')) return ok(voice.placed ?? { ok: true }, voice.placedStatus)
+    if (e.url.endsWith('/show')) {
+      const shown = voice.shown ?? { status: 200, body: { ok: true, id: 's1', phones: ['shown s1 → iPhone: APNs 200'] } }
+      return ok(shown.body, shown.status)
+    }
     if (/\/(permissions|questions)$/.test(e.url)) {
       const created = voice.created ?? { status: 200, body: { permission: 'p1', question: 'q1', call: 'placed' } }
       return ok(created.body, created.status)
@@ -1221,4 +1229,45 @@ test('switching ringback off while a question waits shows the dialog', async ($,
   await settle()
   expect(withdrawn(asked.fetches)).toEqual(['http://voice/sessions/session-1234/questions/q1'])
   expect(core.asked).toEqual(['AskUserQuestion'])
+})
+
+test('the show tool sends a file to the agent, ringback on or off, and says it reached the phone', async ($, on) => {
+  const asked = engine(on)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(asked.tools).toEqual(['show'])
+  const shown = await $.tool.call({ tool: 'mcp__ringback__show', path: 'out/render.png', caption: 'The render, v3' } as any)
+  const sent = asked.fetches.find(f => f.url.endsWith('/show'))!
+  expect(sent.url).toBe('http://voice/sessions/session-1234/show')
+  expect(JSON.parse(sent.init.body)).toEqual({
+    path: 'out/render.png',
+    caption: 'The render, v3',
+    project: 'demo',
+    cwd: '/home/someone/Projects/demo',
+  })
+  expect((shown as any).result).toContain("It's on the developer's iPhone")
+})
+
+test("what can't be shown, or reach the phone, the session is told", async ($, on) => {
+  const cases: [Voice, string, string][] = [
+    [{ shown: { status: 400, body: { error: 'ringback shows images, PDFs and clips, not .txt' } } }, 'deny', 'not .txt'],
+    [{ shown: { status: 502, body: { error: "can't reach the hub at hub:8787" } } }, 'deny', "can't reach the hub"],
+    [{ isDown: true }, 'deny', "agent on this Mac isn't running"],
+    [{ shown: { status: 200, body: { ok: true, sending: true } } }, 'result', "it's large"],
+    [{ shown: { status: 200, body: { ok: true, id: 's1', phones: [] } } }, 'result', 'no iPhone is paired'],
+    [{ shown: { status: 200, body: { ok: true, id: 's1', phones: ['shown s1 → iPhone: APNs 410 Unregistered'] } } },
+      'result', "couldn't tell the iPhone: shown s1 → iPhone: APNs 410 Unregistered"],
+  ]
+  const voice: Voice = {}
+  const asked = engine(on, voice)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  for (const [answered, kind, text] of cases) {
+    voice.shown = answered.shown
+    voice.isDown = answered.isDown
+    asked.fetches.length = 0
+    const answer = (await $.tool.call({ tool: 'mcp__ringback__show', path: 'notes.txt' } as any)) as any
+    expect(answer[kind]).toContain(text)
+    expect(asked.fetches.map(f => f.url)).toEqual(['http://voice/sessions/session-1234/show'])
+  }
+  const answer = (await $.tool.call({ tool: 'mcp__ringback__show', path: ' ' } as any)) as any
+  expect(answer.deny).toContain('Needs the path')
 })

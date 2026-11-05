@@ -1,0 +1,18 @@
+# What ringback-render builds against: OpenUSD from conda-forge, with Storm on Metal, and
+# what Adobe's glTF and STL plugins need. `render/build.sh` installs it (`pixi install`).
+[workspace]
+name = "ringback-render"
+channels = ["conda-forge"]
+platforms = ["osx-arm64"]
+version = "0.1.0"
+
+[dependencies]
+openusd = "26.08.*"
+# OpenUSD's conda build has Python support, so its libraries need this Python.
+python = "3.12.*"
+cmake = ">=3.28"
+ninja = "*"
+# For Adobe's glTF and STL plugins.
+openimageio = ">=3.2,<4"
+nlohmann_json = ">=3.12,<4"
+zlib = ">=1.3,<2"

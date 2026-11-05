@@ -99,14 +99,23 @@ func (l *link) request(ctx context.Context, message map[string]any) (map[string]
 // `agent = "…"`), if it has them.
 func linkToken(kind string) string { return loadConfig()["tokens."+kind] }
 
+// partAllowed checks a request from a part of this kind (its link, or the agent's /show): it
+// carries the part's own key, named as it paired (byKey), or the kind's token.
+func partAllowed(kind string, r *http.Request) (name string, byKey, allowed bool) {
+	want := linkToken(kind)
+	got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if name, byKey = pairedPart(kind, got); byKey {
+		return name, true, true
+	}
+	return "", false, want != "" && subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+}
+
 // acceptLink upgrades a request on /speech or /agent, checks its key or token and its hello,
 // and reads it until it closes, giving each message to handle. A part that links with its own
 // key (partkeys.go) is named as it paired, whatever its hello says.
 func acceptLink(w http.ResponseWriter, r *http.Request, kind string, opened func(*link), handle func(*link, map[string]any), audio func(*link, []byte), closed func(*link)) {
-	want := linkToken(kind)
-	got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	paired, byKey := pairedPart(kind, got)
-	if !byKey && (want == "" || subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1) {
+	paired, byKey, allowed := partAllowed(kind, r)
+	if !allowed {
 		http.Error(w, `{"ok": false}`, http.StatusUnauthorized)
 		return
 	}

@@ -93,6 +93,7 @@ func serve(options map[string]string) {
 			fail(fmt.Sprintf("Can't read the hub's CA (ca in %s): %v", configPath, err))
 		}
 	}
+	findRenderer(config)
 	// What it keeps across a restart, beside the socket.
 	calls := newCalls(hub, logLine, filepath.Join(filepath.Dir(socket), stateFile))
 	a := newAgent(calls, hub, logLine)

@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// The call history, as the Phone app's Recents: the calls that wait for your work hours at
-/// the top, in orange, under "Waiting", then every call, most recent first, under "Calls"
-/// (without either header while nothing waits). Tapping a call calls its session, and its ⓘ
+/// the top, in orange, under "Waiting", what sessions showed you under "Shown" (ShownShelf),
+/// then every call, most recent first, under "Calls" (without headers while there's only
+/// that). Tapping a call calls its session, and its ⓘ
 /// opens its details. A banner at the top says when calls can't reach the phone.
 struct RecentsView: View {
     let state: AppState
@@ -10,25 +11,31 @@ struct RecentsView: View {
     let calls: CallService
     @State private var details: Details?
 
-    /// The call whose details are open.
+    /// The call whose details are open, or all that sessions showed you.
     enum Details: Hashable {
         case call(String)
         case waiting(String)
+        case shown
     }
 
     var body: some View {
         NavigationStack {
             List {
                 Banners(state: state, push: push)
-                if state.waiting.isEmpty {
+                if state.waiting.isEmpty && state.shown.isEmpty {
                     history
                 } else {
                     // Headers keep the waiting calls, in orange, apart from the calls you missed,
-                    // in red.
-                    Section("Waiting") {
-                        ForEach(state.waiting) { call in
-                            WaitingRow(call: call, state: state, calls: calls) { details = .waiting(call.id) }
+                    // in red, and what sessions showed you between them.
+                    if !state.waiting.isEmpty {
+                        Section("Waiting") {
+                            ForEach(state.waiting) { call in
+                                WaitingRow(call: call, state: state, calls: calls) { details = .waiting(call.id) }
+                            }
                         }
+                    }
+                    if !state.shown.isEmpty {
+                        ShownShelf(state: state) { details = .shown }
                     }
                     if !state.calls.isEmpty {
                         Section("Calls") { history }
@@ -37,7 +44,7 @@ struct RecentsView: View {
             }
             .listStyle(.plain)
             .overlay {
-                if state.calls.isEmpty && state.waiting.isEmpty {
+                if state.calls.isEmpty && state.waiting.isEmpty && state.shown.isEmpty {
                     ContentUnavailableView(
                         "No Recents", systemImage: "clock",
                         description: Text("Calls from your sessions show here."))
@@ -50,6 +57,7 @@ struct RecentsView: View {
                 switch shown {
                 case .call(let id): CallDetailsView(id: id, state: state, calls: calls)
                 case .waiting(let id): WaitingDetailsView(id: id, state: state, calls: calls)
+                case .shown: ShownGallery(state: state)
                 }
             }
         }

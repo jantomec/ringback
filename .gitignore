@@ -7,6 +7,8 @@ app/Ringback/Info.plist
 app/Ringback/Ringback.entitlements
 app/Controls/Info.plist
 app/Controls/RingbackControls.entitlements
+app/Notifications/Info.plist
+app/Notifications/RingbackNotifications.entitlements
 
 # Build output
 app/build/
@@ -21,3 +23,7 @@ __pycache__/
 
 # Agents' git worktrees
 .claude/worktrees/
+
+# ringback-render: its pixi environment, the plugins and the build
+render/.pixi/
+render/build/

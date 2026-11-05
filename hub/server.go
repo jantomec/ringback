@@ -21,8 +21,9 @@ var (
 
 type endpoint func(body map[string]any) (map[string]any, error)
 
-// serve answers the phone (/pair, /register, /events, /check, /waiting, /contacts, /hold),
-// the Macs and speech nodes pairing (/pair-link), and the links they open: over plain HTTP on a private network
+// serve answers the phone (/pair, /register, /events, /check, /waiting, /contacts, /hold,
+// /shown), the Macs and speech nodes pairing (/pair-link), what sessions show you (/show), and
+// the links they open: over plain HTTP on a private network
 // such as Nebula, or HTTPS and WSS with [tls] in hub.toml (tlsConfig). The phone's requests are small
 // and rare, and are handled one at a time (stateMu); each gets at most 5 s, so a stalled
 // connection can't hold the next one past the app's 10 s timeout. Meanwhile it asks the
@@ -30,7 +31,7 @@ type endpoint func(body map[string]any) (map[string]any, error)
 func serve(listen string) {
 	endpoints := map[string]endpoint{
 		"/pair": pair, "/pair-link": pairPart, "/register": register, "/events": event, "/check": checkIn, "/waiting": waiting,
-		"/contacts": contacts, "/hold": holdSwitch,
+		"/contacts": contacts, "/hold": holdSwitch, "/shown": shownList,
 	}
 	listener, err := net.Listen("tcp4", listen)
 	if err != nil {
@@ -62,6 +63,15 @@ func serve(listen string) {
 				acceptLink(w, r, "speech", nodeOpened, nodeMessage, nodeAudio, nodeClosed)
 			case path == "/phone-speech":
 				phoneSpeech(w, r)
+			case path == "/show":
+				showFile(w, r)
+			case path == "/shown/file":
+				if r.Method != http.MethodPost {
+					phoneJSON(w, http.StatusMethodNotAllowed, map[string]any{"ok": false})
+					return
+				}
+				withDeadline(w, 5*time.Minute)
+				shownFile(w, r)
 			case path == "/portal" || strings.HasPrefix(path, "/portal/"):
 				withDeadline(w, 15*time.Second)
 				portal(w, r)

@@ -1,7 +1,8 @@
 import XCTest
 
 /// Screenshots the app with sample calls (the app's debug-only Seed), in the simulator's
-/// current appearance: Recents, a waiting call swiped open, a call's and a waiting call's
+/// current appearance: Recents, a waiting call swiped open, what sessions showed you (all of
+/// it, an image pinched to zoom, a PDF and a model's picture), a call's and a waiting call's
 /// details, Sessions and a session's details, the connection banner, the banner of a phone
 /// that isn't set up, and Ringback's page in the Settings app. Saves each as
 /// `<look>-<name>.png` in APP_SCREENS_OUT (run.sh sets it, and APP_SCREENS_LOOK), and prints
@@ -46,6 +47,38 @@ final class AppScreensUITests: XCTestCase {
         details.element(boundBy: 0).tap()  // the waiting call with a question
         note("waiting call details", app.staticTexts["Rings"].waitForExistence(timeout: 5))
         shot("waiting-details")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        // What sessions showed you: See All, then the image, pinched to zoom.
+        app.buttons["See All"].firstMatch.tap()
+        note("all that was shown", app.navigationBars["Shown"].waitForExistence(timeout: 5))
+        sleep(1)
+        shot("shown-all")
+        tile("The render after the lighting fix", in: app).tap()
+        let image = app.descendants(matching: .any)["shown-image"]
+        note("the image", image.waitForExistence(timeout: 5))
+        shot("shown-image")
+        let unzoomed = image.value as? String ?? ""  // "Zoomed 1.0×", in the simulator's language
+        image.pinch(withScale: 3, velocity: 2)
+        sleep(1)
+        let zoom = image.value as? String ?? ""
+        note("pinching zooms it (\(zoom))", zoom != unzoomed && !zoom.isEmpty)
+        shot("shown-image-zoomed")
+        image.swipeLeft()
+        sleep(1)
+        note("zoomed, it pans (\(image.value as? String ?? ""))", (image.value as? String) == zoom)
+        image.doubleTap()
+        sleep(1)
+        note("double-tap zooms back out", (image.value as? String) == unzoomed)
+        app.buttons["Done"].tap()
+        tile("Release plan", in: app).tap()
+        sleep(2)
+        shot("shown-pdf")
+        app.buttons["Done"].tap()
+        tile("The bracket", in: app).tap()
+        sleep(2)
+        shot("shown-model")
+        app.buttons["Done"].tap()
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
         app.buttons["Sessions"].firstMatch.tap()
@@ -107,6 +140,11 @@ final class AppScreensUITests: XCTestCase {
         app.launchArguments = ["-RingbackSeed", seed]
         app.launch()
         return app
+    }
+
+    /// What a session showed, by its caption, as a picture in Recents or See All.
+    private func tile(_ caption: String, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", caption)).firstMatch
     }
 
     /// Scrolls until the element can be tapped, then taps it.

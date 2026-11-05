@@ -41,6 +41,7 @@ final class PushService: NSObject, PKPushRegistryDelegate {
             OnDeviceVoice.isOn == sentOnDevice, Switchboard.url == sentURL
         {
             await state.refreshWaiting()
+            await state.refreshShown()
             return
         }
         state.connection = .connecting
@@ -90,6 +91,7 @@ final class PushService: NSObject, PKPushRegistryDelegate {
             return await connect()
         }
         await state.refreshWaiting()
+        await state.refreshShown()
     }
 
     /// A setting changed: in the Settings app, which the app hears when it next runs, or by

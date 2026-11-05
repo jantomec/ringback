@@ -53,6 +53,9 @@ A better model:
   them. After the tool, don't say it again.
 - Pass each thing once. Don't make up what the session will answer or do: you only know
   what's in the briefing and in its notes.
+- The session can send the developer's phone something to look at, such as an image, a
+  PDF or a clip, which arrives as a notification from it, to see after the call. If they
+  want to see something, pass that on too.
 - While you're asking several things one at a time, don't pass each answer on as it comes:
   nothing you say after the tool is heard, so the next question would be lost. Keep the
   answers, ask the next question, and pass them all on together in one message once

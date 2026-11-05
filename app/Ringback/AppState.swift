@@ -160,6 +160,9 @@ final class AppState {
     /// The whole call history, kept on the phone. (Moving it to iCloud comes later.)
     private static let historyFile = URL.applicationSupportDirectory.appending(path: "calls.json")
     private static let lastConnectedKey = "lastConnected"
+    /// The count last put on the app's icon.
+    private static let badgeKey = "badgeCount"
+    private static let seenShownKey = "seenShown"
 
     var token: String?
     /// For background pushes that start a connection check; nil until iOS gives it.
@@ -178,7 +181,7 @@ final class AppState {
     var activeCall: ActiveCall?
     /// Why a call you made ended by itself, a call back or a waiting call you called, shown
     /// once the in-call screen is gone; or why a waiting call's question didn't go to the
-    /// Claude app, or the hold switch couldn't be set.
+    /// Claude app, the hold switch couldn't be set, or what a session showed you can't open.
     var callBackProblem: String?
     /// The calls that wait to ring, soonest first, as the hub last gave them.
     var waiting: [WaitingCall] = []
@@ -189,6 +192,11 @@ final class AppState {
     var status: HubStatus?
     /// The sessions you can call, by project, as the hub last gave them.
     var contacts: [Contact] = []
+    /// What sessions showed you, newest first, as the hub last gave them; and the one open.
+    var shown: [ShownItem] = []
+    var openShown: ShownItem?
+    /// Which of them you've opened, kept on the phone while the hub keeps them.
+    private(set) var seenShown = Set(UserDefaults.standard.stringArray(forKey: seenShownKey) ?? [])
     /// Microphone access is off, so Claude can't hear you on calls.
     var microphoneOff = false
     /// Why On-device voice can't be used: Apple's English speech model couldn't be installed
@@ -232,9 +240,14 @@ final class AppState {
         if found.calls != waiting { waiting = found.calls }
         if let switched = found.hold, switched != hold { hold = HoldSwitch.remember(switched) }
         if found.status != status { status = found.status }
-        // The app's icon counts the waiting calls, and the Lock Screen widget says how many.
+        // The app's icon counts the waiting calls, and the Lock Screen widget says how many. Only
+        // when the count changes: setting it to 0 can clear the notifications delivered, such
+        // as what sessions showed you, and the waiting calls are fetched every 3 s.
         HoldSwitch.remember(waiting: waiting.count)
-        try? await UNUserNotificationCenter.current().setBadgeCount(waiting.count)
+        if UserDefaults.standard.object(forKey: Self.badgeKey) as? Int != waiting.count {
+            try? await UNUserNotificationCenter.current().setBadgeCount(waiting.count)
+            UserDefaults.standard.set(waiting.count, forKey: Self.badgeKey)
+        }
     }
 
     /// Fetches the sessions you can call from the hub. If it can't be reached, the list stays
@@ -243,6 +256,44 @@ final class AppState {
     func refreshContacts() async {
         guard Switchboard.url != nil, let token else { return }
         if let found = try? await Switchboard.contacts(token: token), found != contacts { contacts = found }
+    }
+
+    /// Fetches what sessions showed you from the hub. If it can't be reached, the list stays as
+    /// it was.
+    @MainActor
+    func refreshShown() async {
+        guard Switchboard.url != nil else { return }
+        guard let found = try? await ShownFiles.list() else { return }
+        if found != shown { shown = found }
+        // Forget having opened what the hub no longer keeps.
+        let kept = seenShown.intersection(found.map(\.id))
+        if kept != seenShown { remember(seen: kept) }
+        ShownView.clearOld()
+    }
+
+    /// Opens what a session showed you, and remembers you have.
+    func open(_ item: ShownItem) {
+        openShown = item
+        if !seenShown.contains(item.id) { remember(seen: seenShown.union([item.id])) }
+    }
+
+    func hasSeen(_ item: ShownItem) -> Bool { seenShown.contains(item.id) }
+
+    private func remember(seen: Set<String>) {
+        seenShown = seen
+        UserDefaults.standard.set(Array(seen), forKey: Self.seenShownKey)
+    }
+
+    /// Opens what a session showed you, as its notification names it; says so if the hub no
+    /// longer keeps it.
+    @MainActor
+    func openShown(id: String) async {
+        if !shown.contains(where: { $0.id == id }) { await refreshShown() }
+        if let item = shown.first(where: { $0.id == id }) {
+            open(item)
+        } else {
+            callBackProblem = String(localized: "That's no longer kept: your hub keeps what sessions show you for a week.")
+        }
     }
 
     /// The session a call in the history is from, if it's in Sessions now: by its ID, or for a

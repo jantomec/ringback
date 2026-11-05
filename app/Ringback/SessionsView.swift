@@ -202,8 +202,10 @@ struct SessionDetailsView: View {
                     LabeledContent("Mac", value: contact.voice.host() ?? contact.voice.absoluteString)
                     LabeledContent("Session", value: String(contact.session.prefix(8)))
                 }
+                ShownSection(items: state.shown.filter { $0.session == contact.session }, state: state)
             } else {
                 Text("This session isn't listening any more.").foregroundStyle(.secondary)
+                ShownSection(items: state.shown.filter { $0.session == session }, state: state)
             }
         }
         .listStyle(.insetGrouped)

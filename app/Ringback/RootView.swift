@@ -44,6 +44,9 @@ struct RootView: View {
         }
         // The hub's portal pairs this phone with a link to the app (ringback://pair).
         .onOpenURL { url in Task { await push.open(url) } }
+        .fullScreenCover(item: Binding(get: { state.openShown }, set: { state.openShown = $0 })) { item in
+            ShownView(item: item)
+        }
         .sheet(isPresented: Binding(get: { state.justPaired }, set: { state.justPaired = $0 })) {
             PairedView { state.justPaired = false }
         }

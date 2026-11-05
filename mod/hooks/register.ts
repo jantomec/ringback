@@ -52,6 +52,32 @@ developer answered these questions on a call. Their words, as speech recognition
 const onCall = (what: string, said?: string | null) =>
   said ? `${what} on a ringback call: "${said}"` : `${what} on a ringback call.`
 
+// The tool that shows you a file on your phone ("Showing you things" in docs/design.md): the
+// agent sends it to the hub, which notifies the phone, from this session. It works whether
+// ringback is on or off.
+const SHOW = {
+  name: 'show',
+  description: `Shows the developer a file on their iPhone, through ringback: an image (PNG, JPEG, \
+GIF, HEIC or WebP), a PDF, or a short clip (MP4, MOV or M4V), up to 100 MB; or a 3D model (USD, \
+USDA, USDC, USDZ, GLB, glTF or STL), which stays on this computer: it renders a picture of it, \
+if it can, or says why not. It arrives as a notification from this session and opens in the \
+Ringback app. Use it when seeing something says more than words can, such as a render, a plot, \
+a screenshot, a diagram, a recording or a model, or when the developer asks to see something, \
+as on a call. It shows files only, so save what you want shown first.`,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: "The file: absolute, or in the session's folder." },
+      caption: {
+        type: 'string',
+        description: 'A few words on what it shows, for the notification, such as "The bracket after the fillet, v3".',
+      },
+    },
+    required: ['path'],
+  },
+  isDeferred: false,
+}
+
 // Tools whose dialog a hook's allow doesn't dismiss: a question put to you, which goes to the
 // call through `tool.call` instead, and a plan to approve.
 const PERSON_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
@@ -102,9 +128,12 @@ export const register: Register = on => {
       description: 'Call my phone when this session finishes; run again to stop',
       immediate: true,
     })
+    await $.tool.register(SHOW)
     await restore($)
     return next(e)
   })
+
+  on('tool.call', { tool: 'mcp__ringback__show' }, async ($, e) => show($, e.path, e.caption))
 
   on('command.run', { command: 'ringback' }, async $ => {
     await switchTo($, !isOn)
@@ -259,6 +288,36 @@ async function voice($: EngineInterface, path: string, body?: object, method = b
     body: body && JSON.stringify(body),
     socketPath: `${await $.env.get('HOME')}/.local/state/ringback/voice.sock`,
   })
+}
+
+// Shows you a file: the tool's answer says it's on your phone, or why not.
+async function show($: EngineInterface, path: unknown, caption: unknown) {
+  if (typeof path !== 'string' || !path.trim()) return { deny: 'Needs the path of the file to show.' }
+  const cwd = await $.session.cwd()
+  let response
+  try {
+    response = await voice($, `/sessions/${await $.session.id()}/show`, {
+      path,
+      caption: typeof caption === 'string' ? caption : '',
+      project: projectOf(cwd),
+      cwd,
+    })
+  } catch {
+    return { deny: "The ringback agent on this Mac isn't running, so nothing can be shown." }
+  }
+  let answer: { error?: string; sending?: boolean; phones?: string[] } = {}
+  try {
+    answer = JSON.parse(response.text)
+  } catch {
+    // Said below.
+  }
+  if (!response.ok) return { deny: `It can't be shown: ${answer.error ?? `the agent answered ${response.status}`}.` }
+  if (answer.sending) return { result: "It's on its way to the developer's iPhone: it's large, so it takes a moment." }
+  const phones = answer.phones ?? []
+  const missed = phones.filter(line => !line.endsWith('APNs 200'))
+  if (!phones.length) return { result: "The hub has it, but no iPhone is paired with it to be told." }
+  if (missed.length === phones.length) return { result: `The hub has it, but couldn't tell the iPhone: ${missed.join('; ')}.` }
+  return { result: "It's on the developer's iPhone: a notification from this session, which opens it." }
 }
 
 // A finished turn: news for the call you're on, or else a briefing for a new call.

@@ -392,6 +392,57 @@ session's latest briefing and opens with what's new; with no briefing yet, it sa
 nothing of the session's work and asks what you want. A session that stopped listening
 meanwhile refuses the call, and the app says so.
 
+## Showing you things
+
+A call can't show you a render, a plot or a recording, and nobody watches the phone during a
+call anyway. So a session can send you something to look at, which arrives as a notification
+from it: under its project's name, grouped with its other notifications, as its calls ring.
+It isn't messaging: you don't reply to it, and what you want done about it you say on a call
+or in the terminal.
+
+The mod gives every session a `show` tool, ringback on or off, which takes a file and a
+caption. The session uses it when seeing says more than words, or when you ask, as on a call:
+the voice passes "show me the render" on like anything else. The agent sends the file to the
+hub with a small picture of it for lists, the hub keeps them for a week and pushes each phone
+a notification, and the app's notification service extension fetches what the notification
+shows. Tapping it opens the file in the app's viewer. The hub never shows it to anyone but a
+paired phone, and only with its key.
+
+In the app, what sessions showed you is a shelf of pictures in Recents, between the waiting
+calls and the history, newest first, with a dot on each you haven't opened; See All has them
+all by day, and by project if you pick one. The details of a session's calls, and of the
+session, list what it showed, even once it isn't listening. Two other ways were weighed: a
+third tab, like the Phone app's Voicemail, which the bottom bar has no room for on a 390 pt
+iPhone beside the hold switch, and the gallery can become if there are many; and rows among
+the calls, which would read as messages and drown the history. Nothing counts on the app's
+icon, which counts the waiting calls, and the app sets that count only when it changes,
+since setting it to 0 can clear the notifications delivered (not checked).
+
+- **Images** (PNG, JPEG, GIF; HEIC and WebP open in the app): a notification shows the image
+  itself up to 10 MB, so a larger one, or one in a format it can't show, comes with a smaller
+  JPEG (`sips`). The app zooms it.
+- **PDFs:** a notification can't show one, so it shows Quick Look's picture of its first
+  page (`qlmanage`). The app shows the pages.
+- **Clips** (MP4, MOV, M4V): a notification shows only its picture, since the extension has
+  about 30 s to fetch what it shows, too little for a clip on mobile data; the app fetches the
+  clip when you open it. Its controls go to the start, back a frame, play or pause, forward a
+  frame and to the end, as a model's animation will.
+- **3D models** (USD, USDZ, STL, GLB/glTF): the model stays on the computer that runs the
+  session, which may hold gigabytes of it, and that computer renders it (`render/README.md`):
+  with OpenUSD's own renderer, Hydra Storm, where it's installed, as on a Linux workstation
+  with an NVIDIA card (not built for Linux yet); on a Mac without it, with Apple's SceneKit
+  and Model I/O, the fallback, which mishandles some USD files and can't open glTF. The
+  notification shows its picture, and the app shows that picture for now. Without a renderer,
+  or with one that can't open the file, the session is told why and what's missing. Next, the
+  view is live: the computer renders it as you orbit, pan and zoom, plays its animation with
+  the same controls as a clip, if it has one, and streams it as video through the hub, as a
+  call's audio goes, with your touches going back the same way.
+
+The notification is a communication notification, as a message's is: iOS shows the project as
+the sender, with its monogram as the app draws it, which needs the Communication
+Notifications capability. Whether iOS shows that and the picture together isn't checked on the
+phone. Files are at most 100 MB.
+
 ## Staying up
 
 - **The agent** writes what it keeps to `voice-state.json` beside its socket
@@ -699,6 +750,9 @@ with a certificate, or a private certificate authority installed on each device 
 - **A stale tunnel delays a call.** After the phone changes network, the VPN can take 10–20 s
   to reach the hub again; the app keeps trying, for up to 20 s after you answer, then ends the
   call and says why.
+- **What sessions show you is kept on the hub as it came,** for a week, readable by whoever runs
+  the hub's machine. On your own hub that's you; on one someone hosts, it would need the
+  end-to-end encryption under Next.
 - **Every ring costs a Haiku opening** on your subscription, even if you decline it, so a call
   you keep missing costs six; and a held call keeps its Mac awake until it rings.
 - **Other people's voices and noise.** The background filter's default is an absolute level,
@@ -811,6 +865,11 @@ current code, and what has only been checked offline.
   so in a notification. Hung up after a few seconds instead, a notification said "The call
   didn't connect" and why (on Wi-Fi).
 - The portal on a real hub, from the phone's Safari: signing in, the map, and taking calls.
+- What a session shows you (2026-11-05, unlocked, on Wi-Fi, by hand through the agent and
+  hub): an image, a PDF and a clip each arrived as a notification, and the clip played, with
+  its controls. The image didn't zoom, and nothing listed them in the app; both since fixed
+  (the viewer's zoom, and the Shown shelf), checked offline only. How the notifications
+  looked, as from the session, wasn't looked at.
 - In the app, apart from the hub, with an earlier build whose code for them hasn't changed:
   ringing as call waiting during another call, a call recorded as ended when the app is
   closed mid-call, the call screens.
@@ -843,6 +902,12 @@ how things look):
 - the hub on Linux: `hub/build.sh` building it there with libopus linked in, its checks and
   smoke test passing, and `install` making a systemd user service that came back 12 s after a
   kill (on the speech node's machine, then taken away);
+- a session showing you a model: the agent rendering its picture with Apple's fallback on
+  this Mac, and refusing a GLB, saying why (by hand, through the agent and hub as installed,
+  2026-11-05; the agent's tests with a stand-in renderer); OpenUSD's renderer rendering USD,
+  GLB and STL (by hand, against conda-forge's OpenUSD in a scratch folder: `render/build.sh`
+  isn't run yet); the app's Shown shelf, its gallery and the viewer's zoom
+  (`tools/app-screens`);
 - the weak-signal settings in the hub;
 - Interruption Sensitivity and Ignore Background Noise, with real noise or someone talking
   near you;
@@ -907,7 +972,8 @@ host unable to read their calls.
   node linked, since only text crosses the network.
 - [ ] **A phone-network fallback** for where data is too weak: SIP trunks from a local
   operator, or an LTE modem with an ordinary SIM on the hub's machine, priced first.
-- [ ] **Showing you things:** sometimes you need to see what a session did, such as an image or
-  a large model. Claude Code's iMessage channel plugin can send images, but not the session's
-  questions.
+- [ ] **Showing you things:** a session sends you something to look at, as a notification from
+  it ("Showing you things"). Ready: images, PDFs and clips (tried on the phone), a model's
+  picture, and the app's Shown shelf (checked offline). Left: OpenUSD's renderer on Linux, and
+  the model's live view, streamed through the hub with orbit, pan, zoom and playback controls.
 - [ ] **The call history in iCloud,** rather than on the phone only.

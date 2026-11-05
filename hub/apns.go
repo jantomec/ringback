@@ -318,18 +318,24 @@ func notifyNoSpeech(ctx context.Context, callID, project, subject string) []stri
 // notifyWaiting sends every phone one ordinary notification about a waiting call. One line per
 // phone, saying what it's about (what).
 func notifyWaiting(ctx context.Context, callID, what, title, body string, until time.Time) []string {
-	config := loadConfig()
-	stateMu.Lock()
-	devices := devicesByName(pairedDevices())
-	stateMu.Unlock()
 	payload := map[string]any{"aps": map[string]any{
 		"alert":              map[string]string{"title": title, "body": body},
 		"sound":              "default",
 		"interruption-level": "active",
 	}}
+	return notifyPhones(ctx, "call "+prefix(callID, 8)+": "+what, payload, until)
+}
+
+// notifyPhones sends every paired phone an ordinary notification, which APNs keeps until
+// (none if zero) for a phone that's off meanwhile. One line per phone, starting with what.
+func notifyPhones(ctx context.Context, what string, payload any, until time.Time) []string {
+	config := loadConfig()
+	stateMu.Lock()
+	devices := devicesByName(pairedDevices())
+	stateMu.Unlock()
 	var lines []string
 	for _, device := range devices {
-		line := "call " + prefix(callID, 8) + ": " + what + " → " + orDefault(device["device"], "a phone")
+		line := what + " → " + orDefault(device["device"], "a phone")
 		token, ok := device["notification_token"]
 		if !ok {
 			lines = append(lines, line+": no notification token")

@@ -18,6 +18,8 @@ parts talk to each other.
   Without one, the phone's On-device Voice hears and speaks, and only text crosses.
 - `agent/` (Go): each Mac with sessions. The mods' socket, each call's state, and the call's
   Haiku (Opus on request) as `claude -p` on the user's subscription.
+- `render/` (C++ and Swift): what renders a 3D model a session shows you, on its computer:
+  OpenUSD's Storm (`ringback-render`), or on a Mac without it, Apple's fallback.
 - `mod/` (TypeScript): the Claude Code mod in each session. `/ringback`, the call briefing,
   and putting permissions and questions to the call.
 - `tools/`: checks and measurements, each with a README. The Python ones run in the tools'

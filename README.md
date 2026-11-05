@@ -172,6 +172,7 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 | `hub/` | The hub (Go): push, waiting calls, and the call's audio and timing |
 | `speech/` | The speech node (Go, sherpa-onnx on CUDA): hearing and speaking |
 | `agent/` | The agent (Go): each Mac's sessions, and the call's Haiku and Opus through Claude Code |
+| `render/` | The 3D renderers (C++, Swift): a model a session shows you, rendered on its computer |
 | `tools/` | The checks and measurements behind the design, each with a README |
 | `docs/` | The design, the protocol between the parts, the setup guide, and the images here |
 
