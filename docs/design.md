@@ -387,7 +387,9 @@ once a second; one that hasn't for 30 s isn't listening. Each agent tells the hu
 sessions listen whenever that changes, and every 30 s; the hub drops an agent's sessions when
 its link drops, as when its Mac sleeps. The app fetches them every 3 s while the tab shows.
 
-Tapping a card calls the session at once, with a call ID made on the phone. The voice has the
+Tapping a card opens what the session showed you ("Showing you things"), with a red count on its
+monogram of what you haven't opened; its green phone calls it, always, whatever it showed. A
+call starts at once, with a call ID made on the phone. The voice has the
 session's latest briefing and opens with what's new; with no briefing yet, it says it knows
 nothing of the session's work and asks what you want. A session that stopped listening
 meanwhile refuses the call, and the app says so.
@@ -410,8 +412,9 @@ paired phone, and only with its key.
 
 In the app, what sessions showed you is a shelf of pictures in Recents, between the waiting
 calls and the history, newest first, with a dot on each you haven't opened; See All has them
-all by day, and by project if you pick one. The details of a session's calls, and of the
-session, list what it showed, even once it isn't listening. Two other ways were weighed: a
+all by day, and by project if you pick one. A session's card in Sessions opens what it showed,
+and counts what you haven't opened (The Sessions tab). The details of a session's calls, and of
+the session, list what it showed, even once it isn't listening. Two other ways were weighed: a
 third tab, like the Phone app's Voicemail, which the bottom bar has no room for on a 390 pt
 iPhone beside the hold switch, and the gallery can become if there are many; and rows among
 the calls, which would read as messages and drown the history. Nothing counts on the app's
@@ -432,11 +435,18 @@ since setting it to 0 can clear the notifications delivered (not checked).
   with OpenUSD's own renderer, Hydra Storm, where it's installed, as on a Linux workstation
   with an NVIDIA card, through EGL with no display; on a Mac without it, with Apple's SceneKit
   and Model I/O, the fallback, which mishandles some USD files and can't open glTF. The
-  notification shows its picture, and the app shows that picture for now. Without a renderer,
-  or with one that can't open the file, the session is told why and what's missing. Next, the
-  view is live: the computer renders it as you orbit, pan and zoom, plays its animation with
-  the same controls as a clip, if it has one, and streams it as video through the hub, as a
-  call's audio goes, with your touches going back the same way.
+  notification shows its picture. Without a renderer, or with one that can't open the file,
+  the session is told why and what's missing. Opened, the view is live: the computer renders it
+  as you turn it (one finger), move it (two) and zoom (a pinch), with a double tap or Reset to
+  go back, plays its animation with the same controls as a clip, if it has one, and streams it
+  as H.264 video through the hub, as a call's audio goes, with where you look from going back
+  on a data channel. The phone sends the camera itself (where it looks from, and at what), at
+  most 30 times a second while it moves, so nothing a slow network loses adds up; the
+  computer renders only when something changes, and a few frames more for the picture to
+  sharpen. The hub relays: the agent sends the frames over its link, and the hub puts them on
+  the phone's video track. Only Apple's fallback streams so far; OpenUSD's renderer makes the
+  picture, and its live view is next. Not done either: drawing the last frame turned on the
+  phone while the computer catches up, which would hide the network's delay.
 
 The notification is a communication notification, as a message's is: iOS shows the project as
 the sender, with its monogram as the app draws it, which needs the Communication
@@ -902,6 +912,11 @@ how things look):
 - the hub on Linux: `hub/build.sh` building it there with libopus linked in, its checks and
   smoke test passing, and `install` making a systemd user service that came back 12 s after a
   kill (on the speech node's machine, then taken away);
+- a model's live view, through the real hub, agent and Apple's renderer on one Mac, with a
+  stand-in phone decoding the video (`tools/view-check`): the first frame 0.14 s after the
+  phone opens it, a turn of the camera changing the picture 0.07 s after it's sent, playing,
+  going to a frame, and closing it stopping the renderer; with no network between, so the
+  phone will see more;
 - a session showing you a model: the agent rendering its picture with Apple's fallback on
   this Mac, and refusing a GLB, saying why (by hand, through the agent and hub as installed,
   2026-11-05; the agent's tests with a stand-in renderer); OpenUSD's renderer rendering USD,
@@ -975,7 +990,7 @@ host unable to read their calls.
   operator, or an LTE modem with an ordinary SIM on the hub's machine, priced first.
 - [ ] **Showing you things:** a session sends you something to look at, as a notification from
   it ("Showing you things"). Ready: images, PDFs and clips (tried on the phone), a model's
-  picture, rendered with OpenUSD's Storm (on Linux) or Apple's fallback (on a Mac), and the
-  app's Shown shelf (checked offline). Left: an agent on Linux, and the model's live view,
-  streamed through the hub with orbit, pan, zoom and playback controls.
+  picture, rendered with OpenUSD's Storm (on Linux) or Apple's fallback (on a Mac), its live
+  view with Apple's fallback, and the app's Shown shelf (checked offline). Left: the live view
+  with OpenUSD's renderer, and an agent on Linux.
 - [ ] **The call history in iCloud,** rather than on the phone only.

@@ -58,13 +58,21 @@ func serve(listen string) {
 			path := r.URL.Path
 			switch {
 			case path == "/agent":
-				acceptLink(w, r, "agent", agentOpened, fromAgent, func(*link, []byte) {}, agentClosed)
+				acceptLink(w, r, "agent", agentOpened, fromAgent, agentFrame, agentClosed)
 			case path == "/speech":
 				acceptLink(w, r, "speech", nodeOpened, nodeMessage, nodeAudio, nodeClosed)
 			case path == "/phone-speech":
 				phoneSpeech(w, r)
 			case path == "/show":
 				showFile(w, r)
+			case path == "/view":
+				if r.Method != http.MethodPost {
+					phoneJSON(w, http.StatusMethodNotAllowed, map[string]any{"ok": false})
+					return
+				}
+				// Its agent starts the model's renderer meanwhile.
+				withDeadline(w, 45*time.Second)
+				viewModel(w, r)
 			case path == "/shown/file":
 				if r.Method != http.MethodPost {
 					phoneJSON(w, http.StatusMethodNotAllowed, map[string]any{"ok": false})

@@ -94,6 +94,7 @@ func serve(options map[string]string) {
 		}
 	}
 	findRenderer(config)
+	shownModels.load(filepath.Join(filepath.Dir(socket), "shown-models.json"))
 	// What it keeps across a restart, beside the socket.
 	calls := newCalls(hub, logLine, filepath.Join(filepath.Dir(socket), stateFile))
 	a := newAgent(calls, hub, logLine)

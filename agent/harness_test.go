@@ -55,6 +55,7 @@ type fakeHub struct {
 	changed  *sync.Cond
 	conn     *websocket.Conn
 	got      []map[string]any
+	binary   [][]byte // binary messages, as a model's live view's frames
 	hellos   int
 	refusals int
 	next     int
@@ -116,7 +117,7 @@ func (h *fakeHub) serve(w http.ResponseWriter, r *http.Request) {
 	h.changed.Broadcast()
 	h.mu.Unlock()
 	for {
-		_, data, err := conn.Read(ctx)
+		kind, data, err := conn.Read(ctx)
 		if err != nil {
 			h.mu.Lock()
 			if h.conn == conn {
@@ -124,6 +125,13 @@ func (h *fakeHub) serve(w http.ResponseWriter, r *http.Request) {
 			}
 			h.mu.Unlock()
 			return
+		}
+		if kind == websocket.MessageBinary {
+			h.mu.Lock()
+			h.binary = append(h.binary, data)
+			h.changed.Broadcast()
+			h.mu.Unlock()
+			continue
 		}
 		var m map[string]any
 		json.Unmarshal(data, &m)

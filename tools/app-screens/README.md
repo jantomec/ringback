@@ -16,8 +16,13 @@ test saves, for each appearance:
   hold switch beside the tabs, on hold until tomorrow's work hours;
 - `recents-swipe`: the waiting call with a question swiped open to its "Claude App" action;
 - `call-details`, `call-details-outgoing`, `waiting-details`: a call's details from its ⓘ;
-- `sessions`, cards with two sessions in one project and both kinds of waiting call,
-  `session-menu`, a card held, and `session-details`, from its Details;
+- `shown-all`, what sessions showed you, by day, from Recents' Shown shelf; `shown-image`,
+  an image, then `shown-image-zoomed`, pinched to zoom (it checks the zoom changes, a zoomed
+  image pans, and a double tap zooms it back out); `shown-pdf`; `shown-model`, a model's live
+  view, which finds no computer to render it here;
+- `sessions`, cards with two sessions in one project, both kinds of waiting call, and a count
+  of what each showed you that you haven't opened; `session-shown`, what a card opens: what
+  its session showed; `session-menu`, a card held, and `session-details`, from its Details;
 - `banner`: Recents while the hub can't be reached, with Try Again, and the hold
   switch taking calls until 19:00;
 - `speech-banner`: no speech computer linked, a call waiting for it, and the microphone off:

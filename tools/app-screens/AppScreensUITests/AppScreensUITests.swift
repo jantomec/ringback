@@ -2,7 +2,8 @@ import XCTest
 
 /// Screenshots the app with sample calls (the app's debug-only Seed), in the simulator's
 /// current appearance: Recents, a waiting call swiped open, what sessions showed you (all of
-/// it, an image pinched to zoom, a PDF and a model's picture), a call's and a waiting call's
+/// it, an image pinched to zoom, a PDF and a model, which connects to no computer here), what
+/// one session showed, from its card, a call's and a waiting call's
 /// details, Sessions and a session's details, the connection banner, the banner of a phone
 /// that isn't set up, and Ringback's page in the Settings app. Saves each as
 /// `<look>-<name>.png` in APP_SCREENS_OUT (run.sh sets it, and APP_SCREENS_LOOK), and prints
@@ -84,6 +85,12 @@ final class AppScreensUITests: XCTestCase {
         app.buttons["Sessions"].firstMatch.tap()
         note("sessions", app.navigationBars["Sessions"].waitForExistence(timeout: 5))
         shot("sessions")
+        // Tapped, a card opens what its session showed you: ringback, two things.
+        app.buttons.matching(identifier: "Session").element(boundBy: 2).tap()
+        note("what a session showed", app.navigationBars["ringback"].waitForExistence(timeout: 5))
+        sleep(1)
+        shot("session-shown")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
         // Held, a card offers its details: ringback, with a briefing.
         app.buttons.matching(identifier: "Session").element(boundBy: 2).press(forDuration: 1.2)
         note("session menu", app.buttons["Details"].waitForExistence(timeout: 5))

@@ -7,6 +7,9 @@
 //       a picture of the model, framed whole, at its first frame (or FRAME, from 0); prints
 //       its facts as JSON:
 //       {"animated", "frames", "fps", "start", "end", "up"}
+//   ringback-render-apple serve MODEL WIDTH HEIGHT
+//       the model's live view: the camera and the time the agent gives it on stdin, rendered
+//       and streamed as H.264 on stdout (stream.swift)
 //   ringback-render-apple info
 //       which renderer this is and what it opens: {"renderer", "formats"}
 import AppKit
@@ -140,6 +143,12 @@ final class Renderer {
     }
 
     func render(_ view: View, frame: Int, width: Int, height: Int) -> NSImage {
+        place(view)
+        return renderer.snapshot(atTime: time(of: frame), with: CGSize(width: width, height: height), antialiasingMode: .multisampling4X)
+    }
+
+    /// Puts the camera where the view has it.
+    func place(_ view: View) {
         let radius = simd_length(SIMD3<Double>(Double(model.high.x - model.low.x), Double(model.high.y - model.low.y),
                                                Double(model.high.z - model.low.z))) / 2
         let lens = camera.camera!
@@ -151,8 +160,11 @@ final class Renderer {
         camera.simdPosition = SIMD3<Float>(Float(eye.x), Float(eye.y), Float(eye.z))
         camera.simdLook(at: SIMD3<Float>(Float(target.x), Float(target.y), Float(target.z)),
                         up: SIMD3<Float>(Float(up.x), Float(up.y), Float(up.z)), localFront: SCNNode.simdLocalFront)
-        let time = model.start + Double(min(max(frame, 0), model.frames - 1)) / model.fps
-        return renderer.snapshot(atTime: time, with: CGSize(width: width, height: height), antialiasingMode: .multisampling4X)
+    }
+
+    /// A frame's time, in seconds, kept within the animation.
+    func time(of frame: Int) -> Double {
+        model.start + Double(min(max(frame, 0), model.frames - 1)) / model.fps
     }
 }
 
@@ -164,7 +176,7 @@ func writePNG(_ image: NSImage, to path: String, width: Int, height: Int) -> Boo
     return (try? data.write(to: URL(fileURLWithPath: path))) != nil
 }
 
-let usage = "usage: ringback-render-apple still MODEL OUT.png [WIDTH HEIGHT [FRAME]] | info"
+let usage = "usage: ringback-render-apple still MODEL OUT.png [WIDTH HEIGHT [FRAME]] | serve MODEL WIDTH HEIGHT | info"
 let args = CommandLine.arguments
 switch (args.count > 1 ? args[1] : "", args.count) {
 case ("still", 4), ("still", 6), ("still", 7):
@@ -176,6 +188,10 @@ case ("still", 4), ("still", 6), ("still", 7):
                                        width: width, height: height)
     guard writePNG(image, to: args[3], width: width, height: height) else { fail("can't write \(args[3])") }
     print(model.facts)
+case ("serve", 5):
+    let width = Int(args[3]) ?? 0, height = Int(args[4]) ?? 0
+    guard (64...2048).contains(width), (64...2048).contains(height), width % 2 == 0, height % 2 == 0 else { fail(usage, code: 2) }
+    Streamer(Model(args[2]), width: width, height: height).run()
 case ("info", 2):
     let formats = (usdFormats + modelIOFormats).map { "\"\($0)\"" }.joined(separator: ", ")
     print(#"{"renderer": "apple", "formats": [\#(formats)]}"#)

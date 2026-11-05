@@ -31,6 +31,7 @@ at most 5 s, or 15 s for `/offer`, `/answered`, `/claude-app`, `/reask` and `/ca
 | `/reask` | you took calls: the held ones among them ask again now |
 | `/shown` | what sessions showed you, newest first, kept a week: each with its `id`, `session_id`, `project`, `kind` (`image`, `pdf`, `video` or `model`), `name`, `caption`, `at`, a model's `model` (its facts: `animated`, `frames`, `fps`, `up`…), and its `file`'s, `poster`'s and `thumb`'s `size` and `type` (a model has no file) |
 | `/shown/file` | `{"id", "part": "file" \| "poster" \| "thumb"}` with the token and key: that file, as it came, with its `Content-Type`; 404 if it isn't kept. Up to 5 min |
+| `/view` | a model's live view: `{"shown_id", "sdp", "width", "height"}` with the token and key, the phone's WebRTC offer with a video transceiver that receives only and a data channel. The hub asks its agents (`view`) and answers `{"sdp", "view_id"}`, or as the agents refused: 404 (no computer has it), 409 (its computer can't render 3D models, and why), 410 (it's gone from there). Up to 45 s. On the data channel the phone sends where it looks from (`{"camera": {"yaw", "pitch", "distance", "target"}}`), `{"frame": n}` and `{"play": bool}`; the renderer's `ready` and state come back (`render/README.md`), and `{"status": "ended", "why"}` when it ends |
 | `/ping` | `GET`: whether the hub can be reached, checked while the phone rings |
 | `/phone-speech` | a WebSocket, for a call the phone hears and speaks itself (the last section) |
 
@@ -143,6 +144,17 @@ The hub pushes each paired phone an alert with `"mutable-content": 1`, the proje
 title and the caption as its body, `thread-id` the session, and `"shown": id`, `"session_id"`,
 `"kind"` and `"part"`: `poster`, or `file` for an image without one, which the app's
 notification service extension fetches from `/shown/file` and attaches.
+
+### A model's live view
+
+| Direction | Message |
+|---|---|
+| hub → agent | `{"type": "view", "id": 5, "view_id", "shown_id", "width", "height"}`, from `/view`. Reply: ok once its renderer's stream has started (`serve`), or `404 not shown from here`, `409` (no renderer, and what's missing), `410` (the model is gone, and where it was) |
+| agent → hub | binary: `V`, the view's ID (36 characters), then a frame, H.264 in Annex B, which the hub sends the phone on its video track |
+| agent → hub | `{"type": "view_message", "view_id", "message"}`: what the renderer says, `ready` and its state, for the phone's data channel |
+| hub → agent | `{"type": "view_input", "view_id", "input"}`: the phone's camera, frame or play, and `{"keyframe": true}` when the phone lost a picture or has just connected |
+| hub → agent | `{"type": "view_end", "view_id", "why"}`: the phone closed it, or its connection failed |
+| agent → hub | `{"type": "view_ended", "view_id", "why"}`: its renderer stopped, and why if it failed |
 
 ### During a call
 

@@ -177,8 +177,10 @@ func (h *hubLink) upload(ctx context.Context, meta map[string]any, path, content
 	if out, err := exec.CommandContext(ctx, "sips", "-Z", "480", "-s", "format", "jpeg", from, "--out", thumb).CombinedOutput(); err != nil {
 		return nil, errShow(fmt.Sprintf("can't make a small picture of %s: %s", filepath.Base(path), strings.TrimSpace(string(out))))
 	}
+	model := ""
 	if meta["kind"] == "model" {
 		// Its facts, which the renderer wrote beside its picture; the file stays here.
+		model = path
 		var facts map[string]any
 		if data, err := os.ReadFile(poster + ".json"); err == nil && json.Unmarshal(data, &facts) == nil {
 			meta["model"] = facts
@@ -210,6 +212,10 @@ func (h *hubLink) upload(ctx context.Context, meta map[string]any, path, content
 	if response.StatusCode != http.StatusOK {
 		why, _ := answer["error"].(string)
 		return nil, fmt.Errorf("the hub answered %d: %s", response.StatusCode, or(why, "no reason"))
+	}
+	// Where the model is, for its live view (view.go).
+	if id, _ := answer["id"].(string); model != "" && id != "" {
+		shownModels.remember(id, model)
 	}
 	return answer, nil
 }

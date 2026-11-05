@@ -71,12 +71,15 @@ func agentClosed(l *link) {
 	stateMu.Lock()
 	dropContacts(agentKey(l))
 	stateMu.Unlock()
+	endViewsOf(l)
 	sawLink(l, false) // after it's off the registry, not to delay that
 }
 
 // fromAgent handles what an agent sends, outside a call (sessions, place) and in one.
 func fromAgent(l *link, message map[string]any) {
 	switch message["type"] {
+	case "view_message", "view_ended":
+		fromAgentView(message)
 	case "sessions":
 		given, _ := message["sessions"].([]any)
 		stateMu.Lock()

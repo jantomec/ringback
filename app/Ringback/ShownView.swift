@@ -3,7 +3,7 @@ import PDFKit
 import SwiftUI
 
 /// What a session showed you ("Showing you things" in docs/design.md), full screen: an image
-/// you can zoom, a PDF, a clip with its playback controls, or a model's picture. It opens from
+/// you can zoom, a PDF, a clip with its playback controls, or a model's live view (ModelView). It opens from
 /// the notification, and from the details of the session's calls. The file comes from the hub,
 /// which keeps it for a week, and stays on the phone until iOS clears its caches.
 struct ShownView: View {
@@ -36,17 +36,14 @@ struct ShownView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let file {
+        if item.kind == .model {
+            ModelView(item: item)
+        } else if let file {
             switch item.kind {
             case .image: ZoomableImage(url: file)
             case .pdf: PDFDocumentView(url: file)
             case .video: ClipView(url: file)
-            case .model:
-                VStack(spacing: 12) {
-                    ZoomableImage(url: file)
-                    Text("A picture of the model, rendered on the computer its session runs on. Turning it around here comes next.")
-                        .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
-                }
+            case .model: EmptyView()
             }
         } else if failed {
             ContentUnavailableView(
@@ -57,10 +54,11 @@ struct ShownView: View {
         }
     }
 
-    /// The file, or a model's picture, from the hub or kept on the phone.
+    /// The file, from the hub or kept on the phone; a model has its live view instead.
     private func load() async {
+        guard item.kind != .model else { return }
         do {
-            file = try await ShownFiles.fetch(item.id, part: item.kind == .model ? "poster" : "file", into: Self.folder)
+            file = try await ShownFiles.fetch(item.id, part: "file", into: Self.folder)
         } catch {
             failed = true
         }

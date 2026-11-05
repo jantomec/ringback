@@ -26,6 +26,19 @@ where it starts and ends in its own time, and its up axis (`Y` or `Z`; an STL is
 up). It exits 1 with why on stderr if it can't. `info` prints `{"renderer", "formats"}`.
 Apple's fallback frames the model as it stands at its first frame only.
 
+    ringback-render-apple serve MODEL WIDTH HEIGHT
+
+streams the model's live view, which the agent relays to the phone (only Apple's fallback has it
+yet). On stdin, one JSON object a line: `{"camera": {"yaw", "pitch", "distance", "target":
+[x, y, z]}}` (radians, and the model's units: the camera orbits the target), `{"frame": n}`
+(from 0, pausing), `{"play": true | false}` and `{"keyframe": true}`. On stdout, packets of a
+4-byte big-endian length, then a kind: `R`, JSON, ready, with the model's facts, its `home`
+view and the `fov`; `S`, JSON, `{"frame", "playing"}`; and `V`, a frame: H.264 Constrained
+Baseline in Annex B, its parameter sets before each key frame. It renders when something
+changes, or while it plays, at most 30 frames a second, and 15 more after a change for the
+picture to sharpen, then nothing; it ends when stdin closes. `tools/view-check` runs it through
+the hub and the agent.
+
 ## Building
 
     render/build.sh          # ringback-render
@@ -41,4 +54,4 @@ The binary finds the plugins beside itself. Link it (or `ringback-render-apple`)
 folder with `ringback-agent`, such as `~/.local/bin`, and restart the agent
 (`ringback-agent install`).
 
-Not yet: the live view, where the renderer streams the model as you turn it.
+Not yet: `serve` in `ringback-render`, OpenUSD's renderer.

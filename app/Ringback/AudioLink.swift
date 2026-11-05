@@ -11,7 +11,8 @@ import WebRTC
 /// CallKit owns the audio session, so WebRTC runs in manual-audio mode: CallKit activates
 /// the session and `activate`/`deactivate` hand it to WebRTC.
 final class AudioLink: NSObject, RTCPeerConnectionDelegate {
-    private static let factory: RTCPeerConnectionFactory = {
+    /// The one WebRTC factory, which a model's live view shares (ModelLink).
+    static let factory: RTCPeerConnectionFactory = {
         RTCInitializeSSL()
         return RTCPeerConnectionFactory()
     }()

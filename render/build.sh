@@ -15,7 +15,7 @@ ADOBE_TAG=2026.07
 
 if [ "${1:-}" = apple ]; then
     mkdir -p build
-    swiftc -O -o build/ringback-render-apple apple/main.swift
+    swiftc -O -o build/ringback-render-apple apple/*.swift
     echo "built $here/build/ringback-render-apple"
     exit 0
 fi

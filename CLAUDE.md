@@ -35,7 +35,8 @@ known problems left until testers report them are under "Limits and risks".
 Before calling the phone, try a change offline: `tools/hub-check` for the hub's side of a
 call, `tools/session-check` for a real Claude Code session placing its calls through the mod,
 agent and hub, and `tools/line-check` for a whole call through the real hub, agent and speech
-node with a stand-in phone.
+node with a stand-in phone, and `tools/view-check` for a model's live view through the real hub,
+agent and renderer.
 
 ## Checks
 

@@ -2,33 +2,38 @@ import SwiftUI
 
 /// The sessions you can call: every session with ringback on, on any of your Macs, by
 /// project. There are a handful, not hundreds as in the Phone app's Contacts, so each is a
-/// card: what its latest briefing was about and when, and whether a call of its waits.
-/// Tapping one calls it; holding it offers its details. Fetched from the hub every
+/// card: what its latest briefing was about and when, whether a call of its waits, and how
+/// many of the things it showed you you haven't opened. Tapping a card opens what it showed
+/// you; its green phone calls it; holding it offers its details. Fetched from the hub every
 /// 3 s while it shows, and on pull to refresh; an agent tells the hub within a
 /// second of a session starting or stopping to listen, and every 30 s.
 struct SessionsView: View {
     let state: AppState
     let calls: CallService
     @Environment(\.scenePhase) private var scenePhase
-    @State private var details: String?
+    @State private var opened: Opened?
+
+    /// What a card opens: what its session showed you, or its details.
+    enum Opened: Hashable {
+        case shown(String)
+        case details(String)
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 12) {
                     ForEach(state.contacts) { contact in
-                        Button { calls.callContact(contact) } label: {
-                            SessionCard(contact: contact, waiting: state.waiting.first { $0.session == contact.session })
-                        }
-                        .buttonStyle(CardStyle())
+                        SessionCard(
+                            contact: contact, waiting: state.waiting.first { $0.session == contact.session },
+                            unseen: state.shown.filter { $0.session == contact.session && !state.hasSeen($0) }.count,
+                            open: { opened = .shown(contact.session) }, call: { calls.callContact(contact) }
+                        )
                         .contentShape(.contextMenuPreview, .rect(cornerRadius: SessionCard.corner))
                         .contextMenu {
                             Button("Call", systemImage: "phone.fill") { calls.callContact(contact) }
-                            Button("Details", systemImage: "info.circle") { details = contact.session }
+                            Button("Details", systemImage: "info.circle") { opened = .details(contact.session) }
                         }
-                        .accessibilityIdentifier("Session")
-                        .accessibilityHint("Calls \(contact.project)")
-                        .accessibilityAction(named: "Details") { details = contact.session }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -53,23 +58,66 @@ struct SessionsView: View {
                     try? await Task.sleep(for: .seconds(3))
                 }
             }
-            .navigationDestination(item: $details) { session in
-                SessionDetailsView(session: session, state: state, calls: calls)
+            .navigationDestination(item: $opened) { opened in
+                switch opened {
+                case .shown(let session):
+                    ShownGallery(state: state, session: session, call: state.contacts.first { $0.session == session }.map { contact in
+                        { calls.callContact(contact) }
+                    })
+                case .details(let session):
+                    SessionDetailsView(session: session, state: state, calls: calls)
+                }
             }
         }
     }
 }
 
-/// A session as a card: its project's monogram, its project, what its latest briefing was
-/// about, when, and a call of its that waits; the green phone says a tap calls it.
+/// A session as a card: its project's monogram, with how many things it showed you you
+/// haven't opened, its project, what its latest briefing was about, when, and a call of its
+/// that waits. Tapping it opens what it showed you; its green phone calls it.
 private struct SessionCard: View {
     static let corner: CGFloat = 22
     let contact: Contact
     let waiting: WaitingCall?
+    let unseen: Int
+    let open: () -> Void
+    let call: () -> Void
 
     var body: some View {
         HStack(spacing: 14) {
+            Button(action: open) { summary }
+                .buttonStyle(CardStyle())
+                .accessibilityIdentifier("Session")
+                .accessibilityHint("Opens what \(contact.project) showed you")
+            Button(action: call) {
+                Image(systemName: "phone.fill")
+                    .font(.title3)
+                    .foregroundStyle(.white)
+                    .frame(width: 46, height: 46)
+                    .background(.green.gradient, in: .circle)
+            }
+            .buttonStyle(CardStyle())
+            .accessibilityLabel("Call \(contact.project)")
+        }
+        .foregroundStyle(.primary)
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Self.corner))
+    }
+
+    private var summary: some View {
+        HStack(spacing: 14) {
             Monogram(name: contact.project)
+                .overlay(alignment: .topTrailing) {
+                    if unseen > 0 {
+                        Text(unseen, format: .number)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .frame(minWidth: 20, minHeight: 20)
+                            .background(.red, in: .capsule)
+                            .offset(x: 4, y: -4)
+                    }
+                }
             VStack(alignment: .leading, spacing: 4) {
                 Text(contact.project).font(.title3.weight(.semibold)).lineLimit(1)
                 Text(contact.subject ?? "No briefing yet")
@@ -85,17 +133,10 @@ private struct SessionCard: View {
                 .padding(.top, 2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Image(systemName: "phone.fill")
-                .font(.title3)
-                .foregroundStyle(.white)
-                .frame(width: 46, height: 46)
-                .background(.green.gradient, in: .circle)
-                .accessibilityHidden(true)
         }
-        .foregroundStyle(.primary)
-        .padding(16)
-        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Self.corner))
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+        .accessibilityValue(unseen > 0 ? "\(unseen) new" : "")
     }
 
     private var when: some View {

@@ -34,12 +34,24 @@ struct ShownShelf: View {
 }
 
 /// All that sessions showed you, kept for a week: by day, newest first, and by project if you
-/// pick one.
+/// pick one. Or what one session showed you, from its card in Sessions, with a button to call
+/// it while it listens.
 struct ShownGallery: View {
     let state: AppState
+    var session: String?
+    var call: (() -> Void)?
     @State private var project: String?
 
-    private var items: [ShownItem] { state.shown.filter { project == nil || $0.project == project } }
+    private var items: [ShownItem] {
+        state.shown.filter { (session == nil || $0.session == session) && (project == nil || $0.project == project) }
+    }
+
+    /// The session's project, or "Shown" for everything.
+    private var title: String {
+        guard let session else { return String(localized: "Shown") }
+        return state.contacts.first { $0.session == session }?.project ?? state.shown.first { $0.session == session }?.project
+            ?? String(localized: "Shown")
+    }
 
     var body: some View {
         ScrollView {
@@ -62,13 +74,18 @@ struct ShownGallery: View {
             if items.isEmpty {
                 ContentUnavailableView(
                     "Nothing Shown", systemImage: "photo.on.rectangle",
-                    description: Text("Images, PDFs, clips and models your sessions show you are here for a week."))
+                    description: Text(session == nil
+                        ? "Images, PDFs, clips and models your sessions show you are here for a week."
+                        : "Images, PDFs, clips and models this session shows you are here for a week."))
             }
         }
-        .navigationTitle("Shown")
+        .navigationTitle(title)
         .toolbar {
+            if let call {
+                Button("Call", systemImage: "phone.fill", action: call)
+            }
             let projects = Array(Set(state.shown.map(\.project))).sorted()
-            if projects.count > 1 {
+            if session == nil, projects.count > 1 {
                 Menu {
                     Picker("Project", selection: $project) {
                         Text("All Projects").tag(String?.none)

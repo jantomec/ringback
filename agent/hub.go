@@ -240,6 +240,21 @@ func (h *hubLink) write(conn *websocket.Conn, message map[string]any) error {
 	return conn.Write(ctx, websocket.MessageText, data)
 }
 
+// sendBinary sends a binary message, such as a frame of a model's live view (view.go).
+func (h *hubLink) sendBinary(data []byte) error {
+	h.mu.Lock()
+	conn := h.conn
+	h.mu.Unlock()
+	if conn == nil {
+		return errNotLinked
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	h.writing.Lock()
+	defer h.writing.Unlock()
+	return conn.Write(ctx, websocket.MessageBinary, data)
+}
+
 // send sends a message that needs no answer.
 func (h *hubLink) send(message map[string]any) error {
 	h.mu.Lock()
@@ -309,6 +324,9 @@ type agent struct {
 
 	mu      sync.Mutex
 	offered map[string]*offer // the latest offer for each call, while its voice runs
+
+	viewMu  sync.Mutex
+	viewing *viewer // a model's live view, while it streams (view.go)
 }
 
 // offer is an offer the phone made for a call, while its voice runs.
@@ -360,6 +378,15 @@ func (a *agent) handle(m map[string]any) {
 		}
 		tries, _ := m["tries"].(float64)
 		a.calls.missed(id, heldUntil, int(tries))
+	case "view":
+		status, why := a.view(m)
+		a.hub.answer(m, status, why)
+	case "view_input":
+		a.viewInput(m)
+	case "view_end":
+		why, _ := m["why"].(string)
+		viewID, _ := m["view_id"].(string)
+		a.endView(viewID, or(why, "the phone closed it"))
 	case "answered":
 		a.markAnswered(id)
 	case "connected":
@@ -566,6 +593,7 @@ func (a *agent) ended(id string, lasted *float64) {
 // if the hub had said so, having lasted from when you answered or it connected, whichever came
 // last, until now.
 func (a *agent) linkDown() {
+	a.endView("", "the link to the hub closed")
 	a.mu.Lock()
 	type gone struct {
 		id     string
