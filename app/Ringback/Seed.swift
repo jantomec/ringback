@@ -16,6 +16,21 @@ enum Seed {
         "ringback": "e2b7c4d9-6f1a-4b3c-8d5e-7f9a1b3c5d7e", "ringback-2": "71f3a5c8-2e4b-4d6f-a8c1-3e5f7a9b1c2d",
     ]
 
+    /// The models a Mac offers, one of them not on the other Mac.
+    static let modelChoices = ModelChoices(
+        choice: "default",
+        models: [
+            .init(value: "default", name: "Opus 5.5", about: "Opus 5.5 · Best for everyday, complex tasks", default: true, missing: []),
+            .init(value: "opus", name: "Opus 5.5", about: "For complex work and everyday tasks", default: false, missing: []),
+            .init(value: "fable", name: "Fable 5.1", about: "For your toughest challenges", default: false, missing: []),
+            .init(value: "sonnet", name: "Sonnet 5.5", about: "Most efficient for simpler tasks", default: false, missing: []),
+            .init(value: "haiku", name: "Haiku 5.5", about: "Fastest for quick answers", default: false, missing: ["Laptop"]),
+        ],
+        macs: [
+            .init(name: "Desktop", linked: true, at: "2026-11-06T09:00:00Z", default: "Opus 5.5"),
+            .init(name: "Laptop", linked: false, at: "2026-11-04T17:30:00Z", default: "Opus 5.5"),
+        ])
+
     static func fill(_ state: AppState) {
         let now = Date.now
         let today = Calendar.current.startOfDay(for: now)

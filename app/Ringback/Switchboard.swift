@@ -122,6 +122,16 @@ enum Switchboard {
         return (waiting, hold, status)
     }
 
+    /// The models for conversation and your choice, kept by the hub. With `set` it changes the
+    /// choice, and with `refresh` the hub asks your Macs again, for what it answers next.
+    static func models(token: String, set: String? = nil, refresh: Bool = false) async throws -> ModelChoices {
+        var body: [String: Any] = ["token": token, "key": Shared.key ?? ""]
+        if let set { body["model"] = set }
+        if refresh { body["refresh"] = true }
+        let data = try await post("model", body, timeout: 5)
+        return try JSONDecoder().decode(ModelChoices.self, from: data)
+    }
+
     /// The sessions you can call, with ringback on, on every Mac, by project, each with where
     /// its call's audio goes (the hub). As for the waiting calls, only a paired phone gets them:
     /// a session's ID lets whoever has it call the session.

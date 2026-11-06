@@ -2,8 +2,9 @@ import AVFoundation
 import SwiftUI
 
 /// The app, like the iPhone's Phone app: Recents, the call history, and Sessions, the sessions
-/// you can call, as tabs. Its settings are in the Settings app (AppSettings). The in-call
-/// screen covers both while you're on a call.
+/// you can call, as tabs. Its settings are in the Settings app (AppSettings), but for those that
+/// can't be, on a sheet from the gear (SettingsSheet). The in-call screen covers both while you're
+/// on a call.
 struct RootView: View {
     let state: AppState
     let push: PushService
@@ -49,6 +50,9 @@ struct RootView: View {
         }
         .sheet(isPresented: Binding(get: { state.justPaired }, set: { state.justPaired = $0 })) {
             PairedView { state.justPaired = false }
+        }
+        .sheet(isPresented: Binding(get: { state.showsSettings }, set: { state.showsSettings = $0 })) {
+            SettingsSheet(state: state)
         }
         .alert("Couldn't Pair", isPresented: .constant(state.pairingProblem != nil)) {
             Button("OK") { state.pairingProblem = nil }

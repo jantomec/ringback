@@ -14,9 +14,10 @@ no server of anyone else's in between, apart from Apple's push service.
 
 1. **It rings like a phone call.** A locked phone rings through CallKit, in your headphones
    too, with the project's name as the caller and a few words on what the call is about.
-2. **It's a conversation.** You can interrupt mid-sentence: the voice stops the moment it
-   hears you, waits until you've finished, and answers everything you say, a short "mm-hmm"
-   included.
+2. **It's a conversation.** The voice lets you finish: its model reads your words at each
+   pause, and waits if you're going on. You can interrupt mid-sentence: the voice stops the
+   moment it hears you, then answers you or carries on from the sentence it stopped in, going by
+   what you said and what you'd heard. A "mm-hmm" in the middle of a sentence agrees to nothing.
 3. **One session per call.** The voice opens with what's new, then what needs you. What you
    want done goes to that session, and its answer comes back to the call. If you've hung up
    by then, or hung up without a word before you'd heard it, the session calls again; not
@@ -32,8 +33,9 @@ no server of anyone else's in between, apart from Apple's push service.
    the Claude app instead.
 7. **You can call back.** Any call in your history, and any session with ringback on, is a
    tap away in the app.
-8. **A better model on request.** Ask for one and Opus takes the call over, with everything
-   said so far.
+8. **The model you choose.** The app's Settings choose the model for conversation, and it
+   starts as what your Claude Code sessions use. Ask on a call for a better one and Opus takes
+   the call over, with everything said so far.
 9. **It understands you.** Recognition copes with non-native accents. When a reply is
    unclear, the voice asks instead of guessing, and a permission is granted only on a clear
    yes.
@@ -48,7 +50,7 @@ no server of anyone else's in between, apart from Apple's push service.
   │ session ── ringback mod   │        │ hub                │◀───────│ app             │
   │               │ socket    │  link  │  push, hold, work  │  HTTP, │  CallKit, audio │
   │               ▼           │───────▶│  hours, waiting    │  call  │  Recents,       │
-  │ agent ── Haiku / Opus     │        │  calls, sessions,  │  audio │  Sessions, hold │
+  │ agent ── call's model     │        │  calls, sessions,  │  audio │  Sessions, hold │
   │          (claude -p)      │        │  the call's audio  │        └─────────────────┘
   └───────────────────────────┘        │  and timing,       │                ▲
                                        │  portal            │── Apple push ──┘
@@ -65,7 +67,7 @@ no server of anyone else's in between, apart from Apple's push service.
 | **app** (`app/`, Swift) | an iPhone on iOS 26 or later | rings through CallKit when a VoIP push comes; carries the call's audio to the hub (WebRTC, Opus), or with On-device voice hears and speaks the call itself; Recents, Sessions and the hold switch; what sessions show you, with its notification extension, and a model's live view; its settings are in the Settings app |
 | **hub** (`hub/`, Go) | one always-on machine | the phone's endpoints; pushes through Apple (APNs); work hours, the hold and the calls that wait; the sessions you can call; each call's audio (WebRTC through Pion, Opus through libopus) and its timing; what sessions show you, kept a week, and a model's live view, relayed; the portal |
 | **speech node** (`speech/`, Go with sherpa-onnx) | a Linux machine with an NVIDIA GPU | hearing: Silero VAD v5, Smart Turn v3.2, Parakeet TDT 0.6B v2; speaking: Kokoro v1.0 with the `af_heart` voice |
-| **agent** (`agent/`, Go) | each Mac that runs sessions | the mods' socket; each call's state; the call's Haiku, and Opus on request, as `claude -p` on your Claude subscription; the call transcripts; sends what sessions show you to the hub, and streams a model's live view from its renderer |
+| **agent** (`agent/`, Go) | each Mac that runs sessions | the mods' socket; each call's state; the call's model as `claude -p`, on your Claude subscription; the call transcripts; sends what sessions show you to the hub, and streams a model's live view from its renderer |
 | **renderer** (`render/`, C++ and Swift) | beside the agent, optional | renders a 3D model a session shows you: its picture, and its live view as H.264; OpenUSD's Storm, or on a Mac without it, Apple's SceneKit |
 | **mod** (`mod/`, TypeScript) | each Claude Code session, as a plugin | `/ringback`; has the session write its call briefing; brings what you say on a call to the session as a prompt; puts permissions and questions to the call; the `show` tool |
 
@@ -85,7 +87,7 @@ builds on Linux too, but has no service there yet.
   from the speech node's events; stopping the voice the moment you interrupt; cutting each
   reply into pieces to speak; and how much of each you've heard.
 - **The agent owns what's said:** the call's state (placed, held, answered, remembered for
-  calling back), Haiku and Opus and their tools, holding what's passed on until you've heard
+  calling back), the model and its tools, holding what's passed on until you've heard
   it announced, the transcript, and the note to the session afterwards.
 - **The speech node runs the models:** it hears your audio and says when you speak and what
   you said, and turns text into speech. It has no state of its own about calls.
@@ -105,7 +107,7 @@ builds on Linux too, but has no service there yet.
    asks the hub to ring. The hub either holds the call (outside your hours, on hold, or with
    no speech; see the next sections) or rings: a VoIP push to every paired phone with the
    call's ID, project, subject and session, and a word to the speech nodes to load their
-   models (about 2.2 s, while the phone rings). The agent starts Haiku on the briefing at
+   models (about 2.2 s, while the phone rings). The agent starts the model on the briefing at
    once, so its opening is written while the phone rings, as a person thinks of what to say
    while the other side picks up.
 3. **Ringing.** The phone rings for 30 s. Meanwhile the app reaches the hub (`/ping`, each
@@ -118,16 +120,17 @@ builds on Linux too, but has no service there yet.
    on the app's banner. If you hang up first, it still says why.
 4. **Answering.** The app tells the hub (`/answered`), and the voice speaks its opening.
 5. **Hearing you.** The hub decodes your audio and sends it to the speech node at 16 kHz.
-   Silero says when you start and stop speaking; Smart Turn says when you've finished, and a
-   pause of 1.5 s ends your turn anyway; Parakeet writes down what you said, and when it writes
-   nothing for a stretch of speech, writes it down once more from just before it began (it
-   misses a short "Yes." with a second of audio before it). Your words reach the hub about
-   0.3 s after you stop (`speech/README.md`).
-6. **The reply.** The hub gives your words to the agent, and Haiku answers in a Claude Code
-   session that stays open for the whole call, so each turn sends only what's new. Its first
-   words come about 1.2 s after your turn (`tools/reply-speed`). The agent passes the reply
-   to the hub a sentence at a time as it's written, the hub cuts it into pieces, the speech
-   node speaks each, and the hub plays them.
+   Silero says when you start and stop speaking; Parakeet writes down what you said, and when
+   it writes nothing for a stretch of speech, writes it down once more from just before it began
+   (it misses a short "Yes." with a second of audio before it). At every pause of about 0.7 s,
+   your words go to the hub: whether you've finished is for the model to say. Smart Turn still
+   scores each turn, for the log.
+6. **The reply.** The hub gives your words to the agent, and the model answers in a Claude Code
+   session that stays open for the whole call, so each turn sends only what's new, or writes
+   `[wait]` if you're going on (Whose turn it is, below). Its first words come about 0.9 s after
+   your turn on Opus, 1.2 s on Haiku and 2 s on Sonnet (`tools/reply-speed`). The agent passes
+   the reply to the hub a sentence at a time as it's written, the hub cuts it into pieces, the
+   speech node speaks each, and the hub plays them.
 7. **Passing it on.** What you want done goes to the session (Acting on the call, below). The
    mod collects it once a second and submits it to the session as a prompt; the session's
    answer comes back to the call as a note, and the voice tells you once it has finished
@@ -145,18 +148,56 @@ builds on Linux too, but has no service there yet.
 ### Speaking a reply
 
 The first sentence is spoken on its own as soon as it's complete, so the voice starts fast.
-Then, one second before the piece that's playing ends, everything Haiku has finished since,
+Then, one second before the piece that's playing ends, everything the model has finished since,
 up to its last complete sentence, becomes the next piece. Larger pieces keep the intonation
 and pauses natural; one sentence per piece left about 0.75 s of silence between sentences.
 The speech node makes a sentence's first audio in about 0.12 s (`speech/README.md`), well
 inside the one second.
 
+### Whose turn it is
+
+The model decides when you've finished, from your words and the conversation, because nothing
+else could tell. On 98 turns of 8 real calls by a speaker who stops mid-sentence to find a word,
+Smart Turn, which hears only the sound, waited on 7 of the 50 unfinished ones, and Sonnet reading
+the words on 41 (`tools/turn-replay`). At each pause the model gets your words so far:
+
+- **It answers,** if you've said what you wanted to. A short, clear answer to a question you've
+  heard is finished, even one word.
+- **Or it writes `[wait]`,** and nothing is said. What you say next goes as the next turn, and
+  the earlier words are in its session already. A session's note waits meanwhile, so the voice
+  doesn't talk over your thinking. If you've said nothing 3 s later, it's told so and answers.
+- **If you go on before it's spoken,** its reply is stopped where it is and never spoken. Claude
+  Code keeps the turn, so your words stay in its session.
+
+Turns are asked about at 0.7 s of pause: sooner would ask in the middle of more sentences, and
+later holds up every reply. So the voice's first words come about 0.7 s plus the model's time
+after you stop, whether it's sure or not.
+
 ### Interruptions
 
-When you start speaking while the voice talks, the hub stops it at once, drops every piece
-not yet played, and tells the agent how much of the reply you heard, word for word. Haiku's
-session already holds the whole reply it wrote, so its next message says where you cut it
-off. The voice then waits until you've finished and answers what you said.
+When you start speaking while the voice talks, the hub stops it at once and keeps the rest of the
+reply: the pieces not yet played, and what's still being made. The agent hears how much of it you
+heard, word for word. Your words then come at your next pause, and go to the model with what you
+heard and what you didn't. They can only be about what you heard, so they can't answer or agree
+to anything in the rest. It then does one of three things:
+
+- **Answers you.** Its reply takes the place of the rest, which is dropped, with anything it had
+  announced that you hadn't heard yet; it was told that, and does it again if you still want it.
+- **Writes `[continue]`,** if you only showed you're listening, or what you said changes nothing.
+  The voice goes back to the start of the sentence it stopped in and plays on, as it was, and what
+  it held goes as you hear it announced.
+- **Writes `[wait]`,** if you're going on.
+
+Two cases don't need the model, so the voice goes on at once: a stop with no words, as with a
+cough, and a bare "mm-hmm", "yeah" or "okay" before you've heard a question in that reply. A
+"yes" once you've heard one goes to the model, which takes it as the answer: on a call, a "Yes."
+right after a question was one, and a "Yeah." mid-sentence wasn't, so the word alone can't say.
+Parakeet can mishear so short a word: in `tools/line-check` a "Mm-hmm." came out as "Mammal.", and
+the model, told it had stopped, read that in context and carried on, about a second later than
+the word list would have.
+
+A phone that speaks itself can only stop, so with On-device voice the rest is dropped, as it was
+before, and the model hears what you'd heard.
 
 Two settings in the app decide what counts as you speaking, and go with each call's offer:
 - **Interruption Sensitivity** sets how sure and how long speech must be (0.1 s at the most
@@ -173,23 +214,20 @@ Two settings in the app decide what counts as you speaking, and go with each cal
 Before that, the phone's voice processing removes echo and background noise, and Voice
 Isolation (switched on once in Control Center) more of it.
 
-If something stops the voice but no words are recognised, as with a cough, the voice carries
-on from the start of the sentence it was in (once in a row).
-
 ### Acting on the call
 
-On a call for a session, Haiku has three tools, served by a small MCP server the agent starts
+On a call for a session, the model has three tools, served by a small MCP server the agent starts
 with each `claude -p`: `pass_to_session` for what you want the session to do or know, and
 `answer_permission` and `answer_question` for what the session asks you. Every call also has
 `better_model`.
 
-- Haiku says what it's passing on, or what it will answer, then calls the tool. The message
-  is held until you've heard the voice say so, and dropped if you cut it off before; Haiku is
+- The model says what it's passing on, or what it will answer, then calls the tool. The message
+  is held until you've heard the voice say so, and dropped if you cut it off before; the model is
   then told, and passes it again if you still want it. A tool called before any words waits
-  for the sentence after it. If Haiku reaches for a tool before saying anything, the voice
+  for the sentence after it. If the model reaches for a tool before saying anything, the voice
   says "Okay." at once, so you aren't left in silence.
-- What Haiku writes after a tool isn't spoken if it said something before: it tends to repeat
-  itself. Nor is a sentence that names one of its tools: on a call, Haiku once said the call it
+- What the model writes after a tool isn't spoken if it said something before: it tends to repeat
+  itself. Nor is a sentence that names one of its tools: on a call, the model once said the call it
   was about to make ("Then call answer_permission with allow true"). So the agent passes a
   reply on a sentence at a time, which costs no time: the hub speaks only whole sentences.
 - Before you've said anything, `pass_to_session` passes nothing: an opening written while the
@@ -199,7 +237,7 @@ with each `claude -p`: `pass_to_session` for what you want the session to do or 
   says.
 - When several things need your answer, it says how many, asks them one at a time, and passes
   the answers on together.
-- A permission: Haiku says in plain words what the session wants to do, and whether it
+- A permission: the model says in plain words what the session wants to do, and whether it
   deletes, overwrites, pushes or spends anything, and takes only a clear yes or no ("I said
   yes" counts). A question: it reads it and its options, and takes your choice or your own
   words; it never chooses for you.
@@ -270,7 +308,7 @@ sends its hours and time zone with each registration and connection check, so a 
 reaches the hub within half an hour at most. Days of the week aren't covered.
 
 **A held call.** The hub answers that the call is held, and until when, if work hours will
-end the hold. The agent keeps the call, without starting Haiku, and asks again then, or
+end the hold. The agent keeps the call, without starting the model, and asks again then, or
 after 10 min if that's sooner, so hours you widen apply within 10 min; it waits on the wall
 clock, so a Mac that slept still asks on time, and keeps its Mac awake meanwhile
 (`caffeinate`). A new briefing from the same session replaces the held call's subject and
@@ -312,11 +350,11 @@ answered, declined or missed a call; one it says nothing of within 75 s, as when
 counts as missed. Meanwhile the call waits under Waiting in the app ("Rings again at 14:05"),
 its session is told each time, and calling it now, calling it back from Recents, or calling
 its session from Sessions ends the wait: it doesn't ring again, and the next call in turn
-rings once you hang up. Each ring starts a fresh Haiku, as the opening is written for it.
+rings once you hang up. Each ring starts a fresh model, as the opening is written for it.
 
 **Calling back.** Tapping any call in Recents calls its session straight away, without
 ringing, answered calls too. The agent remembers each call for a day, across restarts, and
-the call back gets a fresh Haiku with that call's briefing: for a call you missed, it opens
+the call back gets a fresh model with that call's briefing: for a call you missed, it opens
 with what it was about; for one you took, with what changed since, or says nothing has and
 asks what you want. If the session wrote a newer briefing since, that follows. If the session
 isn't listening any more, the call still connects, but the voice can't pass anything on and
@@ -364,17 +402,34 @@ as on: no mod API says whether it is, and the variable Claude Code gives hooks w
 doesn't reach a mod (`tools/env-check`). Switched off since, a question sent to the Claude app
 waits in the terminal's dialog.
 
+## The model for conversation
+
+The app's Settings sheet, from the gear on Recents and Sessions, chooses the model that talks on
+calls, "Default" at first: what a Claude Code session on that Mac would use, the model in its
+settings or else Claude Code's own default. The list isn't kept here. Claude Code says which models
+it offers, without a model turn, in about 0.5 s (`initialize` on a `claude -p`), and each agent
+asks it when it links to the hub, every hour, and when you open the sheet. So a new model shows by
+itself, and a name such as `opus` follows new versions. The hub remembers each Mac's list, so a
+sleeping Mac's models still show, says which Macs lack a model, and keeps one choice for them all,
+as it keeps the hold. It reaches each agent at once, or as it links, because a call needs it
+before the phone rings. A Mac that doesn't offer it uses its own default, and the choice stays, in
+case it comes back. A call uses the model chosen when it starts.
+
+It's on a sheet of the app's own, not with the other settings, because a Settings bundle's lists
+are fixed when the app is built, and a change there reaches the hub only when the app next runs.
+The Settings app shows it read-only, with a link to the sheet, and the portal shows it too.
+
 ## A better model on the line
 
-When you ask ("can I get a better model on the line?"), Haiku says so and calls `better_model`,
-which is held until you've heard it, like the other tools. Then Haiku's process is closed and
-its session resumed with Opus (`claude -p --resume <id> --model opus`), with the same tools, so
-Opus has the whole conversation, tool calls included. Opus is told it's taking over and speaks
-first. From your request to Opus's first words took 6–7 s offline (`tools/handover-check`, in
-git history): Haiku's short line, then a few seconds of silence. Opus's first turn is mostly
-uncached and costs about as much of your usage as ten later turns, once. If Opus isn't
-available (a usage limit, or a plan without it), the voice goes silent; there's no way back to
-Haiku.
+When you ask ("can I get a better model on the line?"), the model says so and calls `better_model`,
+which is held until you've heard it, like the other tools. Then its process is closed and its
+session resumed with Opus (`claude -p --resume <id> --model opus`), with the same tools, so Opus
+has the whole conversation, tool calls included. Opus is told it's taking over and speaks first.
+From your request to Opus's first words took 6–7 s offline (`tools/handover-check`, in git
+history): a short line, then a few seconds of silence. Opus's first turn is mostly uncached and
+costs about as much of your usage as ten later turns, once. If Opus isn't available (a usage
+limit, or a plan without it), the voice goes silent; there's no way back. On Opus already, it says
+so.
 
 The call's Claude Code session runs in a private folder of the call's, and that folder, with
 Claude Code's own record of it under `~/.claude/projects`, is deleted when the call ends, so
@@ -612,7 +667,7 @@ The private network is the outer wall: anything on it can reach the hub. Inside 
 - **On each Mac:** the agent's socket and its state file (which holds call IDs) are readable
   only by you. Any program running as you could use the socket as a mod does. Transcripts stay
   in each project's `.ringback/calls/`.
-- **The call's model.** Haiku and Opus run with no tools but the call's own, no other MCP
+- **The call's model.** It runs with no tools but the call's own, no other MCP
   servers, no slash commands and no settings files (whose hooks could start another call), in
   a folder of the call's outside your project, so the project's `CLAUDE.md` doesn't reach
   them.
@@ -695,9 +750,21 @@ with a certificate, or a private certificate authority installed on each device 
 - **Kokoro `af_heart`** for the voice: preferred over Pocket TTS and Apple's standard voices
   in a listening test (Apple's Premium voices weren't tried). Pieces play as made: trimming
   the silence between them sounded worse.
-- **A 1.5 s end-of-turn wait.** At 3 s, a short "mm-hmm" that Smart Turn judged unfinished
-  took about 5 s to answer; at 1 s little room is left over the pauses in free speech (up to
-  0.74 s on your recordings).
+- **The model decides when you've finished,** not Smart Turn, a fixed wait or a list of words.
+  Smart Turn hears audio only, and it closed 89 of 98 real turns after 0.2 s of silence, scoring
+  "But uh there should be some kind of" 0.98; it told turns you went on from barely better than
+  chance (AUC 0.58, where 0.5 is chance), and giving its score to the model, whole or only when
+  very low, didn't help (`tools/turn-replay`). A fixed wait of 2 s would have caught 35 of the 42
+  turns you resumed from, added 1.7 s to every reply, and still spoken over a longer pause. Words
+  alone at the end of a turn (a filler, "the", "of") caught 14. LiveKit's turn detector can't be
+  used: its good version is cloud-only, and its licence bars the local one outside LiveKit's
+  framework. Better audio, such as p99lab's turn-1-mini or your pitch against your own range, may
+  yet add something the words can't, at the pauses where they leave the model unsure; that needs
+  your audio, measured at each pause.
+- **Stopping the voice keeps the rest of its reply,** rather than dropping it and having the model
+  say it again: carrying on then costs nothing, and takes no time. Before, 32 of 48 "interruptions"
+  on one morning's calls cut off a reply you'd heard none of, and a "Yeah." dropped what the
+  voice had announced: nine messages, five of them the same one.
 - **A level gate for other people's voices,** not a model. A model trained on a sample of
   your voice (VoxLock, kept as the tag `voxlock`) kept a voice 6 dB below yours out
   entirely, but slowed every interruption by about 0.1 s, raised Parakeet's errors from 5.9% to
@@ -706,19 +773,19 @@ with a certificate, or a private certificate authority installed on each device 
 - **Settings between calls,** not during: the in-call screen covers the app.
 
 **The voice**
-- **Haiku on your subscription through Claude Code,** not the API, for a personal tool; in a
+- **The call's model on your subscription through Claude Code,** not the API, for a personal tool; in a
   session that stays open for the call, not a `claude -p` per turn (3.2 s each, 1.7 of it
   start-up).
 - **The session's briefing as the voice's context.** The session's last message is too
   little; a fork of the whole session is slow to start and costs more on every call.
-- **Tools for acting,** not tags in the reply: nothing ends Haiku's turn after a tag, and it
+- **Tools for acting,** not tags in the reply: nothing ends the model's turn after a tag, and it
   went on to imagine the session's answers. Messages are **held until heard,** since one passed
   as soon as it was written had to be taken back when you cut the voice off.
 - **The session writes the subject** with its briefing, rather than a separate model call.
 - **The voice's model runs outside your project,** so your `CLAUDE.md` doesn't load into it
   and calls don't fill your `/resume` list; the agent writes a plain transcript into the
   project instead.
-- **A call back gets a fresh Haiku,** not the missed call's, whose opening was written for a
+- **A call back gets a fresh model,** not the missed call's, whose opening was written for a
   call the session placed.
 
 **The session's side**
@@ -768,7 +835,7 @@ with a certificate, or a private certificate authority installed on each device 
 - **What sessions show you is kept on the hub as it came,** for a week, readable by whoever runs
   the hub's machine. On your own hub that's you; on one someone hosts, it would need the
   end-to-end encryption under Next.
-- **Every ring costs a Haiku opening** on your subscription, even if you decline it, so a call
+- **Every ring costs an opening from the model** on your subscription, even if you decline it, so a call
   you keep missing costs six; and a held call keeps its Mac awake until it rings.
 - **Other people's voices and noise.** The background filter's default is an absolute level,
   and how loud each microphone delivers your voice on a call isn't measured; it leaves about
@@ -799,7 +866,11 @@ with a certificate, or a private certificate authority installed on each device 
   warning can come late or not at all.
 - **The VPN on the phone can go off by itself:** Nebula did once, with Always On set, cause
   unknown. The connection check is there for this.
-- **Opus unavailable** leaves the voice silent, with no way back to Haiku.
+- **Opus unavailable** leaves the voice silent, with no way back.
+- **The voice can wait when you've finished.** The model waited on about 9 of 48 finished turns,
+  in a replay (`tools/turn-replay`), and each then takes 3 s more. It's tuned on those same turns,
+  and from one speaker. A model the app still lists after it's retired could leave a call silent
+  until the list next refreshes (not tried).
 - **A crash mid-call** may leave that call's Claude Code session under `~/.claude/projects`
   (not checked).
 - **Several speech nodes aren't balanced:** a call goes to any one of them, and for a call
@@ -909,6 +980,12 @@ how things look):
 - calling a waiting call now;
 - a held call's question sent to the Claude app;
 - the voice leaving out a sentence that names a tool;
+- the model deciding when you've finished, with `[wait]` and its 3 s limit, and a reply you speak
+  over kept and carried on from the start of its sentence, or dropped for a new one (the agent's
+  tests, `tools/hub-check`, `check.sh` on the GPU, `tools/line-check` with the real model and node
+  and a Kokoro voice for yours, and a replay of real turns; on no call with a person yet);
+- the model for conversation: the agent asking Claude Code, the hub keeping the lists and the
+  choice, and the app's sheet (the agent's and hub's tests, `tools/app-screens`);
 - the hub serving HTTPS and WSS (`[tls]`), renewed without a restart, and the agent and the
   speech node linking to it; the app's side isn't tried at all;
 - Macs and speech nodes pairing and linking with their own keys (a Mac's agent paired with
@@ -983,7 +1060,7 @@ host unable to read their calls.
   share keys from pairing them directly (a code the agent shows, so the hub can't swap the
   keys), and the call's words, its subject and the push's text would cross the hub encrypted.
   Cutting replies into pieces and counting what you've heard would move from the hub to the
-  agent, and the hub's log would lose the words it keeps now. Haiku still runs through
+  agent, and the hub's log would lose the words it keeps now. The model still runs through
   Anthropic, as it does now. With a speech node it can't be end to end: the node has to hear
   you.
 - [ ] **The Mac client as a package:** a signed, ready-built agent and mod that a user
@@ -1009,3 +1086,15 @@ host unable to read their calls.
   in `ringback-render`, encoding H.264 there (NVENC); and the agent needs a service on Linux
   (systemd, as the hub's and the speech node's), with the mod in its sessions.
 - [ ] **The call history in iCloud,** rather than on the phone only.
+- [ ] **Ending a call by voice:** when you say bye the voice goes over what you settled, says bye
+  and hangs up; speaking during that stops it. It needs the app to end the call through CallKit
+  when the hub says so (`hang_up` is there, and nothing sends it yet).
+- [ ] **At least 60 s between calls,** so you can think about the last one before the next rings;
+  not for calls you make yourself.
+- [ ] **What a session showed you, during a call:** the call screen can't be left, so nothing
+  shown can be opened until you hang up.
+- [ ] **Sending text or a link to the phone,** which `show` can't: it takes files.
+- [ ] **The caller's name from where the session started and its title:** it's the session's
+  current folder now, so a session that moved rings as "data", and its transcript goes there too.
+- [ ] **Better speech models:** a blind listening test of the voice through the call's audio, and
+  speech recognition on your own terms and short answers (`tools/tts-trial`, `tools/stt-trial`).

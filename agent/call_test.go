@@ -42,21 +42,21 @@ func TestCallHeldUntilHeard(t *testing.T) {
 		place["subject"] == "Parser fix" && place["question"] == false && len(callID) == 32, place)
 	check(t, "Haiku is asked for the opening while it rings", a.waitTurn(1, 5*time.Second) == answeredTurn)
 	start := a.starts()[0]
-	check(t, "Haiku starts on a new session", start["model"] == "haiku" && start["how"] == "--session-id", start)
+	check(t, "the model starts on a new session, Claude Code's default", start["model"] == "" && start["how"] == "--session-id", start)
 	check(t, "with the session's rules and briefing", strings.HasPrefix(start["system"].(string), rules+sessionRules) &&
 		strings.HasSuffix(start["system"].(string), "The parser fix is done; it needs a push.\n"))
 	check(t, "and the session's tools", slices.Equal(anyStrings(start["tools"]), []string{"pass_to_session", "answer_permission", "answer_question", "better_model"}), start["tools"])
 
 	opening := a.answer(callID)
 	check(t, "the opening", opening == "Hi, the parser fix is done.", opening)
-	a.waitLog("Haiku: first words after", time.Second)
+	a.waitLog(": first words after", time.Second)
 	a.played(callID, opening)
 
 	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "Tell it to push the branch."})
 	check(t, "your words go to Haiku as they are", a.waitTurn(2, 5*time.Second) == "Tell it to push the branch.")
 	text, _ := hub.reply(callID, 2, 5*time.Second)
 	check(t, "reply 2", text == "Sure, I'll pass that on.", text)
-	a.waitLog("Haiku → session, held until heard: 'Push the branch.'", 2*time.Second)
+	a.waitLog("→ session, held until heard: 'Push the branch.'", 2*time.Second)
 	hub.send(map[string]any{"type": "speaking", "call_id": callID})
 	hub.send(map[string]any{"type": "heard", "call_id": callID, "text": "Sure, I'll pass"})
 	time.Sleep(100 * time.Millisecond)
@@ -168,7 +168,7 @@ func TestNotesAndAsksOnACall(t *testing.T) {
 		{Wait: writing}, say("Anything else?"),
 	}})
 	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "Yes, go ahead."})
-	a.waitLog("Haiku answers the session, held until heard: permission "+id+": allow ('Yes, go ahead.')", 2*time.Second)
+	a.waitLog("answers the session, held until heard: permission "+id+": allow ('Yes, go ahead.')", 2*time.Second)
 	_, verdict := a.mod("GET", "/sessions/s2-session/permissions/"+id+"?wait=0", nil)
 	check(t, "pending until you've heard the answer", verdict["verdict"] == "pending" && verdict["said"] == nil, verdict)
 	waited := make(chan map[string]any)
@@ -425,7 +425,7 @@ func TestHandOver(t *testing.T) {
 	a.played(callID, a.answer(callID))
 	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "Can I talk to a smarter model?"})
 	text, _ := hub.reply(callID, 2, 5*time.Second)
-	a.waitLog("Haiku puts Opus on, held until heard", time.Second)
+	a.waitLog("Opus goes on, held until heard", time.Second)
 	check(t, "better_model answers that it's held", lastToolResult(a) == handOverHeld, lastToolResult(a))
 	hub.send(map[string]any{"type": "speaking", "call_id": callID})
 	hub.send(map[string]any{"type": "heard", "call_id": callID, "text": text})
@@ -438,7 +438,7 @@ func TestHandOver(t *testing.T) {
 		starts[1]["id"] == starts[0]["id"], starts)
 	text, _ = hub.reply(callID, 3, 5*time.Second)
 	check(t, "Opus speaks next", text == "Opus here.", text)
-	a.waitLog("handed over: Haiku closed and Opus started on its session in", time.Second)
+	a.waitLog("handed over: the model closed and Opus started on its session in", time.Second)
 	hub.send(map[string]any{"type": "ended", "call_id": callID, "lasted": 20.0})
 	a.waitMessage("s3-session", "outcome", 3*time.Second)
 }

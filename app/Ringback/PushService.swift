@@ -110,6 +110,11 @@ final class PushService: NSObject, PKPushRegistryDelegate {
     /// token has come. Not a link of that shape: nothing happens.
     @MainActor
     func open(_ url: URL) async {
+        // From the Settings app, whose page has a link to the app's own settings.
+        if url.scheme == "ringback", url.host() == "model" {
+            state.showsSettings = true
+            return
+        }
         guard url.scheme == "ringback", url.host() == "pair",
             let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
             let hub = items.first(where: { $0.name == "hub" })?.value.flatMap(Switchboard.normalize),

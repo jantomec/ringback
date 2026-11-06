@@ -14,6 +14,8 @@ test saves, for each appearance:
   Calls, calls answered, missed, declined, called back, called from Sessions, one that
   didn't connect, one on another call, from today, yesterday, this week and earlier; and the
   hold switch beside the tabs, on hold until tomorrow's work hours;
+- `model-setting`: the app's own Settings sheet, from the gear: the models for conversation, one
+  not on a Mac, and a Mac asleep;
 - `recents-swipe`: the waiting call with a question swiped open to its "Claude App" action;
 - `call-details`, `call-details-outgoing`, `waiting-details`: a call's details from its ⓘ;
 - `shown-all`, what sessions showed you, by day, from Recents' Shown shelf; `shown-image`,

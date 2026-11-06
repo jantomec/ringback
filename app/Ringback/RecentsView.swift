@@ -51,6 +51,7 @@ struct RecentsView: View {
                 }
             }
             .navigationTitle("Recents")
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { SettingsButton(state: state) } }
             // Checks that calls can reach the phone, and fetches the waiting calls.
             .refreshable { await push.connect(force: true) }
             .navigationDestination(item: $details) { shown in

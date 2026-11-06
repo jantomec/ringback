@@ -30,6 +30,24 @@
 		</dict>
 		<dict>
 			<key>FooterText</key>
+			<string>Your Macs decide which models you can choose, so you set this in Ringback, from the gear on Recents or Sessions. [Change in Ringback](ringback://model)</string>
+			<key>Title</key>
+			<string>Default Model for Conversation</string>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+		</dict>
+		<dict>
+			<key>DefaultValue</key>
+			<string>Default</string>
+			<key>Key</key>
+			<string>defaultModelLabel</string>
+			<key>Title</key>
+			<string>Model</string>
+			<key>Type</key>
+			<string>PSTitleValueSpecifier</string>
+		</dict>
+		<dict>
+			<key>FooterText</key>
 			<string>Claude calls only between these times. A call outside them waits until they start. From later than To runs past midnight, and the same time means any time. Changes reach your hub when Ringback next runs, at the latest within half an hour.</string>
 			<key>Title</key>
 			<string>Work Hours</string>

@@ -5,8 +5,8 @@ package main
 //	ringback-agent mcp SOCKET [TOOL...]
 //
 // It speaks MCP over stdin and stdout, and relays each tool call to the call that started
-// Haiku, over SOCKET in that call's private folder. A tool call ends Haiku's turn until its
-// result comes back, so Haiku can't go on to imagine the session's answer, as it did when it
+// The model, over SOCKET in that call's private folder. A tool call ends the model's turn until its
+// result comes back, so the model can't go on to imagine the session's answer, as it did when it
 // passed messages in tags. Its tools pass the session a message, answer the permission or
 // questions the session asks you, or put a better model on the line. It offers the TOOLs
 // named, or all.

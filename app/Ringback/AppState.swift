@@ -176,6 +176,8 @@ final class AppState {
     /// How pairing went, shown once: paired, or why not.
     /// The phone has just paired, for the sheet that says so.
     var justPaired = false
+    /// The app's own settings show (SettingsSheet).
+    var showsSettings = false
     /// Why a pairing link didn't pair, for an alert.
     var pairingProblem: String?
     var activeCall: ActiveCall?

@@ -76,6 +76,20 @@ func fakeClaude(path string) int {
 	kept := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", notAlphanumeric.ReplaceAllString(real, "-"))
 	os.MkdirAll(kept, 0o700)
 	os.WriteFile(filepath.Join(kept, id+".jsonl"), []byte("{}\n"), 0o600)
+	if id == "" {
+		// Asked only which models it offers.
+		in := bufio.NewReader(os.Stdin)
+		in.ReadBytes('\n')
+		emit(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "response": map[string]any{
+			"claude_code_version": "9.9.9",
+			"models": []any{
+				map[string]any{"value": "default", "resolvedModel": "claude-test-1", "displayName": "Default (recommended)", "description": "Test 1 · Best for tests"},
+				map[string]any{"value": "opus", "resolvedModel": "claude-opus-9", "displayName": "Opus 9", "description": "For hard things"},
+				map[string]any{"value": "haiku", "resolvedModel": "claude-haiku-9", "displayName": "Haiku 9", "description": "Fastest"},
+			},
+		}}})
+		return 0
+	}
 	mcp := startMCP(args["--mcp-config"])
 	record(map[string]any{"start": map[string]any{
 		"model": args["--model"], "how": how, "id": id, "system": args["--system-prompt"], "tools": mcp.tools,
@@ -87,9 +101,19 @@ func fakeClaude(path string) int {
 		line, err := in.ReadBytes('\n')
 		if len(line) > 0 {
 			var turn struct {
+				Type    string
 				Message struct{ Content string } `json:"message"`
 			}
 			json.Unmarshal(line, &turn)
+			if turn.Type == "control_request" {
+				// It reads one line at a time, so there's no reply to stop.
+				record(map[string]any{"control": true})
+				emit(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success"}})
+				if err != nil {
+					return 0
+				}
+				continue
+			}
 			message := turn.Message.Content
 			record(map[string]any{"message": message})
 			steps := []fakeStep{{Text: "Okay."}}

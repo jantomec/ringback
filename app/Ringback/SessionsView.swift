@@ -48,6 +48,7 @@ struct SessionsView: View {
                 }
             }
             .navigationTitle("Sessions")
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { SettingsButton(state: state) } }
             .refreshable { await state.refreshContacts() }
             // While it shows and the app is in front: the task ends when either stops.
             .task(id: scenePhase) {

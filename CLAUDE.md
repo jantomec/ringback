@@ -14,10 +14,10 @@ parts talk to each other.
 - `hub/` (Go): one always-on Mac. Push (APNs), work hours, the hold and the calls that wait,
   the sessions you can call, each call's audio (WebRTC, Opus) and timing, the portal.
 - `speech/` (Go, sherpa-onnx on CUDA): the optional speech node on a Linux machine with an
-  NVIDIA GPU. Hears (Silero, Smart Turn v3, Parakeet v2) and speaks (Kokoro `af_heart`).
+  NVIDIA GPU. Hears (Silero, Parakeet v2) and speaks (Kokoro `af_heart`).
   Without one, the phone's On-device Voice hears and speaks, and only text crosses.
 - `agent/` (Go): each Mac with sessions. The mods' socket, each call's state, and the call's
-  Haiku (Opus on request) as `claude -p` on the user's subscription.
+  model as `claude -p` on the user's subscription.
 - `render/` (C++ and Swift): what renders a 3D model a session shows you, on its computer:
   OpenUSD's Storm (`ringback-render`), or on a Mac without it, Apple's fallback.
 - `mod/` (TypeScript): the Claude Code mod in each session. `/ringback`, the call briefing,

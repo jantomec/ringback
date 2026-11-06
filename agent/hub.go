@@ -354,6 +354,11 @@ func (a *agent) handle(m map[string]any) {
 	case "claude_app":
 		status, why := a.claudeApp(id)
 		a.hub.answer(m, status, why)
+	case "model":
+		value, _ := m["value"].(string)
+		a.calls.setModelChoice(value)
+	case "models_refresh":
+		go a.tellModels()
 	case "reask":
 		// You took calls on the phone (its hold switch): the waiting calls the hub names that
 		// are held here ask it again now, so they ring at once.
@@ -400,7 +405,8 @@ func (a *agent) handle(m map[string]any) {
 	case "idle":
 		a.toVoice(id, func(*offer) any { return idleMsg{} })
 	case "quiet":
-		a.toVoice(id, func(*offer) any { return quietMsg{} })
+		waited, _ := m["waited"].(bool)
+		a.toVoice(id, func(*offer) any { return quietMsg{waited} })
 	case "heard":
 		text, _ := m["text"].(string)
 		reply, _ := m["reply"].(float64)
@@ -408,7 +414,8 @@ func (a *agent) handle(m map[string]any) {
 	case "interrupted":
 		reply, _ := m["reply"].(float64)
 		heard, _ := m["heard"].(string)
-		a.toVoice(id, func(*offer) any { return interrupted{int(reply), heard} })
+		paused, _ := m["paused"].(bool)
+		a.toVoice(id, func(*offer) any { return interrupted{int(reply), heard, paused} })
 	case "turn":
 		text, _ := m["text"].(string)
 		cut, _ := m["interrupted"].(bool)
@@ -498,7 +505,7 @@ func (a *agent) offer(m map[string]any) (int, string) {
 	a.mu.Unlock()
 	if earlier != nil {
 		// The phone gave up on its earlier offer, such as one made while it rang that didn't
-		// connect. This one replaces it, and its voice stops using the call's Haiku.
+		// connect. This one replaces it, and its voice stops using the call's model.
 		a.logCall(id, "a new offer replaces the earlier one")
 		a.logCall(id, "replaced by a new offer")
 		earlier.voice.inbox.put(endMsg{})
@@ -508,14 +515,14 @@ func (a *agent) offer(m map[string]any) (int, string) {
 		}
 	}
 	a.calls.mu.Lock()
-	if call.Haiku != nil && (call.Haiku.Used() || (earlier != nil && !isClosed(earlier.voice.done))) {
+	if call.Talker != nil && (call.Talker.Used() || (earlier != nil && !isClosed(earlier.voice.done))) {
 		// A voice has read its replies already, so this offer's voice starts its own.
-		a.calls.closeLater(call.Haiku)
-		call.Haiku = nil
+		a.calls.closeLater(call.Talker)
+		call.Talker = nil
 	}
-	haiku := call.Haiku
+	talker := call.Talker
 	a.calls.mu.Unlock()
-	o := &offer{voice: newVoice(a.calls, call, haiku, a.toHub), at: at}
+	o := &offer{voice: newVoice(a.calls, call, talker, a.toHub), at: at}
 	a.mu.Lock()
 	a.offered[id] = o
 	a.mu.Unlock()

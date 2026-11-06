@@ -15,25 +15,40 @@ offer while it rings, answers 6 s after placing, and once the opening has played
 - nothing is heard while it rings, then the voice within 3 s of answering;
 - the speech node heard your reply with its words (the hub's log), and the voice answered;
 - your reply reached the session (its messages on the socket);
+- it stays silent through a 2.2 s pause in the middle of your sentence, answers once you've
+  finished, and the whole sentence reaches the session;
+- a "mm-hmm" over the voice stops it and it carries on, saying whether a word list or the model
+  decided that;
+- a real interruption stops it, and its answer takes the place of the rest of the reply;
 - hung up, the call ended and lasted as long as on the phone (within 3 s), no Haiku is left,
   and there is one transcript, with your words.
 
 It then prints the timings: from answering to the voice, Haiku's first words, how long your
 reply was and how soon the node recognised it, and from your last word to the voice's
-answer. It uses your Claude subscription (one Haiku session).
+answer. It uses your Claude subscription (one session, on your default model).
 
 Run from the repo root, with Go installed here and the node set up as in `speech/README.md`:
 
     uv run --project tools tools/line-check/line_check.py --listen ADDR --node HOST \
-        [--node-dir DIR] [--ring S] [--keep DIR]
+        [--node-dir DIR] [--bin DIR] [--ring S] [--keep DIR]
 
 - `--listen` is where the hub listens: this Mac's address on the network the node reaches
   it on (its Nebula address), and a free port.
 - `--node` is the node's ssh host, and `--node-dir` its install directory
   (`~/ringback-speech` by default). The node runs there with the check's token until the end,
   writing `line-check.log`, whose last lines the check keeps and then deletes.
+- `--bin` is the folder there with the node's binary, to try a build beside the installed one.
 - `--keep DIR` keeps the hub's, agent's and node's logs, the agent's state and the call's
   transcript.
+
+Results on 2026-11-06, two runs, the model on the line Opus 5.5, by Claude Code's default: all 18
+checks in about 65 s each. The voice was silent through the pause in your sentence, the model
+having written `[wait]`, and answered 1.41–1.49 s after you finished. The "Mm-hmm." was written
+down as "Mammal." both times, so the word list didn't catch it; the model read it in context and
+carried on, the voice speaking again 1.75–1.9 s after you stopped, from the start of its sentence.
+The interruption was answered 1.34–1.59 s after you stopped, and the rest of the reply was dropped.
+Your side is Kokoro, not a person, so none of this says how well it reads a real pause, and the
+word list hasn't been seen to work with real audio.
 
 Results on 2026-11-02, the hub and agent on an Apple silicon Mac, the node on a Linux
 workstation with an NVIDIA GPU, over Nebula:

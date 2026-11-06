@@ -25,6 +25,13 @@ final class AppScreensUITests: XCTestCase {
         sleep(8)  // a simulator just booted shows a notification of its own over the top for a while
         shot("recents")
 
+        // The gear opens the app's own settings.
+        app.buttons["Settings"].firstMatch.tap()
+        sleep(1)
+        shot("model-setting")
+        app.buttons["Close"].firstMatch.tap()
+        sleep(1)
+
         // The waiting call with a question, swiped open to its Claude App action.
         let question = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Question'")).firstMatch
         note("waiting call with a question", question.waitForExistence(timeout: 5))

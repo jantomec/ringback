@@ -334,6 +334,7 @@ func startAgent(t *testing.T, hub *fakeHub, state string) *testAgent {
 		case resend <- struct{}{}:
 		default:
 		}
+		go a.agent.tellModels()
 	}
 	a.link.down = a.agent.linkDown
 	a.calls.restore()
@@ -360,10 +361,10 @@ func startAgent(t *testing.T, hub *fakeHub, state string) *testAgent {
 // closeAll closes the Haikus the calls still have, so no stand-in claude outlives the test.
 func (a *testAgent) closeAll() {
 	a.calls.mu.Lock()
-	var haikus []*Haiku
+	var haikus []*Talker
 	for _, call := range a.calls.calls.list() {
-		if call.Haiku != nil {
-			haikus = append(haikus, call.Haiku)
+		if call.Talker != nil {
+			haikus = append(haikus, call.Talker)
 		}
 		if call.deadline != nil {
 			call.deadline()

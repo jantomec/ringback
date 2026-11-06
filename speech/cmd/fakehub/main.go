@@ -572,8 +572,8 @@ type hearCase struct {
 	pause       float64
 	sensitivity float64
 	gate        float64
-	// Smart Turn may end a turn at a pause inside a recording, as it would on a call, so
-	// some cases take more than one; the words are checked over all of them.
+	// A turn ends at every pause of about 0.7 s, inside a recording too, as on a call, so some
+	// cases take more than one; the words are checked over all of them.
 	minTurns, maxTurns int
 	words              [][]string
 	cutOff             bool // the audio stops in the middle of the speech, as if the phone had gone
@@ -596,29 +596,26 @@ func (h *hub) hearing(clips [][]int16, recording []int16) {
 				words: [][]string{{"portrait"}}},
 			hearCase{name: "the recording 20 dB quieter, filter strongest", speech: [][]int16{quiet}, sensitivity: 0.5, gate: 1})
 	}
-	// Made by the node itself: a turn Smart Turn finds unfinished, which ends after the turn
-	// wait, and the same followed by the rest of it after a pause shorter than the wait,
-	// which is one turn with the words of both.
+	// Made by the node itself: a turn that stops short, which ends after the turn wait as any
+	// does; the same followed by the rest of it after a pause shorter than the wait, which is
+	// one turn with the words of both; and after a longer pause, which is two.
 	unfinished := h.say("So the next thing I want to do is")
 	cases = append(cases,
 		hearCase{name: "an unfinished turn", speech: [][]int16{unfinished}, sensitivity: 0.5, gate: 0.5, minTurns: 1, maxTurns: 1,
 			words: [][]string{{"next"}}},
-		hearCase{name: "a turn with a 0.8 s pause", speech: [][]int16{unfinished, h.say("merge the branch into main.")}, pause: 0.8,
+		hearCase{name: "a turn with a 0.4 s pause", speech: [][]int16{unfinished, h.say("merge the branch into main.")}, pause: 0.4,
 			sensitivity: 0.5, gate: 0.5, minTurns: 1, maxTurns: 1, words: [][]string{{"next"}, {"merge"}, {"main"}}},
+		hearCase{name: "two turns, with a 1.2 s pause", speech: [][]int16{unfinished, h.say("merge the branch into main.")}, pause: 1.2,
+			sensitivity: 0.5, gate: 0.5, minTurns: 2, maxTurns: 2, words: [][]string{{"next"}, {"merge"}, {"main"}}},
 		hearCase{name: "silence", sensitivity: 0.5, gate: 0.5},
 		hearCase{name: "audio that stops mid-speech (stopped after 1 s without audio)", speech: [][]int16{unfinished[:len(unfinished)/2]},
 			sensitivity: 0.5, gate: 0.5, maxTurns: 1, cutOff: true})
 
 	stream := uint32(10)
-	var smart, waited []float64 // turns Smart Turn ended, and turns the turn wait ended
+	var waited []float64 // how long after you stop each turn ends
 	for _, c := range cases {
 		stream++
-		turn, stopped := h.hearOne(stream, c)
-		switch {
-		case turn == 0:
-		case turn-stopped < 1000:
-			smart = append(smart, turn)
-		default:
+		if turn, _ := h.hearOne(stream, c); turn != 0 {
 			waited = append(waited, turn)
 		}
 	}
@@ -635,15 +632,10 @@ func (h *hub) hearing(clips [][]int16, recording []int16) {
 		}
 		wg.Wait()
 	}
-	for _, l := range []struct {
-		what string
-		ms   []float64
-	}{{"Smart Turn", smart}, {"the turn wait", waited}} {
-		sort.Float64s(l.ms)
-		if len(l.ms) > 0 {
-			fmt.Printf("      end of speech → turn, ended by %s: median %.0f ms, min %.0f, max %.0f (%d turns)\n",
-				l.what, l.ms[len(l.ms)/2], l.ms[0], l.ms[len(l.ms)-1], len(l.ms))
-		}
+	sort.Float64s(waited)
+	if len(waited) > 0 {
+		fmt.Printf("      end of speech → turn: median %.0f ms, min %.0f, max %.0f (%d turns)\n",
+			waited[len(waited)/2], waited[0], waited[len(waited)-1], len(waited))
 	}
 }
 

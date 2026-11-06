@@ -3,7 +3,7 @@ on its machine, and the stand-in phone (`tools/stand-in-phone`). The session's s
 through the agent's socket, as a mod does. See README.md.
 
     uv run --project tools tools/line-check/line_check.py --listen ADDR --node HOST
-        [--node-dir DIR] [--ring S] [--keep DIR]
+        [--node-dir DIR] [--bin DIR] [--ring S] [--keep DIR]
 """
 
 import argparse
@@ -53,6 +53,7 @@ async def main() -> int:
     p.add_argument("--listen", required=True, help="where the hub listens: an address the speech node reaches this Mac at, and a free port")
     p.add_argument("--node", required=True, help="the speech node's ssh host")
     p.add_argument("--node-dir", default="~/ringback-speech", help="its install directory (default ~/ringback-speech)")
+    p.add_argument("--bin", default="bin", help="the folder of the install directory with the node's binary (default bin)")
     p.add_argument("--ring", type=float, default=6.0, help="seconds from placing the call to answering it (default 6)")
     p.add_argument("--keep", type=Path, help="keep the logs and the transcript in this directory")
     args = p.parse_args()
@@ -80,7 +81,7 @@ async def main() -> int:
             sys.exit(f"The hub didn't start:\n{hub_log.read_text()}")
         t = time.monotonic()
         started = subprocess.run(
-            ["ssh", args.node, f"cd {args.node_dir} && . ./env.sh && (nohup bin/ringback-speech --hub ws://{args.listen}/speech"
+            ["ssh", args.node, f"cd {args.node_dir} && . ./env.sh && (nohup {args.bin}/ringback-speech --hub ws://{args.listen}/speech"
              f" --token {tokens['speech']} serve > line-check.log 2>&1 < /dev/null & echo $!)"],
             capture_output=True, text=True, timeout=30,
         )  # fmt: skip
@@ -90,16 +91,22 @@ async def main() -> int:
         if not node_up:
             return 1
 
+        # The mod stays out of the call's Claude Code, if this runs inside a session that loads it.
+        agent_env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_PLUGIN_DIRS"}
         agent = subprocess.Popen([str(agent_bin), "serve", "--socket", str(sock), "--config", str(tmp / "agent.toml")],
-                                 stdout=agent_log.open("w"), stderr=subprocess.STDOUT)  # fmt: skip
+                                 env=agent_env, stdout=agent_log.open("w"), stderr=subprocess.STDOUT)  # fmt: skip
         agent_up = await wait_for(hub_log, r"agent line-check: connected", 20) and await wait_for(agent_log, r"voice listening", 20)
         check("the agent connected to the hub", bool(agent_up))
 
         from mlx_audio.tts.utils import load_model
 
         kokoro = load_model(KOKORO)
-        speech = np.concatenate([np.array(r.audio) for r in kokoro.generate(REPLY, voice=YOUR_VOICE, lang_code="a")])
-        reply = (np.clip(soxr.resample(speech, 24000, RATE), -1, 1) * 32767).astype(np.int16)
+
+        def spoken(text: str) -> np.ndarray:
+            speech = np.concatenate([np.array(r.audio) for r in kokoro.generate(text, voice=YOUR_VOICE, lang_code="a")])
+            return (np.clip(soxr.resample(speech, 24000, RATE), -1, 1) * 32767).astype(np.int16)
+
+        reply = spoken(REPLY)
 
         socket_side = aiohttp.ClientSession(connector=aiohttp.UnixConnector(path=str(sock)))
         http = aiohttp.ClientSession()
@@ -155,7 +162,8 @@ async def main() -> int:
         words = heard[-1][2] if heard else ""
         check(f"the speech node heard your reply: {words!r}", re.search(r"push", words, re.I) is not None
               and re.search(r"pull request", words, re.I) is not None)  # fmt: skip
-        check(f"the voice answered {answer_at and round(answer_at - stopped, 2)} s after you stopped", answer_at is not None)
+        answered_in = answer_at and answer_at - stopped
+        check(f"the voice answered {answered_in and round(answered_in, 2)} s after you stopped", answer_at is not None)
         messages: list[str] = []
         end = time.monotonic() + 45
         while not messages and time.monotonic() < end:
@@ -163,6 +171,70 @@ async def main() -> int:
             messages = await for_the_session()
         check(f"your reply reached the session: {messages}",
               len(messages) == 1 and re.search(r"push|pull request", messages[0], re.I) is not None)  # fmt: skip
+        await phone.quiet_for(2.0, limit=30)
+
+        # Whose turn it is ("Whose turn it is" in docs/design.md), with the real model.
+        def seen(path: Path, pattern: str) -> int:
+            return len(re.findall(pattern, path.read_text()))
+
+        async def say(samples: np.ndarray) -> float:
+            at = time.monotonic()
+            phone.mic.say(samples)
+            await asyncio.sleep(len(samples) / RATE)
+            return at + len(samples) / RATE
+
+        async def voice_after(t: float, limit: float) -> float | None:
+            end = time.monotonic() + limit
+            while time.monotonic() < end:
+                found = next((at for at, loud in phone.heard if loud and at > t), None)
+                if found:
+                    return found
+                await asyncio.sleep(0.02)
+            return None
+
+        # A sentence broken by a long pause: the voice lets you finish.
+        waits = seen(agent_log, "waits for you to go on")
+        stopped = await say(spoken("So what I want you to tell the session is"))
+        await asyncio.sleep(2.2)
+        spoke = [at for at, loud in phone.heard if loud and at > stopped + 0.1]
+        check(f"it stays silent through a 2.2 s pause in your sentence: {len(spoke)} loud frames, "
+              f"{seen(agent_log, 'waits for you to go on') - waits} waits", not spoke)  # fmt: skip
+        stopped = await say(spoken("to run the tests on the parser first."))
+        answer = await voice_after(stopped, 20)
+        check(f"and answers once you've finished, {answer and round(answer - stopped, 2)} s later", answer is not None)
+        got = await for_the_session()
+        end = time.monotonic() + 30
+        while not got and time.monotonic() < end:
+            await asyncio.sleep(0.5)
+            got = await for_the_session()
+        check(f"the whole sentence reached the session: {got}", any(re.search(r"parser|tests", m, re.I) for m in got))
+        await phone.quiet_for(2.0, limit=30)
+
+        # A "mm-hmm" over the voice: it stops, and carries on. The node can mishear so short a word,
+        # and then the model decides; the check says which it was.
+        asked = await say(spoken("Please tell me in detail everything you know about this work, it can take a while."))
+        started = await voice_after(asked, 20)
+        check(f"it starts a long answer, {started and round(started - asked, 2)} s after you asked", started is not None)
+        await asyncio.sleep(3)
+        paused, carried, asked_model = seen(hub_log, "paused reply"), seen(hub_log, "carries on with reply"), seen(agent_log, r": told ")
+        stopped = await say(spoken("Mm-hmm."))
+        back = await voice_after(stopped + 0.2, 8)
+        check(f"a mm-hmm stops it ({seen(hub_log, 'paused reply') - paused}), and it carries on {back and round(back - stopped, 2)} s later "
+              f"({seen(hub_log, 'carries on with reply') - carried})",
+              seen(hub_log, "paused reply") > paused and seen(hub_log, "carries on with reply") > carried and back is not None)  # fmt: skip
+        said = re.findall(r'you \([\d.]+ s, heard in [\d.]+ s\): "(.*)"', hub_log.read_text())[-1]
+        needed = seen(agent_log, r": told ") > asked_model
+        lines.append(f"      heard as {said!r}, {'so the model decided' if needed else 'so no model was needed'}")
+        print(lines[-1])
+        await asyncio.sleep(1.5)
+
+        # A real interruption, while it's still talking: its reply takes the place of the rest.
+        paused = seen(hub_log, "paused reply")
+        stopped = await say(spoken("Wait, which branch is that on?"))
+        answer = await voice_after(stopped + 0.2, 20)
+        check(f"a real interruption stops it ({seen(hub_log, 'paused reply') - paused}), and it answers {answer and round(answer - stopped, 2)} s later, "
+              f"dropping the rest ({seen(hub_log, 'so the rest of reply')})",
+              seen(hub_log, "paused reply") > paused and answer is not None and seen(hub_log, "so the rest of reply") >= 1)  # fmt: skip
         await phone.quiet_for(2.0, limit=30)
 
         hung_up = time.monotonic()
@@ -175,7 +247,7 @@ async def main() -> int:
         while subprocess.run(["pgrep", "-P", str(agent.pid), "-f", "input-format stream-json"], capture_output=True).stdout and time.monotonic() < gone_by:
             await asyncio.sleep(0.1)
         left = subprocess.run(["pgrep", "-P", str(agent.pid), "-f", "input-format stream-json"], capture_output=True).stdout.split()
-        check(f"no Haiku left: {len(left)}", not left)
+        check(f"no model left: {len(left)}", not left)
         transcripts = list((project / ".ringback/calls").glob("*"))
         text = transcripts[0].read_text() if transcripts else ""
         check(f"one transcript, with your words: {[t.name for t in transcripts]}",
@@ -186,9 +258,9 @@ async def main() -> int:
         first_words = re.findall(r"first words after ([\d.]+) s", agent_log.read_text())
         timing = [
             f"placed → answered: {args.ring:.1f} s; answered → voice heard: {silence or 0:.2f} s; opening {opening:.1f} s",
-            f"Haiku's first words after: {', '.join(first_words)} s (the opening, then your reply)",
+            f"the model's first words after: {', '.join(first_words)} s",
             f"your reply: {len(reply) / RATE:.1f} s; heard by the node: {heard[-1][0] if heard else '?'} s of speech, recognised in {heard[-1][1] if heard else '?'} s",
-            f"you stopped → the voice answered: {answer_at and round(answer_at - stopped, 2)} s",
+            f"you stopped → the voice answered: {answered_in and round(answered_in, 2)} s",
         ]
     finally:
         if agent:

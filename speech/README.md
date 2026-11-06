@@ -5,13 +5,14 @@ WebSocket (`docs/protocol.md`, "The speech node") and does all the hearing and s
 calls, natively on a Linux machine with an NVIDIA GPU (its config can name the CPU instead,
 `provider = "cpu"`, which `install.sh` doesn't set up and which hasn't been tried):
 
-- **Hearing**, per stream: Silero VAD v5 and Smart Turn v3.2 through ONNX Runtime's C API,
+- **Hearing**, per stream: Silero VAD v5, and Smart Turn v3.2 for the log, through ONNX Runtime's C API,
   Parakeet TDT 0.6B v2 through sherpa-onnx. It decides "speech started", "speech stopped"
   and "turn" as Pipecat 1.14.0 does (the voice framework whose hearing these settings were
   tuned with): the same thresholds from the app's sensitivity and
   background filter (`internal/hearing/params.go`), the same volume gate (BS.1770 loudness of
-  the last 400 ms), the same state machine and model resets, Smart Turn on the same Whisper
-  features, and the turn wait (1.5 s). One transcription per stretch of speech, with 1 s
+  the last 400 ms), the same state machine and model resets, and Smart Turn on the same Whisper
+  features, whose score only goes in the log. A turn is every pause of about 0.7 s, and whether
+  you've finished is for the call's model to say. One transcription per stretch of speech, with 1 s
   before it and 0.5 s of silence after, as Pipecat's segmented STT.
 - **Speaking**: Kokoro v1.0 `af_heart` through sherpa-onnx, a chunk (about a sentence) at a
   time, each sent as soon as it's made.
@@ -140,7 +141,7 @@ back once they are. Then it asks for speech (checking the audio's length against
 and how soon the first audio comes), cancels speech, and sends speech in 20 ms frames in real
 time (the voice's own pieces, so its numbers and file names must come back as words; a
 recording; the recording 20 dB quieter with the background filter off and at its strongest;
-a turn Smart Turn finds unfinished; one with a pause; two streams at once), checking the
+a turn that stops short; one with a short pause; two turns with a longer one; two streams at once), checking the
 events and words and timing the turns, and prints the memory of the link process and the
 worker. With the idle time at 5 s (`IDLE`), it checks that the worker exits that long after
 the last message and the GPU no longer lists it, that `hear` starts a new one that hears,
@@ -188,10 +189,10 @@ parity test:
   those sentences came out as "I fixed the bug in. At line, it was an off-by-one error."
 - **Speak → first audio:** median 118 ms, at most 164 ms, for pieces of one sentence
   (1.3–7.1 s of audio, made 35–45 times faster than real time).
-- **End of speech → `turn`:** median 318 ms (258–341) when Smart Turn ends the turn:
-  `speech_stopped` comes 180–260 ms after (it needs 0.2 s of pause), then Smart Turn (about
-  50 ms on one CPU thread) runs alongside Parakeet (75–90 ms, its queue included). When
-  Smart Turn finds the turn unfinished, the turn wait ends it 1.70 s after the speech.
+- **End of speech → `turn`:** `speech_stopped` comes 180–260 ms after (it needs 0.2 s of pause),
+  then Parakeet takes 75–90 ms, its queue included, beside Smart Turn (about 50 ms on one CPU
+  thread), and the turn wait ends the turn about 0.7 s after the speech (680 ms on the recording,
+  2026-11-06). Before the turn wait became every turn's, Smart Turn ended most turns at 318 ms.
 - **Memory**, all models loaded: 2.84 GB resident (2.42 GB of it allocated outside Go, by
   CUDA, cuDNN and ONNX Runtime; Go's own is 34 MB), 2.95 GB of GPU memory.
 

@@ -18,6 +18,21 @@ var abbreviations = map[string]bool{
 	"a.m": true, "p.m": true, "fig": true, "inc": true, "ltd": true, "co": true, "dept": true,
 }
 
+// sentenceStart is where the sentence that text stops in began: after its last finished one.
+func sentenceStart(text string) int {
+	start := 0
+	for {
+		n := endOfSentence(text[start:])
+		if n == 0 {
+			return start
+		}
+		start += n
+		for start < len(text) && text[start] == ' ' {
+			start++
+		}
+	}
+}
+
 // endOfSentence is the length of text up to the end of its first finished sentence, closing
 // quotes and brackets included; 0 if it has none yet.
 func endOfSentence(text string) int {

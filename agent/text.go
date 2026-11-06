@@ -44,7 +44,7 @@ func cut(text string, most int) string {
 
 var plainWords = regexp.MustCompile(`[a-z0-9]+`)
 
-// plain is text without case or punctuation, to compare what Haiku wrote with what was asked.
+// plain is text without case or punctuation, to compare what the model wrote with what was asked.
 func plain(text string) string {
 	return strings.Join(plainWords.FindAllString(strings.ToLower(text), -1), " ")
 }
@@ -247,7 +247,7 @@ var abbreviations = map[string]bool{
 // this follows it for English: ".", "!" or "?" with closing quotes, then a space, a capital
 // or the end, but not after an abbreviation or an initial ("Dr.", "U.S."); ";" and "…" end
 // a sentence only at the end of the text. It decides only how much of a reply you must hear
-// before what Haiku held goes, and when an opener is long enough to check
+// before what the model held goes, and when an opener is long enough to check
 // (testdata/golden.json has Pipecat's answers for the cases that matter).
 func matchEndOfSentence(text string) int {
 	text = strings.TrimRightFunc(text, unicode.IsSpace)

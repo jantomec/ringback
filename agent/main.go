@@ -1,7 +1,7 @@
 // The ringback agent, on each Mac that runs Claude Code sessions ("The parts" in
 // docs/design.md). The sessions' mods give it briefings and ask it things over a Unix socket
-// (sessions.go, api.go); it places their calls through the hub, and on a call Haiku (Opus on
-// request) talks it through as `claude -p`, on this Mac (voice.go, haiku.go). The hub does
+// (sessions.go, api.go); it places their calls through the hub, and on a call the model (Opus on
+// request) talks it through as `claude -p`, on this Mac (voice.go, talker.go). The hub does
 // the call's audio and speech; the agent's link to it carries the call's text both ways
 // (hub.go, docs/protocol.md). What it keeps for sessions and their calls is written beside
 // the socket, and read again at start (state.go).
@@ -27,7 +27,7 @@ const usage = `usage: ringback-agent install | uninstall | serve [--socket PATH]
   install  run the agent as a service (a launchd agent), with the default socket and
            config: now, at login, and again whenever it stops; again after updating the
            binary, to restart it; uninstall stops it and takes it away
-  serve    place this Mac's sessions' calls through the hub, and talk on them with Haiku.
+  serve    place this Mac's sessions' calls through the hub, and talk on them with Claude.
            Sessions' mods reach it at PATH (default ~/.local/state/ringback/voice.sock).
            The config (default ~/.config/ringback/agent.toml) says:
              hub = "10.0.0.1:8787"   the hub's address and port, as its listen, or
@@ -41,7 +41,7 @@ const usage = `usage: ringback-agent install | uninstall | serve [--socket PATH]
   pair     pair this Mac with the hub, with a one-time code from its portal (Setup) or
            ringback-hub pair mac: writes the hub's address and this Mac's key into the
            config, making it if there's none
-  mcp      the voice's tools for Claude Code, relayed to the call over SOCKET (Haiku
+  mcp      the voice's tools for Claude Code, relayed to the call over SOCKET (the model
            starts it)`
 
 func main() {
@@ -104,6 +104,7 @@ func serve(options map[string]string) {
 		case resend <- struct{}{}:
 		default:
 		}
+		go a.tellModels()
 	}
 	hub.down = a.linkDown
 	if err := os.MkdirAll(filepath.Dir(socket), 0o755); err != nil {
@@ -112,6 +113,7 @@ func serve(options map[string]string) {
 	calls.restore()
 	// The sessions that listen, for the app's Sessions tab.
 	go calls.publish(ctx, resend)
+	go a.keepTellingModels(ctx)
 	go hub.run(ctx)
 	if _, err := listen(sessionSide(calls), socket); err != nil {
 		fail(fmt.Sprintf("can't listen on %s: %v", socket, err))

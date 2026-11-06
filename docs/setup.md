@@ -7,8 +7,8 @@ the app on your phone:
 | Part | Runs on | Does |
 |---|---|---|
 | **hub** | one always-on Mac, Intel or Apple silicon | rings the phone (APNs), keeps the calls that wait, and carries each call's audio |
-| **speech node** (optional) | a Linux machine with an NVIDIA GPU | hears you (Silero, Smart Turn, Parakeet) and speaks (Kokoro), for the hub; without one, the phone can hear and speak calls itself |
-| **agent** | each Mac that runs Claude Code sessions | the sessions' side: their briefings and questions, and the call's Haiku and Opus through Claude Code |
+| **speech node** (optional) | a Linux machine with an NVIDIA GPU | hears you (Silero, Parakeet) and speaks (Kokoro), for the hub; without one, the phone can hear and speak calls itself |
+| **agent** | each Mac that runs Claude Code sessions | the sessions' side: their briefings and questions, and the call's model through Claude Code |
 | **mod** | each Claude Code session | adds `/ringback`, and hands the agent the session's briefings |
 | **app** | your iPhone | rings like a phone call, and lists your calls and sessions |
 
@@ -39,7 +39,7 @@ say where else. Replace the example addresses (`10.0.0.1` for the hub) with your
 - **On each Mac that runs sessions:** a copy of this repository, which the mod loads from, and
   **Go**, to build the agent (step 5).
 - **Claude Code** on each Mac that runs sessions, version 2.1.287 or later, signed in to a
-  Claude subscription that includes Opus: the voice is Haiku through `claude`, and Opus when
+  Claude subscription that includes Opus: the voice is a model through `claude`, your default unless you choose another, and Opus when
   you ask for a better model on the line.
 - **A private network** that the phone, the hub, the speech node and the Macs all reach, the
   phone also on mobile data. Ringback is tested on **Nebula**
@@ -280,7 +280,7 @@ run `install` again to restart it; `ringback-agent uninstall` stops it and takes
 agent away. To try it in a terminal instead, `ringback-agent serve` runs it until you stop it.
 
 Sessions on this Mac reach the agent through a socket only you can open,
-`~/.local/state/ringback/voice.sock`. It needs `claude` on its `PATH`: on a call, it runs Haiku
+`~/.local/state/ringback/voice.sock`. It needs `claude` on its `PATH`: on a call, it runs the model
 as `claude -p`, on this Mac, and Opus when you ask for a better model. It links to the hub
 ("linked to the hub" in its log, and "agent … connected" in the hub's) and tells it which
 sessions listen, for the app's Sessions tab.
@@ -437,7 +437,7 @@ curl --unix-socket ~/.local/state/ringback/voice.sock http://voice/calls \
 
 The phone rings as "myproject". The hub's log shows the call ringing, answered, the time
 until its audio connected, what you said and what the voice said, and how it ended; the
-agent's log shows Haiku's side.
+agent's log shows the model's side.
 
 ## 9. Checking without the phone
 
@@ -445,7 +445,7 @@ These need uv (`brew install uv`); they run in the tools' Python environment
 (`tools/pyproject.toml`), which uv sets up the first time (about 1.3 GB).
 - **A whole call:** a hub and an agent started on this Mac, your speech node started over ssh
   and linked to them, and a stand-in phone, which answers, says something and hangs up; it
-  checks that you're heard and answered (about 45 s, one Haiku session). `--listen` is this
+  checks that you're heard and answered (about 45 s, one model session). `--listen` is this
   Mac's address that the node reaches, with a free port, and `--node` the node's ssh host:
 
       uv run --project tools tools/line-check/line_check.py --listen 10.0.0.2:18840 --node speech-host

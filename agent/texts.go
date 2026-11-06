@@ -17,7 +17,16 @@ How to talk:
 - When several things need the developer's answer, say how many there are, then ask them
   one at a time: ask the first, wait for their answer, then ask the next. Don't put them
   all in one turn, unless the developer asks to hear them all.
-- Answer everything the developer says, even a short "yeah" or "mhm", if only briefly.
+
+Knowing when to speak:
+- You get the developer's words each time they pause, and they may not have finished: they
+  often stop in the middle of a thought to find their words.
+- If they're probably going to go on, write exactly [wait] and nothing else. Nothing is said,
+  and you get what they say next. A sentence that stops short, a filler on its own, a word
+  such as "the", "of" or "and" at the end, or being told to wait all mean they haven't finished.
+- A short, clear answer to a question they've heard in full, such as "yes", "no" or a choice,
+  is finished, even if it's one word. So is anything complete that waits for your answer.
+- A "yeah" or "mhm" that only shows they're listening needs no answer: write [wait].
 
 Understanding the developer:
 - Their words reach you through speech recognition, and English may not be their first
@@ -27,9 +36,9 @@ Understanding the developer:
 
 Notes in square brackets come from the call, not from the developer:
 - "You were interrupted" tells you how much of your last reply the developer heard
-  before they spoke. They heard nothing after that. Answer what they said, and don't
-  repeat what they already heard. Don't mention the interruption, or what they didn't
-  hear.
+  before they spoke. They heard nothing after that, so their words can't be about it, or
+  answer or agree to anything in it. Answer what they said, and don't repeat what they
+  already heard. Don't mention the interruption, or what they didn't hear.
 - Other notes say what happened on the call. Follow them.
 
 A better model:
@@ -146,7 +155,12 @@ it in one short sentence. You can pass their questions or instructions to the se
 	contactNone = `The session hasn't written a briefing yet, so you know nothing of its work. Say so in a few
 words, and ask what they want. You can pass their questions or instructions to the session.
 `
-	// Said at once when Haiku reaches for a tool before saying anything.
+	// Sent with your words when you spoke over the voice, which stopped: {heard} and {rest}.
+	stoppedLead = `You stopped because the developer spoke. They heard up to: "…{heard}". They haven't heard the rest: "{rest}". What they said can only be about what they heard: it can't answer or agree to anything in the rest. If it only shows they're listening, or doesn't change what you were saying, write exactly [continue], and you carry on from the start of the sentence you stopped in, as it was. Otherwise answer them, and ask again anything from the rest that you still need. If they're going on, write [wait].`
+	stoppedHeld = `{what} hasn't gone yet. It goes if you carry on and they hear you say so. If you answer them instead it's dropped: do it again if they still want it.`
+	// Sent when you've said nothing more for a while after the model chose to wait.
+	answerNow = `The developer has said nothing more for a few seconds, so they've probably finished. Answer what they've said now, or carry on if you stopped: don't write [wait].`
+	// Said at once when the model reaches for a tool before saying anything.
 	ack = `Okay. `
 	// What pass_to_session answers: the message waits until it's heard.
 	heldText = `Held until the developer has heard you say you're passing it on, then passed to the session; if they cut you off before that, it's dropped and you'll be told. The session's answer comes later, in a note "[The session: ...]". Until then you don't know what it will say or do. You've told the developer already: end your reply now, unless there's something else to say.`
@@ -156,7 +170,7 @@ words, and ask what they want. You can pass their questions or instructions to t
 	handOverHeld = `Held until the developer has heard you say you're putting Opus on; then Opus takes over this call, with everything said so far, and speaks next. If they cut you off before that, it doesn't happen and you'll be told. End your reply now, after saying so if you haven't yet.`
 	opusAlready  = `Nothing done: you're Opus, the better model, already. If the developer asked for one, tell them so.`
 	// The note that starts Opus's first turn, which it speaks first.
-	handOver = `You're Opus, taking over this call from Haiku at the developer's request. Say briefly that you're on the line, then carry on from where it was.`
+	handOver = `You're Opus, taking over this call at the developer's request. Say briefly that you're on the line, then carry on from where it was.`
 	// The first turn. A call for a session asks for it while the phone rings, but its reply is
 	// spoken only once you've answered, so it says what's true when the reply is heard.
 	opening = `[The developer has answered the call.]`
@@ -164,13 +178,13 @@ words, and ask what they want. You can pass their questions or instructions to t
 	pickedUp = `[The developer has called you, and you've picked up.]`
 	// What a tool call in the opening answers: you haven't said anything yet.
 	nothingYet = `Nothing passed or answered: the developer hasn't said anything yet, so there's nothing from them for the session. Just open the call.`
-	// Sent to Haiku when something stopped the voice but no words were recognised (see
+	// Sent to the model when something stopped the voice but no words were recognised (see
 	// "Interruptions" in docs/design.md): the hub's turn with no words.
 	noise = `Something stopped you, but no words were recognised, so it was probably noise. Carry on from the start of the sentence you were in.`
 	// A call placed with the session's news you hung up before hearing (Calls.callAgain).
 	unheardSubject  = `The answer you didn't hear`
 	unheardBriefing = `The developer hung up on the last call before hearing the session's answer, which this call brings. Open with it. The session's answer, as it wrote it for its terminal:`
-	// Sent to Haiku when nothing has been heard for a while since the voice finished, and the
+	// Sent to the model when nothing has been heard for a while since the voice finished, and the
 	// session waits for an answer (the hub's `quiet`).
 	reask = `Nothing has been heard from the developer for a few seconds since you finished, and the session still waits for an answer. Their answer may not have been heard: say so in a few words and ask again, briefly.`
 )

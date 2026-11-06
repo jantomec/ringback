@@ -8,9 +8,11 @@ type TurnModel interface {
 	Run(features []float32) (float32, error)
 }
 
-// TurnWait is how long a pause ends your turn even if Smart Turn thinks you haven't finished,
-// as it sometimes does with a short "mm-hmm".
-const TurnWait = 1.5
+// TurnWait is how long a pause lasts, after Silero says you've stopped, before your words go to
+// the call's model, about 0.7 s after your last word. The model decides from them whether you've
+// finished, and if you haven't it waits for more (see "Hearing you" in docs/design.md). Shorter
+// asks it in the middle of more sentences; longer holds up every reply.
+const TurnWait = 0.5
 
 const (
 	preSpeechSecs   = 0.5 // audio before your speech started that Smart Turn hears too
@@ -25,6 +27,9 @@ type chunk struct {
 // turnAnalyzer is Pipecat's BaseSmartTurn with LocalSmartTurnAnalyzerV3: it keeps the turn's
 // audio, counts the pause after you stop, and runs Smart Turn when you stop. Times are seconds
 // of audio, where Pipecat uses the clock, which is the same for audio that comes in real time.
+// Smart Turn's score only goes in the log: on real calls it told a pause in mid-thought from a
+// finished turn barely better than chance, and the call's model does far better
+// (tools/turn-replay). The log keeps it for measuring that again.
 type turnAnalyzer struct {
 	model    TurnModel
 	stopSecs float64
@@ -72,11 +77,10 @@ func (t *turnAnalyzer) appendAudio(samples []int16, isSpeech bool, now float64) 
 	return false
 }
 
-// analyze runs Smart Turn on the turn's audio so far and says whether the turn is complete;
-// a complete turn clears the analyzer.
-func (t *turnAnalyzer) analyze() bool {
+// analyze runs Smart Turn on the turn's audio so far, for the log.
+func (t *turnAnalyzer) analyze() {
 	if len(t.buffer) == 0 {
-		return false
+		return
 	}
 	from := t.speechStart - (preSpeechSecs + t.vadStartSecs)
 	start := 0
@@ -91,7 +95,7 @@ func (t *turnAnalyzer) analyze() bool {
 		n += len(c.samples)
 	}
 	if n == 0 {
-		return false
+		return
 	}
 	// The last 8 s, padded with silence in front to exactly 8 s.
 	audio := make([]float32, featureSamples)
@@ -115,14 +119,9 @@ func (t *turnAnalyzer) analyze() bool {
 	t.lastTook = time.Since(began)
 	if err != nil {
 		t.err = err
-		return false
+		return
 	}
 	t.lastProbability = p
-	if p > 0.5 {
-		t.clear(true)
-		return true
-	}
-	return false
 }
 
 // clear forgets the turn's audio; after an incomplete turn, speech counts as having started.

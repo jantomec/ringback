@@ -92,6 +92,12 @@ func fromAgent(l *link, message map[string]any) {
 		registryMu.Lock()
 		agents[l] = listed
 		registryMu.Unlock()
+	case "models":
+		given, _ := message["models"].([]any)
+		stateMu.Lock()
+		choice := keepModels(l.name, given)
+		stateMu.Unlock()
+		_ = l.send(map[string]any{"type": "model", "value": choice})
 	case "place":
 		stateMu.Lock()
 		answer, err := placeCall(l.name, message)
@@ -120,7 +126,7 @@ func fromAgent(l *link, message map[string]any) {
 		lineEnded(id)
 		nextInTurn()
 		stateMu.Unlock()
-	case "say", "said", "hang_up":
+	case "say", "said", "resume", "hang_up":
 		c := liveCall(str(message, "call_id"))
 		if c == nil || c.agent != l {
 			return
@@ -134,7 +140,10 @@ func fromAgent(l *link, message map[string]any) {
 		case "say":
 			c.write(n, str(message, "text"))
 		case "said":
-			c.written(n)
+			waiting, _ := message["waiting"].(bool)
+			c.written(n, waiting)
+		case "resume":
+			c.resume(n)
 		case "hang_up":
 			c.end("hung up by the voice")
 		}

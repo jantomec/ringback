@@ -6,7 +6,7 @@ package main
 // Each Mac's sessions reach their agent over a Unix socket that only you can open (see
 // "When calls ring" and "What a session asks" in docs/design.md, and api.go). For each briefing it makes a
 // random call ID, the call's secret, and asks the hub to ring the phone with it. The ID
-// reaches the phone only through Apple's push, and the phone's offer must carry it. Haiku
+// reaches the phone only through Apple's push, and the phone's offer must carry it. The model
 // starts on the call's opening as soon as the hub takes the call, so it's written while the
 // phone rings. The phone can make its offer while it rings, and says when you've answered.
 //
@@ -20,7 +20,7 @@ package main
 // prompt.
 //
 // Outside your work hours (set in the app) the hub holds a call instead of ringing, and says
-// when the hours start. The call is kept here meanwhile, without Haiku, and the hub is asked
+// when the hours start. The call is kept here meanwhile, without the model, and the hub is asked
 // again then, or within reaskAfter, so hours you widen apply soon. A new briefing from its
 // session replaces the held call's, and what the session asks goes to it, a question too: it
 // waits for the call, and the hub is asked again at once, so the phone gets a notification.
@@ -36,7 +36,7 @@ package main
 //
 // Any call can be called back from the phone's call history, answered or not. Each call is
 // remembered for a day after it's forgotten. The call back is a new call for the same
-// session, with a fresh Haiku, answered at once: its voice has the earlier call's briefing,
+// session, with a fresh model, answered at once: its voice has the earlier call's briefing,
 // with a lead that says whether you talked then, and the session's latest one if it wrote a
 // newer one since, for a later call or a held one. Work hours don't apply to it: you called.
 // A held call can be called from the app too, where it shows as waiting: it's released at
@@ -153,7 +153,7 @@ type Link struct {
 	asks    ordered[*Ask] // what the session asks you on this call, until answered
 	briefed []*Ask        // what the call's briefing asks, placed to ask it
 	// Notes kept until the voice has started talking: one appended before the opening is
-	// spoken would make Haiku answer it instead.
+	// spoken would make the model answer it instead.
 	notes []linkNote
 	open  bool
 }
@@ -509,7 +509,7 @@ func (a *Ask) match(given any) (pairs, []string) {
 	return answers, missing
 }
 
-// pyStr is str(m.get(key, "")), as Python writes what Haiku gave.
+// pyStr is str(m.get(key, "")), as Python writes what the model gave.
 func pyStr(m map[string]any, key string) string {
 	v, ok := m[key]
 	if !ok {
@@ -537,9 +537,9 @@ type Call struct {
 	// whichever came last; nil if its audio never connected.
 	Lasted *float64
 	Link   *Link // to its session, made when it's placed
-	// Haiku, writing the opening while the phone rings, for the call's voice; closed when the
+	// The model, writing the opening while the phone rings, for the call's voice; closed when the
 	// call ends or is forgotten.
-	Haiku    *Haiku
+	Talker   *Talker
 	deadline context.CancelFunc // forgets it if it isn't answered
 	// Outside your work hours, or after you didn't answer it: when the hub said the call can
 	// ring (ISO 8601, with an offset), until it rings; onHold, noSpeech, inTurn or callBack with
@@ -624,9 +624,12 @@ type Calls struct {
 	named   map[string][2]string
 	asking  sync.Mutex
 	awake   *exec.Cmd
-	closing sync.WaitGroup // Haikus of forgotten calls, while they close
+	closing sync.WaitGroup // Models of forgotten calls, while they close
 	// What changed for the hub's list of sessions, so it hears at once.
 	changed chan struct{}
+	// Which models Claude Code offers, and your choice in the app, from the hub.
+	models      []modelInfo
+	modelChoice string
 }
 
 func newCalls(hub placer, log func(string), state string) *Calls {
@@ -751,16 +754,16 @@ func (c *Calls) askHub(call *Call, question bool) (string, error) {
 	return "", nil
 }
 
-// ring: the phone rings, Haiku thinks of what to say meanwhile, so the voice can start as
+// ring: the phone rings, the model thinks of what to say meanwhile, so the voice can start as
 // soon as you answer, and the call is forgotten if you don't within unanswered.
 func (c *Calls) ring(call *Call) {
 	call.Placed = time.Now()
-	haiku := newHaiku(instructions(call.Briefing, true, true), func(line string) { c.logCall(call, line) }, true, opening)
-	if err := haiku.Start(); err != nil {
-		c.logCall(call, fmt.Sprintf("Haiku didn't start (%v); the call starts its own", err))
-		c.closeLater(haiku)
+	talker := newTalker(c.chosenLocked(), instructions(call.Briefing, true, true), func(line string) { c.logCall(call, line) }, true, opening)
+	if err := talker.Start(); err != nil {
+		c.logCall(call, fmt.Sprintf("The model didn't start (%v); the call starts its own", err))
+		c.closeLater(talker)
 	} else {
-		call.Haiku = haiku
+		call.Talker = talker
 	}
 	c.startDeadline(call)
 	c.save()
@@ -927,7 +930,7 @@ func (c *Calls) unheard(call *Call) bool {
 }
 
 // missed: the hub says you didn't answer a call it rang, or declined it, so it's held to ring
-// again at heldUntil, or after its last try until you call its session (callBack). The Haiku
+// again at heldUntil, or after its last try until you call its session (callBack). The model
 // that wrote this ring's opening closes; the next ring starts its own. Its session is told.
 func (c *Calls) missed(id, heldUntil string, tries int) {
 	c.mu.Lock()
@@ -940,7 +943,7 @@ func (c *Calls) missed(id, heldUntil string, tries int) {
 		call.deadline()
 		call.deadline = nil
 	}
-	c.closeHaiku(call)
+	c.closeTalker(call)
 	call.Rang, call.HeldUntil = true, heldUntil
 	c.logCall(call, fmt.Sprintf("not answered (ring %d), held %s", tries, until(heldUntil)))
 	c.sendLocked(call.Session, missedNote(call, heldUntil, tries), nil, "outcome")
@@ -1022,7 +1025,7 @@ func (c *Calls) back(id string) *Call {
 		if call.deadline != nil {
 			call.deadline()
 		}
-		c.closeHaiku(call)
+		c.closeTalker(call)
 		missed = remembered(call)
 		pool := c.poolOf(call.Session)
 		for _, a := range call.Link.asks.list() {
@@ -1337,16 +1340,16 @@ func (c *Calls) listening(session string) bool {
 	return ok && time.Since(seen) < listeningFor
 }
 
-// pickUp: a call you made is answered at once. Haiku writes the opening of a call you made,
+// pickUp: a call you made is answered at once. The model writes the opening of a call you made,
 // and it's forgotten if its audio doesn't come within unanswered.
 func (c *Calls) pickUp(call *Call) {
 	listening := call.Link.listening
-	haiku := newHaiku(instructions(call.Briefing, true, listening), func(line string) { c.logCall(call, line) }, listening, pickedUp)
-	if err := haiku.Start(); err != nil {
-		c.logCall(call, fmt.Sprintf("Haiku didn't start (%v); the call starts its own", err))
-		c.closeLater(haiku)
+	talker := newTalker(c.chosenLocked(), instructions(call.Briefing, true, listening), func(line string) { c.logCall(call, line) }, listening, pickedUp)
+	if err := talker.Start(); err != nil {
+		c.logCall(call, fmt.Sprintf("The model didn't start (%v); the call starts its own", err))
+		c.closeLater(talker)
 	} else {
-		call.Haiku = haiku
+		call.Talker = talker
 	}
 	c.startDeadline(call)
 	c.save()
@@ -1622,7 +1625,7 @@ func (c *Calls) deadline(ctx context.Context, call *Call) {
 }
 
 // forget drops a call, answered and ended or never answered: the one place a call goes. Its
-// session is told how it went, the Haiku that wrote its opening is closed, and it's
+// session is told how it went, the model that wrote its opening is closed, and it's
 // remembered for a day, so you can call it back.
 func (c *Calls) forget(call *Call) {
 	c.calls.pop(call.ID)
@@ -1636,7 +1639,7 @@ func (c *Calls) forget(call *Call) {
 			cancel()
 		}
 	}
-	c.closeHaiku(call)
+	c.closeTalker(call)
 	if !call.answered() && call.Link.listening {
 		// You didn't answer: what it was asking waits for the next call with its session you
 		// answer, a call back or its next call, while the session's mod waits.
@@ -1674,16 +1677,16 @@ func (c *Calls) poolOf(session string) *ordered[*Ask] {
 	return pool
 }
 
-func (c *Calls) closeHaiku(call *Call) {
-	if call.Haiku != nil {
-		c.closeLater(call.Haiku)
-		call.Haiku = nil
+func (c *Calls) closeTalker(call *Call) {
+	if call.Talker != nil {
+		c.closeLater(call.Talker)
+		call.Talker = nil
 	}
 }
 
-// closeLater closes a Haiku no call needs any more, which takes up to 2 s, without holding up
+// closeLater closes a model no call needs any more, which takes up to 2 s, without holding up
 // what forgot it.
-func (c *Calls) closeLater(h *Haiku) {
+func (c *Calls) closeLater(h *Talker) {
 	c.closing.Add(1)
 	go func() {
 		defer c.closing.Done()
@@ -1724,7 +1727,7 @@ func (c *Calls) stayAwake() {
 // call as it was placed, with what its briefing asks, and nothing running.
 func remembered(call *Call) *Call {
 	kept := *call
-	kept.AnsweredAt, kept.Link, kept.Haiku, kept.deadline, kept.HeldUntil, kept.holding = time.Time{}, nil, nil, nil, "", nil
+	kept.AnsweredAt, kept.Link, kept.Talker, kept.deadline, kept.HeldUntil, kept.holding = time.Time{}, nil, nil, nil, "", nil
 	if call.Link != nil {
 		kept.Asked = call.Link.briefedNames()
 	}
@@ -1881,7 +1884,7 @@ func stamp(at float64) string {
 
 func unixNow() float64 { return float64(time.Now().UnixNano()) / 1e9 }
 
-// newID is four random lowercase letters, not taken yet: short, and safe for Haiku to write.
+// newID is four random lowercase letters, not taken yet: short, and safe for the model to write.
 func newID(taken *ordered[*Ask]) string {
 	for {
 		b := make([]byte, 4)

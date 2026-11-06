@@ -5,7 +5,9 @@ import Foundation
 /// background filter and On-device voice. They're kept under the keys the app used when it had
 /// a settings screen of its own, so values carry over, and the app reads them when it needs
 /// them. The Settings app shows a bundle's defaults but doesn't store them, so the app
-/// registers the same ones at launch.
+/// registers the same ones at launch. The model for conversation is the one that can't be there,
+/// as a bundle's lists are fixed: it's on the app's own sheet (SettingsSheet), and the Settings
+/// app shows it read-only, with a link to that sheet.
 enum AppSettings {
     private static let migratedKey = "settingsMigrated"
 
@@ -18,6 +20,7 @@ enum AppSettings {
             AudioLink.backgroundFilterOnKey: true,
             AudioLink.backgroundFilterKey: AudioLink.defaultBackgroundFilter,
             OnDeviceVoice.key: false,
+            ModelChoices.labelKey: "Default",
         ])
         migrate()
     }

@@ -260,14 +260,14 @@ func TestGoldenReplies(t *testing.T) {
 			link.asks.set("perm", newAsk("perm", "permission", "s1", g.Asks[0].Request))
 			link.asks.set("ques", newAsk("ques", "question", "s1", g.Asks[1].Request))
 		}
-		haiku := newHaiku("", func(string) {}, true, "")
+		talker := newTalker(chosenModel{}, "", func(string) {}, true, "")
 		if s.Model != "" {
-			haiku.model = s.Model
+			talker.model = chosenModel{flag: s.Model}
 		}
 		var spoken, answers []string
 		// What's spoken comes from the stream, and from a tool call that flushes it.
 		say := func(m map[string]any) { spoken = append(spoken, m["text"].(string)) }
-		v := &voice{calls: c, callID: "c1", link: link, haiku: haiku, log: func(string) {}, out: say, said: s.Said, turn: 2, unfinished: 1, writing: true}
+		v := &voice{calls: c, callID: "c1", link: link, talker: talker, log: func(string) {}, out: say, said: s.Said, turn: 2, unfinished: 1, writing: true}
 		for _, step := range s.Steps {
 			if name, ok := step["tool"].(string); ok {
 				input, _ := step["input"].(map[string]any)
@@ -294,7 +294,7 @@ func TestGoldenReplies(t *testing.T) {
 			same(t, want.Name+": needed", v.needed(got), h.Needed)
 		}
 		for _, cut := range want.Cuts {
-			copied := &voice{calls: c, callID: "c1", link: link, haiku: haiku, log: func(string) {}, reply: v.reply, ack: v.ack, turn: v.turn}
+			copied := &voice{calls: c, callID: "c1", link: link, talker: talker, log: func(string) {}, reply: v.reply, ack: v.ack, turn: v.turn}
 			for _, h := range v.held {
 				h := *h
 				h.give = func() bool { return true }

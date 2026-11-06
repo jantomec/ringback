@@ -34,7 +34,7 @@ open a pull request."* Your words reach the session, it carries on, and if there
 decide, it calls again.
 
 Ringback runs on your own machines and phone, over a private network of yours such as
-[Nebula](https://github.com/slackhq/nebula). The voice is Claude Haiku through Claude Code, on
+[Nebula](https://github.com/slackhq/nebula). The voice is Claude through Claude Code, on
 your Claude subscription, and the speech models run on your own GPU, or on the iPhone itself:
 no API key, and no server of ours in between.
 
@@ -91,8 +91,8 @@ node, Apple's push), a banner at the top says what, in plain words, and goes onc
 A small **mod** in each Claude Code session writes a spoken briefing when a turn ends, and hands
 it to the **agent** on that Mac. The agent asks the **hub**, a small always-on service, to ring
 your **iPhone**. When you answer, your voice goes to the hub, which passes it to the **speech
-node**, a machine with a GPU: Silero hears when you speak, Smart Turn when you've finished, and
-Parakeet what you said. Your words go to the agent, where Claude Haiku answers through Claude Code,
+node**, a machine with a GPU: Silero hears when you speak and Parakeet what you said. Your words
+go to the agent, where Claude, which decides whether you've finished, answers through Claude Code,
 on the session's own Mac, and Kokoro, back on the speech node, speaks the answer. What you ask for
 goes back to the session, and its answer comes back to the call. Without a speech node, the
 iPhone can hear and speak the call itself, with Apple's speech, and only text goes to the hub.
@@ -175,6 +175,12 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 - [x] Showing you things: images, PDFs, clips and 3D models a call can't say
 - [ ] 3D models on Linux: OpenUSD's live view, and an agent there
 - [ ] The call history in iCloud
+- [ ] Ending a call by voice, with a recap
+- [ ] At least 60 s between calls
+- [ ] Opening what a session showed you during a call
+- [ ] Sending text or a link to the phone
+- [ ] The caller's name from where the session started and its title
+- [ ] Better speech models, by a blind listening test and on your own speech
 
 <details>
 <summary><b>Repository and development</b></summary>
@@ -186,7 +192,7 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 | `mod/` | The Claude Code mod (TypeScript) that adds `/ringback` |
 | `hub/` | The hub (Go): push, waiting calls, and the call's audio and timing |
 | `speech/` | The speech node (Go, sherpa-onnx on CUDA): hearing and speaking |
-| `agent/` | The agent (Go): each Mac's sessions, and the call's Haiku and Opus through Claude Code |
+| `agent/` | The agent (Go): each Mac's sessions, and the call's model through Claude Code |
 | `render/` | The 3D renderers (C++, Swift): a model a session shows you, rendered on its computer |
 | `tools/` | The checks and measurements behind the design, each with a README |
 | `docs/` | The design, the protocol between the parts, the setup guide, and the images here |

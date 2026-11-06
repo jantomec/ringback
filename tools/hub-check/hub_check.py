@@ -300,47 +300,66 @@ async def main() -> int:
         check(f"cut off, the agent hears what you'd heard of reply 2: {interrupted and interrupted[0]['heard'][:50]!r}",
               len(interrupted) == 1 and interrupted[0]["reply"] == 2 and LONG.startswith(interrupted[0]["heard"])
               and 0 < len(interrupted[0]["heard"]) < len(LONG))  # fmt: skip
-        check(f"the node is told to stop speaking: {len(node.of('speak_cancel'))}", len(node.of("speak_cancel")) >= 1)
+        check(f"nothing's dropped yet, the model decides: {len(node.of('speak_cancel'))} cancels",
+              not node.of("speak_cancel") and interrupted[0].get("paused") is True)  # fmt: skip
         check(f"and the phone hears no more of the voice: {len(after)} loud frames after", len(after) == 0)
 
-        # What comes of the cut reply after the interruption (written before the agent heard of
-        # it) is dropped.
+        # The model carries on: the voice goes back to the sentence it stopped in, and plays.
+        await node.ws.send_json({"type": "speech_stopped", "stream": stream})
+        speaking = len(agent.of("speaking"))
+        back = time.monotonic()
+        await agent.ws.send_json({"type": "resume", "call_id": call_id, "reply": 2})
+        await until(lambda: len(agent.of("speaking")) > speaking, 3)
+        await asyncio.sleep(0.8)
+        again = [t for t, loud in phone.heard if t > back and loud]
+        check(f"told to carry on, the voice speaks again: {len(again)} loud frames", len(again) > 10)
+
+        # You stop it again, and this time the model answers you: its reply takes the place of
+        # the rest, and what still comes of the reply it replaced is dropped.
+        await node.ws.send_json({"type": "speech_started", "stream": stream})
+        await until(lambda: len(agent.of("interrupted")) == 2, 3)
+        check("stopped a second time, the rest is still kept", not node.of("speak_cancel"))
+        await node.ws.send_json({"type": "speech_stopped", "stream": stream})
+        finished = len(agent.of("idle"))
+        await say(3, "Sure, here's the answer.")
+        await until(lambda: node.of("speak_cancel"), 3)
+        check(f"a new reply drops the rest of the old one: {len(node.of('speak_cancel'))}", len(node.of("speak_cancel")) >= 1)
         spoken = len(node.of("speak"))
         await say(2, " And this late slice should never be spoken.")
         await asyncio.sleep(0.8)
-        check(f"late slices of the cut reply aren't spoken: {node.of('speak')[spoken:]}", len(node.of("speak")) == spoken)
-        await node.ws.send_json({"type": "speech_stopped", "stream": stream})
+        check(f"late slices of the dropped reply aren't spoken: {node.of('speak')[spoken:]}", len(node.of("speak")) == spoken)
+        await until(lambda: len(agent.of("idle")) > finished, 10)
 
         # You go on talking right after your turn, before its reply has come: it's cut off
         # unheard, and when it comes it's dropped; the reply to your next turn is spoken.
         await node.ws.send_json({"type": "turn", "stream": stream, "text": "Wait.", "secs": 0.4, "took": 0.05})
         await until(lambda: len(agent.of("turn")) == 2, 3)
         await node.ws.send_json({"type": "speech_started", "stream": stream})
-        await until(lambda: len(agent.of("interrupted")) == 2, 3)
-        second = agent.of("interrupted")[1:]
-        check(f"talking on before the reply came cuts off reply 3, unheard: {second}",
-              second == [{"type": "interrupted", "call_id": call_id, "reply": 3, "heard": ""}])  # fmt: skip
-        await say(3, "Too late for this one. It's dropped.")
+        await until(lambda: len(agent.of("interrupted")) == 3, 3)
+        second = agent.of("interrupted")[2:]
+        check(f"talking on before the reply came cuts off reply 4, unheard: {second}",
+              second == [{"type": "interrupted", "call_id": call_id, "reply": 4, "heard": ""}])  # fmt: skip
+        await say(4, "Too late for this one. It's dropped.")
         await node.ws.send_json({"type": "speech_stopped", "stream": stream})
         await node.ws.send_json({"type": "turn", "stream": stream, "text": "Go on.", "secs": 0.6, "took": 0.05})
         await until(lambda: len(agent.of("turn")) == 3, 3)
         idles = len(agent.of("idle"))
-        await say(4, "Going on now.")
+        await say(5, "Going on now.")
         await until(lambda: len(agent.of("idle")) > idles, 10)
         late = [m["text"] for m in node.of("speak")[spoken:]]
         check(f"only the next turn's reply is spoken: {late}", late == ["Going on now."])
         heard = agent.of("heard")
         empty = [m for m in agent.of("heard") if not m["text"]]
         check(f"the agent never hears an empty heard: {len(empty)}", not empty)
-        check(f"and heard to its end, as reply 4, then idle: {heard[-1]['text']!r}, {len(agent.of('idle')) - idles} idle",
-              heard[-1]["text"] == "Going on now." and heard[-1]["reply"] == 4 and len(agent.of("idle")) == idles + 1)  # fmt: skip
+        check(f"and heard to its end, as reply 5, then idle: {heard[-1]['text']!r}, {len(agent.of('idle')) - idles} idle",
+              heard[-1]["text"] == "Going on now." and heard[-1]["reply"] == 5 and len(agent.of("idle")) == idles + 1)  # fmt: skip
 
         # A reply with nothing to say (only a tool call): the voice is idle.
         await node.ws.send_json({"type": "turn", "stream": stream, "text": "Do it.", "secs": 0.5, "took": 0.05})
         # Answered once the turn has reached the agent, as an agent does: the node's link and the
         # agent's are two, so the hub could take the answer before the turn.
         await until(lambda: len(agent.of("turn")) == 4, 3)
-        await agent.ws.send_json({"type": "said", "call_id": call_id, "reply": 5})
+        await agent.ws.send_json({"type": "said", "call_id": call_id, "reply": 6})
         await until(lambda: len(agent.of("idle")) > idles + 1, 3)
         check(f"a reply with nothing to say leaves the voice idle: {len(agent.of('idle')) - idles - 1} idle",
               len(agent.of("idle")) == idles + 2)  # fmt: skip
@@ -356,7 +375,7 @@ async def main() -> int:
         await node.ws.send_json({"type": "speech_stopped", "stream": stream})
         await node.ws.send_json({"type": "turn", "stream": stream, "text": "", "secs": 0.3, "took": 0.02})
         await until(lambda: len(agent.of("turn")) == 5, 3)
-        await agent.ws.send_json({"type": "said", "call_id": call_id, "reply": 6})
+        await agent.ws.send_json({"type": "said", "call_id": call_id, "reply": 7})
         await until(lambda: len(agent.of("idle")) > idles + 2, 3)
         idle_at = [t for t, m in agent.got if m["type"] == "idle"][-1]
         await until(lambda: agent.of("quiet"), 12)
@@ -365,6 +384,16 @@ async def main() -> int:
         check(f"8 s after the voice went idle with nothing heard, the agent hears it's quiet, once: "
               f"{[round(q, 2) for q in quiets]} s",
               len(quiets) == 1 and 7.9 <= quiets[0] < 8.5)  # fmt: skip  (the idle can reach this a little late)
+
+        # The model waits for you to go on, and you don't: the agent hears so at the wait's limit.
+        await node.ws.send_json({"type": "turn", "stream": stream, "text": "So the", "secs": 0.4, "took": 0.05})
+        await until(lambda: len(agent.of("turn")) == 6, 3)
+        waited_at = time.monotonic()
+        await agent.ws.send_json({"type": "said", "call_id": call_id, "reply": 8, "waiting": True})
+        await until(lambda: len(agent.of("quiet")) == 2, 5)
+        waited = time.monotonic() - waited_at
+        check(f"the model's wait ends after 3 s without you: {waited:.2f} s, {agent.of('quiet')[1:]}",
+              2.9 <= waited < 3.6 and agent.of("quiet")[1].get("waited") is True)  # fmt: skip
 
         # Hanging up: the agent hears how long you talked.
         talked = time.monotonic() - t0

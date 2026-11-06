@@ -25,6 +25,13 @@ const lead = time.Second
 // it tells the agent (`quiet`): an answer it asked for may have gone unheard.
 const quietAfter = 8 * time.Second
 
+// waitLimit is how long the model's wait lasts, once it has chosen to wait for you to go on and
+// you haven't: then the agent is told (`quiet`, `waited`), and the model answers what you said.
+var waitLimit = envSeconds("RINGBACK_WAIT_LIMIT", 3)
+
+// frameSecs is how long a frame of the voice's audio lasts.
+const frameSecs = 0.02
+
 type piece struct {
 	id      int // unique in the call, so audio for a piece that was cut off can be told apart
 	text    string
@@ -69,7 +76,10 @@ type Call struct {
 	cut             int  // replies up to this number were cut off: what more comes of them is dropped
 	awaiting        bool // your turn went to the agent, and nothing of its reply has come yet
 	cutThisTurn     bool // the voice was cut off since your last turn
-	finishedOnce    bool // the voice has finished speaking once (the opening)
+	paused          bool // you spoke over the voice: it's stopped, and the rest of its reply is kept
+	pausedAt        time.Time
+	played          []outFrame // of the current reply, to go back to the start of a sentence
+	finishedOnce    bool       // the voice has finished speaking once (the opening)
 	text            string
 	handed          int
 	replyEnded, due bool
@@ -299,6 +309,10 @@ func (c *Call) play() {
 			c.mu.Unlock()
 			return
 		}
+		if c.paused {
+			c.mu.Unlock()
+			continue
+		}
 		live := !c.answeredAt.IsZero() && !c.connectedAt.IsZero()
 		if !live || len(c.queue) == 0 {
 			var final map[string]any
@@ -321,6 +335,7 @@ func (c *Call) play() {
 		}
 		f := c.queue[0]
 		c.queue = c.queue[1:]
+		c.played = append(c.played, f)
 		t := now()
 		if p := c.piece(f.piece); p != nil && p.start.IsZero() {
 			p.start = t
@@ -397,7 +412,7 @@ func (c *Call) heardSoFar(t time.Time) string {
 
 // checkIdle tells the agent when the voice has finished and you aren't speaking, once.
 func (c *Call) checkIdle() {
-	if c.idleSent || c.playing || len(c.queue) > 0 || c.userSpeaking {
+	if c.idleSent || c.playing || len(c.queue) > 0 || c.userSpeaking || c.paused {
 		return
 	}
 	if c.replying && !(c.replyEnded && strings.TrimSpace(c.text) == "") {
@@ -426,6 +441,18 @@ func (c *Call) quiet(since int) {
 	}
 }
 
+// waited tells the agent, once, that you haven't gone on within waitLimit of the model choosing
+// to wait.
+func (c *Call) waited(since int) {
+	time.Sleep(waitLimit)
+	c.mu.Lock()
+	still := !c.ended && !c.userSpeaking && c.quietSince == since
+	c.mu.Unlock()
+	if still {
+		_ = c.agent.send(map[string]any{"type": "quiet", "call_id": c.id, "waited": true})
+	}
+}
+
 // write: reply n, as it's written. The first sentence goes to be spoken at once; later
 // pieces go when the one before is about to end, with every finished sentence since. What
 // comes of a reply that was cut off is dropped.
@@ -437,16 +464,24 @@ func (c *Call) write(n int, text string) {
 	}
 	c.lastReply, c.awaiting = max(c.lastReply, n), false
 	if !c.replying || n != c.replyNo {
+		if c.paused {
+			// A new reply takes the place of the one you stopped, and what's still to come of
+			// that one is dropped.
+			c.paused, c.cut = false, max(c.cut, c.replyNo)
+			c.queue = nil
+			_ = c.node.send(map[string]any{"type": "speak_cancel", "stream": c.stream})
+			c.say(fmt.Sprintf("reply %d answers you, so the rest of reply %d is dropped", n, c.replyNo))
+		}
 		c.replying, c.replyNo, c.text, c.handed, c.replyEnded, c.due = true, n, "", 0, false, false
-		c.pieces, c.heardSent = nil, ""
+		c.pieces, c.heardSent, c.played = nil, "", nil
 		c.generation++
 	}
 	c.text += text
 	c.handOver()
 }
 
-// written: reply n is complete.
-func (c *Call) written(n int) {
+// written: reply n is complete. waiting: it said nothing, as the model waits for you to go on.
+func (c *Call) written(n int, waiting bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.ended || n <= c.cut {
@@ -457,6 +492,10 @@ func (c *Call) written(n int) {
 		// Nothing of it was written: the voice is idle once what it says now has played.
 		c.idleSent = false
 		c.checkIdle()
+		if waiting {
+			c.quietSince++
+			go c.waited(c.quietSince)
+		}
 		return
 	}
 	c.replyEnded = true
@@ -567,9 +606,11 @@ func (c *Call) spoken(pieceID int, secs, took float64) {
 	c.say(fmt.Sprintf("voice (%.1f s, made in %.2f s): %q", secs, took, p.text))
 }
 
-// speechStarted: the node hears you. If the voice was still speaking, or had more to say,
-// it stops at once; what you'd heard goes to the agent, and the rest is never spoken. A
-// reply to your last turn that hasn't come yet is cut off too, unheard.
+// speechStarted: the node hears you. If the voice was still speaking, or had more to say, it
+// stops at once. Once you've heard some of the reply, the rest is kept: what you'd heard goes
+// to the agent, and the model decides from what you say whether the voice carries on (resume)
+// or answers you. A phone that speaks itself can only stop, and a reply you've heard none of
+// is dropped, as is a reply to your last turn that hasn't come yet.
 func (c *Call) speechStarted() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -578,12 +619,26 @@ func (c *Call) speechStarted() {
 	}
 	c.userSpeaking = true
 	c.quietSince++
+	if c.paused {
+		if c.awaiting {
+			// You've gone on while the model decides: its answer to what you said so far is dropped.
+			c.cut, c.awaiting = c.lastReply+1, false
+			_ = c.agent.send(map[string]any{"type": "interrupted", "call_id": c.id, "reply": c.cut, "heard": ""})
+		}
+		return
+	}
 	end, known := c.expectedEnd(now())
 	unfinished := c.replying && (!c.replyEnded || strings.TrimSpace(c.text) != "" || len(c.queue) > 0 || !known || now().Before(end))
 	heard := ""
 	switch {
 	case unfinished:
 		heard = c.heardSoFar(now())
+		if heard != "" && !c.phone {
+			c.paused, c.pausedAt, c.playing, c.cutThisTurn, c.heardSent = true, now(), false, true, heard
+			_ = c.agent.send(map[string]any{"type": "interrupted", "call_id": c.id, "reply": c.replyNo, "heard": heard, "paused": true})
+			c.say(fmt.Sprintf("paused reply %d; you'd heard %q", c.replyNo, lastRunes(heard, 60)))
+			return
+		}
 		c.cut = c.replyNo
 		_ = c.node.send(map[string]any{"type": "speak_cancel", "stream": c.stream})
 	case c.awaiting:
@@ -592,7 +647,7 @@ func (c *Call) speechStarted() {
 		c.replying = false
 		return
 	}
-	c.replying, c.awaiting, c.queue, c.pieces, c.text, c.heardSent = false, false, nil, nil, "", ""
+	c.replying, c.awaiting, c.queue, c.pieces, c.text, c.heardSent, c.played = false, false, nil, nil, "", "", nil
 	c.cutThisTurn = true
 	if c.phone {
 		c.playing = false // it stops at speak_cancel, and says nothing more of those pieces
@@ -600,6 +655,55 @@ func (c *Call) speechStarted() {
 	c.generation++
 	_ = c.agent.send(map[string]any{"type": "interrupted", "call_id": c.id, "reply": c.cut, "heard": heard})
 	c.say(fmt.Sprintf("interrupted reply %d; you'd heard %q", c.cut, lastRunes(heard, 60)))
+}
+
+// resume: the model carries on with reply n, which you stopped. The voice goes back to the
+// start of the sentence it was in.
+func (c *Call) resume(n int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.ended || !c.paused || n != c.replyNo {
+		return
+	}
+	c.paused = false
+	back := c.rewind()
+	c.say(fmt.Sprintf("carries on with reply %d, %.1f s back", n, back))
+	c.checkIdle()
+}
+
+// rewind puts what was played of the sentence the voice stopped in back on the queue, and says
+// how many seconds that is. Words are taken as spread evenly over a piece's audio, as in heard.
+func (c *Call) rewind() float64 {
+	var p *piece
+	for _, x := range c.pieces {
+		if !x.start.IsZero() {
+			p = x
+		}
+	}
+	if p == nil || p.secs() == 0 {
+		return 0
+	}
+	elapsed, secs := c.pausedAt.Sub(p.start).Seconds(), p.secs()
+	var frames int
+	for _, f := range c.played {
+		if f.piece == p.id {
+			frames++
+		}
+	}
+	keep := 0.0
+	if at := int(float64(len(p.text)) * elapsed / secs); at < len(p.text) {
+		keep = secs * float64(sentenceStart(p.text[:max(at, 0)])) / float64(len(p.text))
+	} else {
+		keep = secs // it had played to its end: the next piece starts a sentence
+	}
+	again := max(frames-int(keep/frameSecs), 0)
+	if again > 0 {
+		from := len(c.played) - again
+		c.queue = append(append([]outFrame{}, c.played[from:]...), c.queue...)
+		c.played = c.played[:from]
+	}
+	p.start = now().Add(-time.Duration(float64(frames-again) * frameSecs * float64(time.Second)))
+	return float64(again) * frameSecs
 }
 
 func lastRunes(s string, n int) string {

@@ -9,8 +9,8 @@ import (
 type Events interface {
 	SpeechStarted()
 	SpeechStopped()
-	// Turn: your words for the whole turn, how long you spoke and how long recognising the
-	// turn's last stretch of speech took, from asking to the answer.
+	// Turn: you've paused for the turn wait. Your words since the last pause, how long you
+	// spoke and how long recognising the last stretch of speech took, from asking to the answer.
 	Turn(text string, secs, took float64)
 	// Transcribe asks for the words of one stretch of speech (float samples at Rate); the
 	// answer comes back through Stream.Transcribed with the same id, in the order asked.
@@ -44,7 +44,7 @@ type Stream struct {
 
 	// The turn (Pipecat's TurnAnalyzerUserTurnStopStrategy).
 	vadSpeaking bool
-	complete    bool              // Smart Turn or the turn wait says the turn is over
+	complete    bool              // the pause has lasted the turn wait
 	pending     int               // stretches of speech being transcribed
 	nextID      int               // the next stretch's id
 	retry       map[int][]float32 // each stretch's audio from just before it began, until its words come
@@ -163,9 +163,7 @@ func (s *Stream) stopped() {
 	s.ev.Transcribe(id, audio)
 
 	s.vadSpeaking = false
-	if s.turn.analyze() {
-		s.complete = true
-	}
+	s.turn.analyze()
 	s.finish()
 }
 

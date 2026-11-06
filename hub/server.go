@@ -31,7 +31,7 @@ type endpoint func(body map[string]any) (map[string]any, error)
 func serve(listen string) {
 	endpoints := map[string]endpoint{
 		"/pair": pair, "/pair-link": pairPart, "/register": register, "/events": event, "/check": checkIn, "/waiting": waiting,
-		"/contacts": contacts, "/hold": holdSwitch, "/shown": shownList,
+		"/contacts": contacts, "/hold": holdSwitch, "/shown": shownList, "/model": modelSetting,
 	}
 	listener, err := net.Listen("tcp4", listen)
 	if err != nil {

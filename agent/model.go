@@ -1,18 +1,18 @@
 package main
 
-// Haiku's Claude Code session for one call, on the Claude subscription.
+// The call's model in a Claude Code session, on the Claude subscription.
 //
 // It stays open for the whole call, so it holds the conversation and each turn sends only
 // what's new. A call that a session placed starts it as soon as the hub takes the call, so
-// Haiku writes its opening while the phone rings, and closes it when the call ends or is
+// The model writes its opening while the phone rings, and closes it when the call ends or is
 // forgotten; a voice whose call has none starts and closes its own, from the phone's offer
 // on. voice.go is the call's voice that reads it.
 //
-// Haiku's tools are a small MCP server (this binary's `mcp`, tools.go) that relays each tool
+// the model's tools are a small MCP server (this binary's `mcp`, tools.go) that relays each tool
 // call over a socket in the session's private folder. Every call has better_model, and a
 // call for a session also pass_to_session, answer_permission and answer_question. The call's
 // voice takes the tool calls from your first words on. One made in the opening does nothing:
-// you haven't said anything yet. Once, writing its opening while the phone rang, Haiku passed
+// you haven't said anything yet. Once, writing its opening while the phone rang, the model passed
 // a message nobody had said.
 //
 // A better model: the session is kept on disk under a known ID, so Opus can take the call
@@ -65,10 +65,10 @@ const betterModel = "better_model"
 // event is one line Claude Code writes (stream-json); nil once the session has ended.
 type event = map[string]any
 
-// toolHandler answers one of Haiku's tool calls with the text Haiku reads.
+// toolHandler answers one of the model's tool calls with the text the model reads.
 type toolHandler func(name string, input map[string]any) string
 
-type Haiku struct {
+type Talker struct {
 	instructions string
 	log          func(string)
 	withTools    bool   // the session's tools, on a call for a session
@@ -79,9 +79,9 @@ type Haiku struct {
 	OpeningAt time.Time // when the opening was asked for
 
 	mu         sync.Mutex
-	model      string    // "haiku", or "opus" once Opus has taken the call over
-	firstWords time.Time // when the first words of the last turn's reply came
-	used       bool      // a call's voice has read its replies, so a new offer's voice can't take it over
+	model      chosenModel // Opus's once it has taken the call over
+	firstWords time.Time   // when the first words of the last turn's reply came
+	used       bool        // a call's voice has read its replies, so a new offer's voice can't take it over
 	tool       toolHandler
 	proc       *process // claude, while it runs
 	ended      bool     // nil was put in Events
@@ -91,7 +91,7 @@ type Haiku struct {
 	listener  net.Listener
 }
 
-// process is one run of claude: Haiku's, or Opus's once it has taken over.
+// process is one run of claude: the model's, or Opus's once it has taken over.
 type process struct {
 	cmd      *exec.Cmd
 	stdin    io.WriteCloser
@@ -99,45 +99,43 @@ type process struct {
 	stopping chan struct{} // what it still writes isn't read
 }
 
-func newHaiku(instructions string, log func(string), tools bool, opening string) *Haiku {
-	return &Haiku{
+func newTalker(model chosenModel, instructions string, log func(string), tools bool, opening string) *Talker {
+	return &Talker{
 		instructions: instructions, log: log, withTools: tools, opening: opening, ID: uuid4(),
-		Events: make(chan event, 1<<16), model: "haiku",
+		Events: make(chan event, 1<<16), model: model,
 	}
 }
 
-// Name is the model on the line, for the log: "Haiku" or "Opus".
-func (h *Haiku) Name() string {
-	m := h.Model()
-	return strings.ToUpper(m[:1]) + m[1:]
-}
+// Name is the model on the line, for the log and the transcript, such as "Opus 5.5".
+func (h *Talker) Name() string { return h.Model().name() }
 
-func (h *Haiku) Model() string {
+// Model is the model on the line.
+func (h *Talker) Model() chosenModel {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.model
 }
 
-func (h *Haiku) FirstWords() time.Time {
+func (h *Talker) FirstWords() time.Time {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.firstWords
 }
 
-func (h *Haiku) Used() bool {
+func (h *Talker) Used() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.used
 }
 
-func (h *Haiku) markUsed() {
+func (h *Talker) markUsed() {
 	h.mu.Lock()
 	h.used = true
 	h.mu.Unlock()
 }
 
 // Start starts the session and asks for the call's opening.
-func (h *Haiku) Start() error {
+func (h *Talker) Start() error {
 	h.switching.Lock()
 	defer h.switching.Unlock()
 	// An empty working directory, so no project's CLAUDE.md is loaded.
@@ -146,7 +144,7 @@ func (h *Haiku) Start() error {
 		return err
 	}
 	h.dir = dir
-	// Haiku's tools reach this call over a socket in its private folder.
+	// the model's tools reach this call over a socket in its private folder.
 	listener, err := net.Listen("unix", h.socket())
 	if err != nil {
 		return err
@@ -161,24 +159,24 @@ func (h *Haiku) Start() error {
 	return err
 }
 
-// HandOver puts Opus on the call in Haiku's place, between turns: closes Haiku's process and
+// HandOver puts Opus on the call in the model's place, between turns: closes the model's process and
 // resumes its session with Opus, which then has the whole conversation.
-func (h *Haiku) HandOver() error {
+func (h *Talker) HandOver() error {
 	h.switching.Lock()
 	defer h.switching.Unlock()
 	if h.dir == "" {
 		return nil // closed already
 	}
-	// The end of Haiku's process isn't the end of the session.
+	// The end of the model's process isn't the end of the session.
 	h.stop()
 	h.mu.Lock()
-	h.model = "opus"
+	h.model = opusModel
 	h.mu.Unlock()
 	return h.run("--resume")
 }
 
 // run starts claude on the session: a new one (--session-id) or resumed (--resume).
-func (h *Haiku) run(how string) error {
+func (h *Talker) run(how string) error {
 	names := []string{betterModel}
 	if h.withTools {
 		names = append(append([]string{}, sessionTools...), betterModel)
@@ -189,8 +187,8 @@ func (h *Haiku) run(how string) error {
 	for i, name := range names {
 		allowed[i] = "mcp__ringback__" + name
 	}
-	args := append(append([]string{}, claudeArgs...),
-		"--model", h.Model(), how, h.ID,
+	args := append(append([]string{}, claudeArgs...), h.Model().flags()...)
+	args = append(args, how, h.ID,
 		// Resumed, the session reuses the system prompt it recorded; given again, it
 		// doesn't depend on that.
 		"--system-prompt", h.instructions,
@@ -220,10 +218,10 @@ func (h *Haiku) run(how string) error {
 	return nil
 }
 
-func (h *Haiku) socket() string { return filepath.Join(h.dir, "tools.sock") }
+func (h *Talker) socket() string { return filepath.Join(h.dir, "tools.sock") }
 
 // Send sends a turn and returns when it was sent.
-func (h *Haiku) Send(message string) (time.Time, error) {
+func (h *Talker) Send(message string) (time.Time, error) {
 	h.mu.Lock()
 	h.firstWords = time.Time{}
 	p := h.proc
@@ -236,14 +234,30 @@ func (h *Haiku) Send(message string) (time.Time, error) {
 	return time.Now(), err
 }
 
-// TakeTools lets the call's voice answer Haiku's tool calls from now on.
-func (h *Haiku) TakeTools(tool toolHandler) {
+// Interrupt stops the reply being written, as when you go on before it's spoken. Its turn stays
+// in the session, your words with it, and the next turn can go at once: tried on Claude Code
+// 2.1.319, a stop ended a reply 0.01 s later, and the model still knew the words of two stopped
+// turns (`stop` in tools/reply-speed).
+func (h *Talker) Interrupt() {
+	h.mu.Lock()
+	p := h.proc
+	h.mu.Unlock()
+	if p == nil {
+		return
+	}
+	line, _ := json.Marshal(map[string]any{"type": "control_request", "request_id": "stop-" + uuid4(),
+		"request": map[string]any{"subtype": "interrupt"}})
+	p.stdin.Write(append(line, '\n'))
+}
+
+// TakeTools lets the call's voice answer the model's tool calls from now on.
+func (h *Talker) TakeTools(tool toolHandler) {
 	h.mu.Lock()
 	h.tool = tool
 	h.mu.Unlock()
 }
 
-func (h *Haiku) Close() {
+func (h *Talker) Close() {
 	h.switching.Lock()
 	defer h.switching.Unlock()
 	if h.listener != nil {
@@ -271,7 +285,7 @@ func (h *Haiku) Close() {
 }
 
 // stop ends claude's process: its input closed, it has 2 s to finish, then it's killed.
-func (h *Haiku) stop() {
+func (h *Talker) stop() {
 	h.mu.Lock()
 	p := h.proc
 	h.proc = nil
@@ -289,7 +303,7 @@ func (h *Haiku) stop() {
 	}
 }
 
-func (h *Haiku) read(p *process, stdout io.Reader) {
+func (h *Talker) read(p *process, stdout io.Reader) {
 	reader := bufio.NewReaderSize(stdout, 1<<16)
 	for {
 		line, err := reader.ReadBytes('\n')
@@ -325,7 +339,7 @@ func (h *Haiku) read(p *process, stdout io.Reader) {
 }
 
 // serveTools answers each tool call that the MCP server relays: one JSON line in, one out.
-func (h *Haiku) serveTools(listener net.Listener) {
+func (h *Talker) serveTools(listener net.Listener) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {

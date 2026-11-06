@@ -133,6 +133,7 @@ type statusView struct {
 	Headline, Hint, Tone, Detail string // Tone: good, wait, bad, hold or unset
 	Problems                     []problemView
 	Hold                         holdView
+	Model                        string // the model for conversation, set in the app
 	Wide, Narrow                 mapView
 	Live                         []liveView
 	Waiting                      []waitingView
@@ -150,7 +151,7 @@ const heardWithin = 2 * time.Hour
 const onDevice = "On‑device"
 
 func statusData() statusView {
-	v := statusView{PrivateHub: privateHub(loadConfig())}
+	v := statusView{PrivateHub: privateHub(loadConfig()), Model: modelLine()}
 	registryMu.Lock()
 	nodeLinks := make([]*link, 0, len(nodes))
 	for l := range nodes {

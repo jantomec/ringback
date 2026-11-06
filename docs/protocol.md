@@ -24,6 +24,7 @@ at most 5 s, or 15 s for `/offer`, `/answered`, `/claude-app`, `/reask` and `/ca
 | `/waiting` | the calls that wait, for Recents, and the hold switch |
 | `/contacts` | the sessions listening on every Mac, for the Sessions tab |
 | `/hold` | reads or sets the phone's hold switch |
+| `/model` | the model for conversation: `{"token", "key"}` reads it, with `"model": "sonnet"` sets it, and with `"refresh": true` has the agents ask Claude Code again (at most every 20 s), for the next read. Answers `{"choice": "default", "models": [{"value", "name", "about", "default", "missing": ["a Mac that doesn't offer it"]}], "macs": [{"name", "linked", "at", "default"}]}`, the most recently heard Mac first |
 | `/offer` | the call's WebRTC offer, with the call's ID: made while the phone rings (`"ringing": true`), or for a waiting call called now (`"now": true`), a call back (`"back": true`) or a session called from Sessions (`"contact"`: the session's ID); the agent that owns the call accepts or refuses it, and the hub answers with its SDP. With no speech node linked: 503 `no speech node` |
 | `/answered` | you answered a call whose offer came while it rang |
 | `/claude-app` | sends a waiting call's question to the session's own dialog, which Remote Control shows in the Claude app |
@@ -85,7 +86,7 @@ Hello: `{"type": "hello", "version": 1, "name": "…", "hearing": true, "speakin
 | hub → node | binary: stream 7, then 20 ms of your audio at 16 kHz (320 samples) |
 | node → hub | `{"type": "speech_started", "stream": 7}` when Silero hears you start (the hub interrupts the voice on it) |
 | node → hub | `{"type": "speech_stopped", "stream": 7}` when you pause |
-| node → hub | `{"type": "turn", "stream": 7, "text": "…", "secs": 2.4, "took": 0.05}` when Smart Turn v3 says you've finished, or the turn wait (1.5 s) has passed, with Parakeet's words for the whole turn, how long you spoke and how long recognition took |
+| node → hub | `{"type": "turn", "stream": 7, "text": "…", "secs": 2.4, "took": 0.05}` at each pause of about 0.7 s, with Parakeet's words since the last, how long you spoke and how long recognition took. Whether you've finished is for the call's model to say |
 | hub → node | `{"type": "hear_end", "stream": 7}` closes it |
 
 ### Speaking
@@ -102,7 +103,7 @@ Pieces of one stream are made in the order asked. The voice is Kokoro `af_heart`
 ## The agent (`/agent`)
 
 The agent runs on each Mac with sessions. It keeps what its sessions need: their mods' socket,
-the calls they place, held or ringing or answered, what they ask, and Haiku or Opus for each
+the calls they place, held or ringing or answered, what they ask, and the model for each
 call. A call's ID is its secret.
 
 Hello: `{"type": "hello", "version": 1, "name": "…"}`; the name is the Mac's, for the log.
@@ -111,6 +112,9 @@ Hello: `{"type": "hello", "version": 1, "name": "…"}`; the name is the Mac's, 
 
 | Direction | Message |
 |---|---|
+| agent → hub | `{"type": "models", "models": [{"value", "name", "about", "resolved", "default"}], "claude_code": "2.1.319"}`, what Claude Code offers, when the agent links, every hour, and on `models_refresh`. The hub answers with `model` |
+| hub → agent | `{"type": "model", "value": "sonnet"}`: the model for conversation (`default`, or a name `--model` takes), as the agent says `models` and whenever you change it. It uses its own default if it doesn't offer that one |
+| hub → agent | `{"type": "models_refresh"}`: ask Claude Code again now |
 | agent → hub | `{"type": "sessions", "sessions": [{"session_id", "project", "since", "subject", "briefed_at"}]}` when they change and every 30 s; the hub lists them with this agent as their place |
 | agent → hub | `{"type": "place", "id": 1, "call_id", "project", "subject", "session_id", "question": false}`, to place a call or ask again about a held one. Reply: `{"ok": true}` (it rings), `{"ok": true, "held": true, "held_until": "…"}`, or, while no speech node is linked, `{"ok": true, "held": true, "reason": "no speech"}`: it waits, and the hub sends `reask` once a node links. One call rings at a time: while another rings or is on, or waits before it, `"reason": "in turn"`, and the hub sends `reask` when it's its turn; a call you didn't answer, `"reason": "missed"` with `held_until`, its next try, or after its last `"reason": "call back"`, until you call its session |
 | hub → agent | `{"type": "reask", "call_ids": [...]}`: you took calls, a node linked, or it's a call's turn; the held ones among them ask again now |
@@ -167,13 +171,14 @@ written can be told from the next.
 | hub → agent | `{"type": "answered", "call_id"}` when you answer (`/answered`, or an offer without ringing) |
 | hub → agent | `{"type": "connected", "call_id"}` when the audio connects; the voice may speak once both have come |
 | agent → hub | `{"type": "say", "call_id", "reply": 3, "text": "…"}`: the reply's text as it's written, in any slices (the agent sends a sentence at a time); the hub cuts it into spoken pieces |
-| agent → hub | `{"type": "said", "call_id", "reply": 3}` at the end of a reply; a reply with nothing to say (only a tool call) is just this, and the hub says `idle` once the voice is |
+| agent → hub | `{"type": "said", "call_id", "reply": 3}` at the end of a reply; a reply with nothing to say (only a tool call) is just this, and the hub says `idle` once the voice is. `"waiting": true`: the model chose to wait for you to go on (`[wait]`), so nothing was said, and the hub starts the limit on that wait |
 | hub → agent | `{"type": "heard", "call_id", "reply": 3, "text": "…"}` as reply 3 plays: everything of the current reply you've heard so far (for what's held until you've heard it announced) |
-| hub → agent | `{"type": "interrupted", "call_id", "reply": 3, "heard": "…"}` when you cut the voice off: what you'd heard of reply 3; the rest is never spoken, and the hub drops whatever more comes of it, so the agent stops writing it. You also cut off a reply to your turn that hasn't come yet: `reply` is then the next number and `heard` is empty |
+| hub → agent | `{"type": "interrupted", "call_id", "reply": 3, "heard": "…", "paused": true}` when you speak over the voice: what you'd heard of reply 3. With `paused`, the hub keeps the rest, playing none of it, until the agent says `resume`, or a new reply takes its place, when the hub tells the node `speak_cancel` and drops whatever more comes of reply 3. Without it (you'd heard none of it, or the phone speaks itself) the rest is never spoken, and the agent stops the model writing it. You also cut off a reply to your turn that hasn't come yet: `reply` is then the next number and `heard` is empty |
 | hub → agent | `{"type": "turn", "call_id", "text": "…", "interrupted": true}`: your words, for the next reply, which the agent starts at once. `interrupted` says you cut the voice off since your last turn (or a reply that hadn't come yet), or it hadn't finished speaking once yet. Empty when a stop held no words the recogniser caught: if it interrupted, the voice carries on (the `noise` prompt in `agent/texts.go`), once in a row; otherwise it goes unanswered, and its reply is just `said` |
 | hub → agent | `{"type": "speaking", "call_id"}` when the voice's audio starts playing; the first one is the opening, which the session's notes wait for |
 | hub → agent | `{"type": "idle", "call_id"}` when the voice has finished speaking and you aren't speaking. A note from the session (`[The session: …]`, a new ask) waits for it, then runs the next reply |
-| hub → agent | `{"type": "quiet", "call_id"}` once, 8 s after `idle` if you haven't started speaking since. If the session waits for your answer to something put to you, the voice asks again, once for each (the `reask` note in `agent/texts.go`) |
+| hub → agent | `{"type": "quiet", "call_id", "waited": true}` 3 s after a `said` with `waiting`, if you haven't started speaking since: the model answers now. `{"type": "quiet", "call_id"}` once, 8 s after `idle` if you haven't started speaking since. If the session waits for your answer to something put to you, the voice asks again, once for each (the `reask` note in `agent/texts.go`) |
+| agent → hub | `{"type": "resume", "call_id", "reply": 3}`: the voice carries on with the reply it was stopped in, from the start of the sentence |
 | agent → hub | `{"type": "hang_up", "call_id"}` when the call should end from the voice's side (none yet) |
 | hub → agent | `{"type": "ended", "call_id", "lasted": 12.3}` when the call ends; `lasted` is null if its audio never connected |
 
