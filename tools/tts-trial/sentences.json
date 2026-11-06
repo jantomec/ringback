@@ -1,0 +1,545 @@
+[
+ {
+  "id": "short-01",
+  "kind": "short",
+  "text": "Okay."
+ },
+ {
+  "id": "short-02",
+  "kind": "short",
+  "text": "Done."
+ },
+ {
+  "id": "short-03",
+  "kind": "short",
+  "text": "Sure, go ahead."
+ },
+ {
+  "id": "short-04",
+  "kind": "short",
+  "text": "Yes."
+ },
+ {
+  "id": "short-05",
+  "kind": "short",
+  "text": "No, not yet."
+ },
+ {
+  "id": "short-06",
+  "kind": "short",
+  "text": "Got it, thanks."
+ },
+ {
+  "id": "yes_no-01",
+  "kind": "yes_no",
+  "text": "Should I push this to main?"
+ },
+ {
+  "id": "yes_no-02",
+  "kind": "yes_no",
+  "text": "Do you want me to run the tests again?"
+ },
+ {
+  "id": "yes_no-03",
+  "kind": "yes_no",
+  "text": "Is it safe to apply the migration now?"
+ },
+ {
+  "id": "yes_no-04",
+  "kind": "yes_no",
+  "text": "Can I delete the old branch?"
+ },
+ {
+  "id": "wh-01",
+  "kind": "wh",
+  "text": "Which branch should I use?"
+ },
+ {
+  "id": "wh-02",
+  "kind": "wh",
+  "text": "What do you want me to do with the old config file?"
+ },
+ {
+  "id": "wh-03",
+  "kind": "wh",
+  "text": "Where should the new script go?"
+ },
+ {
+  "id": "wh-04",
+  "kind": "wh",
+  "text": "How many retries do you want?"
+ },
+ {
+  "id": "number-01",
+  "kind": "number",
+  "text": "All 142 tests pass, and the run took 38 seconds.",
+  "spoken": "All one hundred forty two tests pass, and the run took thirty eight seconds.",
+  "keys": [
+   [
+    "142",
+    "one hundred forty two",
+    "one hundred and forty two",
+    "one forty two"
+   ],
+   [
+    "38",
+    "thirty eight"
+   ]
+  ]
+ },
+ {
+  "id": "number-02",
+  "kind": "number",
+  "text": "Each build costs about $4.75, so roughly $1,200 a month.",
+  "spoken": "Each build costs about four dollars seventy five, so roughly one thousand two hundred dollars a month.",
+  "keys": [
+   [
+    "4.75",
+    "4 75",
+    "four dollars seventy five",
+    "four dollars and seventy five",
+    "four seventy five"
+   ],
+   [
+    "1200",
+    "1 200",
+    "twelve hundred",
+    "one thousand two hundred",
+    "1 thousand 200"
+   ]
+  ]
+ },
+ {
+  "id": "number-03",
+  "kind": "number",
+  "text": "Coverage went up from 87.5% to 91%.",
+  "spoken": "Coverage went up from eighty seven point five percent to ninety one percent.",
+  "keys": [
+   [
+    "87.5",
+    "87 5",
+    "eighty seven point five"
+   ],
+   [
+    "91",
+    "ninety one"
+   ]
+  ]
+ },
+ {
+  "id": "number-04",
+  "kind": "number",
+  "text": "I upgraded Postgres from 16.4 to 17.2, and Node to version 22.11.0.",
+  "spoken": "I upgraded Postgres from sixteen point four to seventeen point two, and Node to version twenty two point eleven point zero.",
+  "keys": [
+   [
+    "16.4",
+    "16 4",
+    "sixteen point four"
+   ],
+   [
+    "17.2",
+    "17 2",
+    "seventeen point two"
+   ],
+   [
+    "22.11.0",
+    "22 11 0",
+    "twenty two point eleven point zero",
+    "twenty two point eleven point oh"
+   ]
+  ]
+ },
+ {
+  "id": "number-05",
+  "kind": "number",
+  "text": "The response time dropped from 1.8 seconds to 350 ms.",
+  "spoken": "The response time dropped from one point eight seconds to three hundred fifty milliseconds.",
+  "keys": [
+   [
+    "1.8",
+    "1 8",
+    "one point eight"
+   ],
+   [
+    "350",
+    "three hundred fifty",
+    "three hundred and fifty",
+    "three fifty"
+   ]
+  ]
+ },
+ {
+  "id": "number-06",
+  "kind": "number",
+  "text": "The image is 2.1 GB, and the server has 64 GB of RAM.",
+  "spoken": "The image is two point one gigabytes, and the server has sixty four gigabytes of RAM.",
+  "keys": [
+   [
+    "2.1",
+    "2 1",
+    "two point one"
+   ],
+   [
+    "64",
+    "sixty four"
+   ]
+  ]
+ },
+ {
+  "id": "number-07",
+  "kind": "number",
+  "text": "The job started at 12:30 and finished on March 3rd, 2026.",
+  "spoken": "The job started at twelve thirty and finished on March third, twenty twenty six.",
+  "keys": [
+   [
+    "12:30",
+    "12.30",
+    "12 30",
+    "twelve thirty"
+   ],
+   [
+    "3rd",
+    "third",
+    "3"
+   ],
+   [
+    "2026",
+    "twenty twenty six",
+    "2 0 2 6",
+    "two thousand twenty six",
+    "two thousand and twenty six"
+   ]
+  ]
+ },
+ {
+  "id": "path-01",
+  "kind": "path",
+  "text": "I fixed the bug in voice_server.py at line 214.",
+  "spoken": "I fixed the bug in voice server dot pie at line two hundred fourteen.",
+  "keys": [
+   [
+    "voice server",
+    "voiceserver",
+    "voice_server",
+    "voice underscore server"
+   ],
+   [
+    "py",
+    "pie",
+    "pi"
+   ],
+   [
+    "214",
+    "two hundred fourteen",
+    "two hundred and fourteen",
+    "two fourteen"
+   ]
+  ]
+ },
+ {
+  "id": "path-02",
+  "kind": "path",
+  "text": "The config lives in src/config/settings.toml.",
+  "spoken": "The config lives in source slash config slash settings dot toml.",
+  "keys": [
+   [
+    "src",
+    "source",
+    "s r c",
+    "sirc"
+   ],
+   [
+    "config"
+   ],
+   [
+    "settings"
+   ],
+   [
+    "toml",
+    "tommel",
+    "tom l",
+    "t o m l",
+    "tamil",
+    "tomel"
+   ]
+  ]
+ },
+ {
+  "id": "path-03",
+  "kind": "path",
+  "text": "getUserById now returns null instead of throwing.",
+  "spoken": "get user by ID now returns null instead of throwing.",
+  "keys": [
+   [
+    "get user by",
+    "getuserby",
+    "get userby"
+   ],
+   [
+    "id",
+    "i d"
+   ],
+   [
+    "null"
+   ]
+  ]
+ },
+ {
+  "id": "path-04",
+  "kind": "path",
+  "text": "The handleAuthCallback function in auth_middleware.ts was calling next twice.",
+  "spoken": "The handle auth callback function in auth middleware dot T S was calling next twice.",
+  "keys": [
+   [
+    "handle auth callback",
+    "handleauthcallback",
+    "handle off callback"
+   ],
+   [
+    "auth middleware",
+    "off middleware",
+    "authmiddleware",
+    "auth underscore middleware"
+   ],
+   [
+    "ts",
+    "t s",
+    "typescript"
+   ]
+  ]
+ },
+ {
+  "id": "path-05",
+  "kind": "path",
+  "text": "Set MAX_RETRY_COUNT to 5 in the .env file.",
+  "spoken": "Set max retry count to five in the dot env file.",
+  "keys": [
+   [
+    "max retry count",
+    "maxretrycount",
+    "max underscore retry underscore count"
+   ],
+   [
+    "5",
+    "five"
+   ],
+   [
+    "env",
+    "e n v",
+    "nv",
+    "n v",
+    "environment"
+   ]
+  ]
+ },
+ {
+  "id": "path-06",
+  "kind": "path",
+  "text": "I ran npm run build, and then git push origin main.",
+  "spoken": "I ran N P M run build, and then git push origin main.",
+  "keys": [
+   [
+    "npm",
+    "n p m"
+   ],
+   [
+    "run build"
+   ],
+   [
+    "git push origin main"
+   ]
+  ]
+ },
+ {
+  "id": "path-07",
+  "kind": "path",
+  "text": "The API returns JSON over HTTPS, and the CLI reads it from stdin.",
+  "spoken": "The A P I returns Jason over H T T P S, and the C L I reads it from standard in.",
+  "keys": [
+   [
+    "api",
+    "a p i"
+   ],
+   [
+    "json",
+    "jason"
+   ],
+   [
+    "https",
+    "h t t p s"
+   ],
+   [
+    "cli",
+    "c l i"
+   ]
+  ]
+ },
+ {
+  "id": "path-08",
+  "kind": "path",
+  "text": "The CI failed because the GPU runner has no CUDA driver.",
+  "spoken": "The C I failed because the G P U runner has no CUDA driver.",
+  "keys": [
+   [
+    "ci",
+    "c i"
+   ],
+   [
+    "gpu",
+    "g p u"
+   ],
+   [
+    "cuda",
+    "kuda",
+    "cooter",
+    "coda"
+   ]
+  ]
+ },
+ {
+  "id": "path-09",
+  "kind": "path",
+  "text": "The XAML view uses a two-way binding, though the pre-commit hook still complains.",
+  "spoken": "The zammel view uses a two way binding, though the pre commit hook still complains.",
+  "keys": [
+   [
+    "xaml",
+    "zammel",
+    "zamel",
+    "zamal",
+    "x a m l"
+   ],
+   [
+    "two way"
+   ],
+   [
+    "though"
+   ],
+   [
+    "pre commit",
+    "precommit"
+   ]
+  ]
+ },
+ {
+  "id": "run-01",
+  "kind": "run",
+  "text": "I finished the changes you asked for this morning."
+ },
+ {
+  "id": "run-02",
+  "kind": "run",
+  "text": "The login page now remembers where you were before you signed in."
+ },
+ {
+  "id": "run-03",
+  "kind": "run",
+  "text": "It took a little longer than I expected, because the old code was spread across three files."
+ },
+ {
+  "id": "run-04",
+  "kind": "run",
+  "text": "I moved all of it into one place and removed what was no longer used."
+ },
+ {
+  "id": "run-05",
+  "kind": "run",
+  "text": "While I was there, I noticed the error messages were hard to understand."
+ },
+ {
+  "id": "run-06",
+  "kind": "run",
+  "text": "I rewrote them in plain language, so people can tell what went wrong."
+ },
+ {
+  "id": "run-07",
+  "kind": "run",
+  "text": "The tests all pass on my side."
+ },
+ {
+  "id": "run-08",
+  "kind": "run",
+  "text": "I also tried it by hand in the browser, and it behaved as it should."
+ },
+ {
+  "id": "run-09",
+  "kind": "run",
+  "text": "There is one thing I would like you to look at when you have a moment."
+ },
+ {
+  "id": "run-10",
+  "kind": "run",
+  "text": "The settings page still uses the old layout, and it looks a bit out of place next to the new one."
+ },
+ {
+  "id": "run-11",
+  "kind": "run",
+  "text": "I didn't change it, because you said to keep this work small."
+ },
+ {
+  "id": "run-12",
+  "kind": "run",
+  "text": "If you want, I can do that next, and it should only take a few minutes."
+ },
+ {
+  "id": "run-13",
+  "kind": "run",
+  "text": "Another option is to leave it as it is until the design is settled."
+ },
+ {
+  "id": "run-14",
+  "kind": "run",
+  "text": "Either way, nothing is blocking the release."
+ },
+ {
+  "id": "run-15",
+  "kind": "run",
+  "text": "I haven't pushed anything yet, so you can still change your mind."
+ },
+ {
+  "id": "run-16",
+  "kind": "run",
+  "text": "The commit is ready, and the message describes what changed and why."
+ },
+ {
+  "id": "run-17",
+  "kind": "run",
+  "text": "When you say so, I will push it and open the pull request."
+ },
+ {
+  "id": "run-18",
+  "kind": "run",
+  "text": "After that, I can start on the report you mentioned yesterday."
+ },
+ {
+  "id": "run-19",
+  "kind": "run",
+  "text": "I read through your notes, and they cover most of what it needs."
+ },
+ {
+  "id": "run-20",
+  "kind": "run",
+  "text": "A few of the figures are missing, so I will ask you about those as I go."
+ },
+ {
+  "id": "run-21",
+  "kind": "run",
+  "text": "I don't think any of this should take more than an hour."
+ },
+ {
+  "id": "run-22",
+  "kind": "run",
+  "text": "Let me know if you would rather do it in a different order."
+ },
+ {
+  "id": "run-23",
+  "kind": "run",
+  "text": "Otherwise, I will carry on with the plan we agreed on."
+ },
+ {
+  "id": "run-24",
+  "kind": "run",
+  "text": "That's everything for now."
+ }
+]

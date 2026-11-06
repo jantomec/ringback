@@ -1,0 +1,95 @@
+// The trial's baseline: Kokoro as a call makes it, through ringback's own front end
+// (internal/speaking) and sherpa-onnx (internal/engine). setup.sh copies this into a copy of
+// speech/ on the speech node as cmd/kokoro-trial/main.go, because Go's internal packages can
+// only be imported from inside their module.
+//
+// It reads JSON lines on stdin, {"id", "text", "out"}, makes each one a chunk at a time as a
+// call does, writes a WAV and prints a JSON line with its timing. Each chunk is whole when it's
+// made, so first audio is the time to the whole first chunk. {"phonemes": "text"} instead prints
+// what the front end would say, and makes nothing.
+package main
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"time"
+
+	"ringback/speech/internal/engine"
+	"ringback/speech/internal/speaking"
+	"ringback/speech/internal/wav"
+)
+
+const rate = 24000
+
+type request struct {
+	ID       string `json:"id"`
+	Text     string `json:"text"`
+	Out      string `json:"out"`
+	Phonemes string `json:"phonemes"`
+}
+
+func main() {
+	dir, espeakDir := os.Args[1], os.Args[2]
+	voice := 3 // af_heart in kokoro-multi-lang-v1_0, as cmd/ringback-speech/node.go
+	if len(os.Args) > 3 {
+		voice, _ = strconv.Atoi(os.Args[3]) // the other voices are the trial's control
+	}
+	start := time.Now()
+	lex, err := speaking.LoadLexicon(filepath.Join(dir, "lexicon-us-en.txt"))
+	check(err)
+	vocab, err := speaking.LoadVocab(filepath.Join(dir, "tokens.txt"))
+	check(err)
+	e, err := engine.OpenEspeak(espeakDir)
+	check(err)
+	g2p := speaking.New(lex, vocab, func(w string) string { return speaking.FromEspeak(e.IPA(w)) })
+	tts, err := engine.OpenKokoro(dir, "cuda", 2, voice) // 2 threads, as speech.example.toml
+	check(err)
+	for _, chunk := range g2p.Chunks("Hello, the voice is ready.") {
+		_, err := tts.Speak(chunk)
+		check(err)
+	}
+	emit(map[string]any{"ready": true, "load_s": time.Since(start).Seconds()})
+
+	in := bufio.NewScanner(os.Stdin)
+	in.Buffer(make([]byte, 1<<20), 1<<20)
+	for in.Scan() {
+		var r request
+		check(json.Unmarshal(in.Bytes(), &r))
+		if r.Phonemes != "" {
+			emit(map[string]any{"text": r.Phonemes, "chunks": g2p.Chunks(r.Phonemes)})
+			continue
+		}
+		t := time.Now()
+		var all []float32
+		first := 0.0
+		chunks := g2p.Chunks(r.Text)
+		for i, c := range chunks {
+			audio, err := tts.Speak(c)
+			check(err)
+			if i == 0 {
+				first = time.Since(t).Seconds()
+			}
+			all = append(all, audio...)
+		}
+		total := time.Since(t).Seconds()
+		check(wav.Write(r.Out, wav.FromFloat(all), rate))
+		emit(map[string]any{"id": r.ID, "first_s": first, "total_s": total,
+			"audio_s": float64(len(all)) / rate, "chunks": len(chunks)})
+	}
+}
+
+func emit(v any) {
+	b, _ := json.Marshal(v)
+	fmt.Println(string(b))
+}
+
+func check(err error) {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}

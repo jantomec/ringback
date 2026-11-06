@@ -281,7 +281,7 @@ Each call uses the first of these:
    turned on, the hub has the agents ask again, and the call rings.
 
 Apple's recognition is the fallback, not the default, because it gets more words wrong: 10.3%
-of the words on your own recordings, against Parakeet's 5.9% (`tools/speech-trial`,
+of the words on your own recordings, against Parakeet's 5.9% on the same test (`tools/speech-trial`,
 `tools/stt-eval`), answers to permission prompts among them ("allow it once" as "I love it
 once"). It did hear in the background with the screen locked, with its final words 0.15 s
 after they were asked for, and the app stayed at about 30 MB: the model runs in a system
@@ -742,14 +742,27 @@ with a certificate, or a private certificate authority installed on each device 
   choose.
 
 **Hearing and speaking**
-- **Parakeet v2** for speech-to-text: about 6% of words wrong on accented English at about
-  40 ms an utterance (`tools/stt-eval`). Whisper large-v3-turbo was about as accurate but
-  12 times slower, and invented words on short clips; Qwen3-ASR 1.7B and Parakeet v3 did no
-  better; Granite Speech wasn't tried (its keyword list wasn't exposed). Apple's on-device
-  recognition got 10.3% wrong and takes no vocabulary, so it's the fallback only.
-- **Kokoro `af_heart`** for the voice: preferred over Pocket TTS and Apple's standard voices
-  in a listening test (Apple's Premium voices weren't tried). Pieces play as made: trimming
-  the silence between them sounded worse.
+- **Parakeet v2** for speech-to-text, kept after a trial of five larger models on the speech node
+  (`tools/stt-trial`): Qwen3-ASR 1.7B, Granite Speech 5.0 2B, Cohere Transcribe, Canary-Qwen 2.5B
+  and Parakeet Ultra, on your recordings, through Opus and cut as a call cuts them. On the 464
+  scripted words, the only neutral reference, it made 41 errors (8.8%) against 40–52, too close to
+  separate, at about half the time of the leading rivals (67 ms against 120–316), with half their GPU memory,
+  loading in 2 s rather than 5–27. It also keeps your fillers through Opus, which help tell when you
+  haven't finished: 45, against 13–19 for Qwen3, Granite and Cohere. The 5.9% of the first comparison
+  (`tools/stt-eval`) came from the Mac's runtime and a reference corrected from Whisper's own text;
+  on the node, it's 8.6% before Opus. Whisper large-v3-turbo was about as accurate but 12 times
+  slower, and invented words on short clips. Apple's on-device recognition got 10.3% wrong on that
+  comparison and takes no vocabulary, so it's the fallback only. A bigger gain than any model may
+  be how speech is cut: on free speech Parakeet made 27 errors split at pauses of 0.6 s, and 44 cut
+  stretch by stretch as a call does (not tried yet: it needs a whole turn written down at once).
+- **Kokoro `af_heart`** for the voice, for now. It was only ever compared with Pocket TTS and
+  Apple's standard voices, and eight open models outscore it on the one large blind listening board.
+  Five rivals run on the speech node, all faster than real time and fitting beside Parakeet
+  (`tools/tts-trial`): Phonon 31M, LFM3-Audio 2B, VoxCPM2 2B, Ming-3.0-tts-0.5B, and Breeze TTS 2,
+  whose licence is non-commercial. Kokoro is the fastest on the GPU at 40×, and the blind listening test,
+  through the call's own audio, decides. It reads phonemes from ringback's own front end, which the
+  others can't: they'd need your text rewritten first. Pieces play as made: trimming the silence
+  between them sounded worse.
 - **The model decides when you've finished,** not Smart Turn, a fixed wait or a list of words.
   Smart Turn hears audio only, and it closed 89 of 98 real turns after 0.2 s of silence, scoring
   "But uh there should be some kind of" 0.98; it told turns you went on from barely better than
@@ -1096,5 +1109,6 @@ host unable to read their calls.
 - [ ] **Sending text or a link to the phone,** which `show` can't: it takes files.
 - [ ] **The caller's name from where the session started and its title:** it's the session's
   current folder now, so a session that moved rings as "data", and its transcript goes there too.
-- [ ] **Better speech models:** a blind listening test of the voice through the call's audio, and
-  speech recognition on your own terms and short answers (`tools/tts-trial`, `tools/stt-trial`).
+- [ ] **Better speech models:** five rivals to each model were tried on the speech node
+  (`tools/stt-trial`, `tools/tts-trial`). Parakeet v2 stays. Left: the blind listening test of the
+  voice, writing down a whole turn at once, and a test on your own technical words.

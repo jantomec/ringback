@@ -180,7 +180,7 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 - [ ] Opening what a session showed you during a call
 - [ ] Sending text or a link to the phone
 - [ ] The caller's name from where the session started and its title
-- [ ] Better speech models, by a blind listening test and on your own speech
+- [ ] Better speech models: Parakeet stays; the voice waits on a blind listening test
 
 <details>
 <summary><b>Repository and development</b></summary>
