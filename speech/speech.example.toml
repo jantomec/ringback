@@ -12,6 +12,8 @@ name = "speech node"                  # for the hub's log
 provider = "cuda"                     # or "cpu"
 threads = 2                           # CPU threads for Parakeet and Kokoro
 idle = 60                             # seconds with no call before the models are let go
+voice = "qwen3"                       # Qwen3-TTS, a whole reply in one take; or "kokoro", a
+                                      # sentence at a time
 
 [models]
 silero = "models/silero-vad-v5.onnx"
@@ -19,3 +21,6 @@ smart_turn = "models/smart-turn-v3.2-cpu.onnx"
 parakeet = "models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-fp16"
 kokoro = "models/kokoro-multi-lang-v1_0"
 espeak = "espeak-ng"                  # lib/libespeak-ng.so.1 and espeak-ng-data/; optional
+qwen3 = "models/qwen3-tts-12hz-1.7b-base-q8_0.gguf"
+audiocpp = "audiocpp"                 # audio.cpp's server, which runs Qwen3
+voice_clip = "voices/hadley.wav"      # the voice Qwen3 speaks in, with its words in hadley.txt

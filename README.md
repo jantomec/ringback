@@ -93,7 +93,7 @@ it to the **agent** on that Mac. The agent asks the **hub**, a small always-on s
 your **iPhone**. When you answer, your voice goes to the hub, which passes it to the **speech
 node**, a machine with a GPU: Silero hears when you speak and Parakeet what you said. Your words
 go to the agent, where Claude, which decides whether you've finished, answers through Claude Code,
-on the session's own Mac, and Kokoro, back on the speech node, speaks the answer. What you ask for
+on the session's own Mac, and the speech node's voice speaks the answer. What you ask for
 goes back to the session, and its answer comes back to the call. Without a speech node, the
 iPhone can hear and speak the call itself, with Apple's speech, and only text goes to the hub.
 
@@ -180,7 +180,7 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 - [ ] Opening what a session showed you during a call
 - [ ] Sending text or a link to the phone
 - [ ] The caller's name from where the session started and its title
-- [ ] Better speech models: Parakeet stays; the voice waits on a blind listening test
+- [ ] Better speech models: Parakeet stays; the voice is now Qwen3, to try on a call
 
 <details>
 <summary><b>Repository and development</b></summary>

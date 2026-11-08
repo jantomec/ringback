@@ -44,6 +44,31 @@ type piece struct {
 
 func (p *piece) secs() float64 { return float64(p.samples) / speakingRate }
 
+// paceSecs is how long a character of text takes to say, before a call has measured its own
+// voice: 0.05-0.06 s for Qwen3's Hadley and Kokoro's af_heart, on technical replies.
+const paceSecs = 0.055
+
+// length is how long a piece will be once its audio is all here. A voice that streams a whole
+// reply in one take sends it about 3× faster than it plays, so its length so far is less than
+// what's been heard of it by the end; until it's done, it's at least its text at the call's pace.
+func (c *Call) length(p *piece) float64 {
+	secs := p.secs()
+	if p.done {
+		return secs
+	}
+	pace, chars, total := paceSecs, 0, 0.0
+	for _, q := range c.pieces {
+		if q.done && q.samples > 0 {
+			chars += len([]rune(q.text))
+			total += q.secs()
+		}
+	}
+	if chars > 0 {
+		pace = total / float64(chars)
+	}
+	return max(secs, pace*float64(len([]rune(p.text))))
+}
+
 type outFrame struct {
 	piece int
 	pcm   []int16 // 480 samples: 20 ms at 24 kHz
@@ -83,7 +108,8 @@ type Call struct {
 	text            string
 	handed          int
 	replyEnded, due bool
-	generation      int // a reply or interruption bumps it, so stale work stops
+	breakNow        bool // the model stopped writing to call a tool (breakReply)
+	generation      int  // a reply or interruption bumps it, so stale work stops
 	pieces          []*piece
 	nextPiece       int
 	queue           []outFrame
@@ -383,7 +409,7 @@ func (c *Call) heard(t time.Time) string {
 		if p.start.IsZero() || !t.After(p.start) {
 			continue
 		}
-		elapsed, secs := t.Sub(p.start).Seconds(), p.secs()
+		elapsed, secs := t.Sub(p.start).Seconds(), c.length(p)
 		if p.done && (elapsed >= secs || p.played) {
 			words = append(words, p.text)
 			continue
@@ -454,8 +480,9 @@ func (c *Call) waited(since int) {
 }
 
 // write: reply n, as it's written. The first sentence goes to be spoken at once; later
-// pieces go when the one before is about to end, with every finished sentence since. What
-// comes of a reply that was cut off is dropped.
+// pieces go when the one before is about to end, with every finished sentence since. A node
+// whose voice speaks a reply in one take gets it all once it's written. What comes of a
+// reply that was cut off is dropped.
 func (c *Call) write(n int, text string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -478,6 +505,19 @@ func (c *Call) write(n int, text string) {
 	}
 	c.text += text
 	c.handOver()
+}
+
+// breakReply: the model stopped writing to call a tool, so what it's written of reply n goes to
+// a node that speaks whole replies now, as one take; what it writes after is another.
+func (c *Call) breakReply(n int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.ended || n <= c.cut || !c.replying || n != c.replyNo {
+		return
+	}
+	c.breakNow = true
+	c.handOver()
+	c.breakNow = false
 }
 
 // written: reply n is complete. waiting: it said nothing, as the model waits for you to go on.
@@ -508,6 +548,10 @@ func (c *Call) handOver() {
 	switch {
 	case c.replyEnded:
 		n = len(c.text)
+	case c.node != nil && c.node.wholeReplies && c.breakNow:
+		n = len(c.text)
+	case c.node != nil && c.node.wholeReplies:
+		return
 	case c.handed == 0:
 		n = endOfSentence(c.text)
 	case c.due:
@@ -683,7 +727,7 @@ func (c *Call) rewind() float64 {
 	if p == nil || p.secs() == 0 {
 		return 0
 	}
-	elapsed, secs := c.pausedAt.Sub(p.start).Seconds(), p.secs()
+	elapsed, secs := c.pausedAt.Sub(p.start).Seconds(), c.length(p)
 	var frames int
 	for _, f := range c.played {
 		if f.piece == p.id {

@@ -226,6 +226,40 @@ espeak() {
     mv "$S/x/$d" "$S/out"
 }
 
+# audio.cpp v0.9.4's server, which runs Qwen3-TTS beside the node, with its own CUDA 12.8
+# libraries in audiocpp/lib, apart from the node's CUDA 13 ones, and NCCL, which its build links
+# and its runtime archive leaves out, from NVIDIA's wheel
+audiocpp() {
+    v=v0.9.4
+    a=audio-$v-bin-ubuntu-x64-cuda12.8-colab
+    r=audio-$v-cudart-ubuntu-x64-cuda12.8
+    w=$pypi/f3/f8/9dce3698eed6fae28078eb38f748feb1665767693d8017c099de9fbf0b08/nvidia_nccl_cu12-2.32.3-py3-none-manylinux_2_27_x86_64.whl
+    fetch $gh/0xShug0/audio.cpp/releases/download/$v/$a.tar.gz \
+        5b6708aa781a8a7b08d506abc6104ff9e642cb33c4271c768e81205c4c8df686
+    fetch $gh/0xShug0/audio.cpp/releases/download/$v/$r.tar.gz \
+        48ab6515a4a924c128309bdeebed10c8e6a647f0399e66d46c986c6ba4e7c50f
+    fetch $w bb94b2348e4861d5e8aa00b36c3d12d9bdf9c6369b82cbb723de0b582280a21c
+    mkdir -p "$S/out/lib"
+    tar -xzf "$S/$a.tar.gz" -C "$S/out" ./audiocpp_server ./LICENSE ./model_specs
+    tar -xzf "$S/$r.tar.gz" -C "$S/out/lib"
+    unzip -q -j "$S/${w##*/}" nvidia/nccl/lib/libnccl.so.2 -d "$S/out/lib"
+}
+
+# Qwen3-TTS 12 Hz 1.7B Base, the voice-cloning model, as audio.cpp's Q8 GGUF
+qwen3() {
+    gguf=qwen3-tts-12hz-1.7b-base-q8_0_v2.gguf  # not f, which fetch sets
+    fetch https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/main/Qwen3-TTS-12Hz-1.7B-Base-GGUF/$gguf \
+        92641a8022d521efd79a5db45e952589b3f2b781680f9abfcf26f075d37b86c6
+    mv "$S/$gguf" "$S/out"
+}
+
+# The voice Qwen3 speaks in: a clip of Phonon 31M's Hadley (Apache 2.0) and its words, from
+# this repository (speech/voices)
+voices() {
+    mkdir -p "$S/out"
+    cp "$SRC/voices/hadley.wav" "$SRC/voices/hadley.txt" "$S/out"
+}
+
 # Go 1.27.3, go.mod's version, which build.sh uses from DIR/go when it's there
 golang() {
     fetch https://go.dev/dl/go1.27.3.linux-amd64.tar.gz \
@@ -259,6 +293,9 @@ run smart_turn models/smart-turn-v3.2-cpu.onnx 2bb026316b14a660486a75b1733cd3fba
 run parakeet models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-fp16 d6d81613333b9ffce59a0aa8b23e6cb73fc9b13ec17c71ba5be235bd1a17b5e3
 run kokoro models/kokoro-multi-lang-v1_0 c09c6b5d6a5b3ef3ad821763864f5ef74abbf36486555836dc7311dd010eebac
 run espeak espeak-ng 896ed05b4121b88550415cc5340e70c3e77d871c09d846bebb726dacc3a7b74e
+run audiocpp audiocpp c6dc1546aee9d312dec0fc2b5301def92e5b4e9e5977be1194923aecdcfbb047
+run qwen3 models/qwen3-tts-12hz-1.7b-base-q8_0.gguf 92641a8022d521efd79a5db45e952589b3f2b781680f9abfcf26f075d37b86c6
+run voices voices 72cc84b965ed8c901788d2248a923d6c723ba2ac8076f646ddc31589158011f8
 ok=1
 for p in $pids; do wait "$p" || ok=; done
 [ -n "$ok" ] || die "Some parts failed (above). What was fetched is in $DL; run install.sh again."

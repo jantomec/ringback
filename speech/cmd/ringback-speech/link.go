@@ -110,6 +110,8 @@ func link(ctx context.Context, c config, r *relay) (welcomed bool, err error) {
 
 	hello, _ := json.Marshal(map[string]any{
 		"type": "hello", "version": protocolVersion, "name": c.name, "hearing": true, "speaking": true,
+		// A voice that speaks a reply in one take wants all of it at once (docs/protocol.md).
+		"whole_replies": c.voice == "qwen3",
 	})
 	if err := conn.Write(ctx, websocket.MessageText, hello); err != nil {
 		return false, err

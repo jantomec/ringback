@@ -1,6 +1,6 @@
 #!/bin/sh
 # Checks the built speech node against fakehub, on the speech node itself: warming up with a
-# turn and speech sent before the models are loaded, speaking, cancelling, hearing (Kokoro's
+# turn and speech sent before the models are loaded, speaking, cancelling, hearing (the voice's
 # own speech, a recording, the background filter, a pause, an unfinished turn, two streams at
 # once), the worker exiting when idle and starting again, and a worker or link that dies,
 # with timings and the memory of the node and its worker.

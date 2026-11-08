@@ -14,14 +14,18 @@ calls, natively on a Linux machine with an NVIDIA GPU (its config can name the C
   features, whose score only goes in the log. A turn is every pause of about 0.7 s, and whether
   you've finished is for the call's model to say. One transcription per stretch of speech, with 1 s
   before it and 0.5 s of silence after, as Pipecat's segmented STT.
-- **Speaking**: Kokoro v1.0 `af_heart` through sherpa-onnx, a chunk (about a sentence) at a
-  time, each sent as soon as it's made.
-- One GPU worker: your words go before speech, and speech goes a chunk at a time, so your
-  words wait at most for one chunk.
+- **Speaking**: Qwen3-TTS 1.7B Base through audio.cpp's server, in the voice of a clip of
+  Phonon 31M's Hadley (`voices/`): a whole reply in one take, streamed as it's made, its first
+  audio about 0.08 s after the hub asks (`check.sh`). With `voice = "kokoro"` in `speech.toml`:
+  Kokoro v1.0 `af_heart` through sherpa-onnx, a chunk (about a sentence) at a time.
+- One GPU worker for Parakeet and Kokoro: your words go before speech, and Kokoro's speech goes a
+  chunk at a time, so your words wait at most for one chunk. Qwen3 runs in a process of its own
+  (below), so your words are transcribed while it speaks.
 
 ## Two processes, so the GPU is free between calls
 
-The models take about 2.8 GB of memory and 2.9 GB of the GPU's, and letting them go inside
+The models take about 2.8 GB of memory and 2.9 GB of the GPU's (with Qwen3, its server
+another 2.6 GB of memory, and the GPU peaked at 4.9 GB in all in `check.sh`), and letting them go inside
 one process wouldn't free that: CUDA, cuDNN and ONNX Runtime keep their memory, and the
 CUDA context, until their process exits. So the node is two processes of the same binary:
 
@@ -30,11 +34,18 @@ CUDA context, until their process exits. So the node is two processes of the sam
   (`warm`, which the hub sends while the phone rings) or a stream needs one (`hear`,
   `speak`), it starts a worker and relays every message of the hub's to it, and the worker's
   to the hub. The hub's messages wait for the worker in a queue with no limit, in order,
-  audio included, so the hub's link is never held up while the models load (about 2.2 s).
+  audio included, so the hub's link is never held up while the models load (about 2.2 s with
+  Kokoro, 4.6–5.2 s with Qwen3).
 - **`ringback-speech work`, the worker**, loads the models and hears and speaks, as above.
   It talks to the link process on its stdin and stdout: frames of one byte of kind (text,
   binary, or control between the two), 4 of length and the message (`cmd/ringback-speech/pipe.go`).
   Its log goes to stderr, which is the node's log.
+- **audio.cpp's server**, with Qwen3, which the worker starts as it loads and talks to over
+  HTTP on 127.0.0.1, streaming each take as server-sent events (`internal/audiocpp`). It dies
+  with the worker (a parent-death signal). If it dies, or a take goes 5 s with no audio, at
+  its start or partway (it hung once after a take was cut off), the worker starts it again and
+  the reply goes on from the sentence it was in, after the voice says the server crashed
+  (`takes.go`).
 - Once the worker has had no stream, no speech to make and no message from the hub for the
   idle time (`idle` in `speech.toml`, 60 s), it asks the link process to let it go, which
   does if nothing more is on its way to it, and the worker exits. The next `warm` or `hear`
@@ -97,6 +108,9 @@ Everything lives in that one folder, nothing outside it:
 | `models/smart-turn-v3.2-cpu.onnx` | 8 MB | Smart Turn v3.2, the file Pipecat 1.14.0 ships, from its wheel (Hugging Face `pipecat-ai/smart-turn-v3`) |
 | `models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-fp16/` | 1.2 GB | Parakeet, from sherpa-onnx's asr-models release (fp16 for a GPU; on a CPU the int8 one is faster, which `install.sh` doesn't fetch) |
 | `models/kokoro-multi-lang-v1_0/` | 384 MB | Kokoro, from sherpa-onnx's tts-models release |
+| `models/qwen3-tts-12hz-1.7b-base-q8_0.gguf` | 2.6 GB | Qwen3-TTS 12 Hz 1.7B Base, audio.cpp's Q8 build, from Hugging Face `audio-cpp/audio.cpp-gguf` |
+| `audiocpp/` | 1.8 GB | audio.cpp v0.9.4's `audiocpp_server`, its `model_specs/` and licence, and in `lib/` the CUDA 12.8 libraries its release ships with NCCL from NVIDIA's wheel, kept apart from the node's CUDA 13 ones |
+| `voices/` | 324 KB | `hadley.wav`, the clip Qwen3 speaks like (Phonon 31M's Hadley, Apache 2.0, made for ringback), and `hadley.txt`, its words, from this repository |
 | `espeak-ng/` | 3 MB | `lib/libespeak-ng.so.1` and `espeak-ng-data/` (only `en_dict`, `phon*`, `intonations`, `lang/`, `voices/`), from the `espeakng-loader` 0.2.4 wheel, as misaki uses; optional |
 | `go/` | 283 MB | Go 1.27.3, if there's no Go on PATH as recent as `go.mod` asks; `build.sh` puts Go's caches in `gopath/` and `gocache/` (read-only: `chmod -R u+w gopath` before deleting it) |
 | `env.sh` | | sets `LD_LIBRARY_PATH` to `sherpa-onnx/lib` and `lib`: source it before running |

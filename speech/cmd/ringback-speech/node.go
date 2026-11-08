@@ -1,15 +1,19 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"ringback/speech/internal/audiocpp"
 	"ringback/speech/internal/engine"
 	"ringback/speech/internal/hearing"
 	"ringback/speech/internal/speaking"
@@ -18,7 +22,7 @@ import (
 
 const (
 	voice     = 3     // af_heart in kokoro-multi-lang-v1_0
-	speakRate = 24000 // Kokoro's sample rate
+	speakRate = 24000 // Kokoro's sample rate, and Qwen3's, and the hub's
 	// At most 0.25 s of audio per binary message, 12 KB, well under the 32 KB a WebSocket
 	// library reads by default (coder/websocket's limit refused 1 s messages).
 	chunkFrames      = speakRate / 4
@@ -33,6 +37,9 @@ type models struct {
 	tts    *engine.Kokoro
 	g2p    *speaking.G2P
 	espeak bool
+	// voice is Qwen3 in audio.cpp's server, which speaks a whole reply in one take; when it's
+	// there, Kokoro isn't loaded.
+	voice *audiocpp.Server
 }
 
 // loadModels loads what hearing and speaking need, and runs each once so the first call
@@ -60,7 +67,21 @@ func loadModels(c config, hear, speak bool) (*models, error) {
 			return nil, err
 		}
 	}
-	if speak {
+	if speak && c.voice == "qwen3" {
+		ref, err := os.ReadFile(strings.TrimSuffix(c.voiceClip, filepath.Ext(c.voiceClip)) + ".txt")
+		if err != nil {
+			return nil, fmt.Errorf("the voice's clip needs its words beside it: %v", err)
+		}
+		v := audiocpp.Voice{Family: "qwen3_tts", Model: c.qwen3, Rate: speakRate, Ref: c.voiceClip,
+			RefText: strings.TrimSpace(string(ref)), Options: map[string]any{"language": "en"}}
+		if m.voice, err = audiocpp.Start(c.audiocpp, v, &serverLog{}); err != nil {
+			return nil, err
+		}
+		if err := m.voice.Speak(context.Background(), "Hello, the voice is ready.", func([]float32) {}); err != nil {
+			m.voice.Close()
+			return nil, fmt.Errorf("the voice didn't speak: %v", err)
+		}
+	} else if speak {
 		lex, err := speaking.LoadLexicon(filepath.Join(c.kokoro, "lexicon-us-en.txt"))
 		if err != nil {
 			return nil, err
@@ -97,9 +118,10 @@ func loadModels(c config, hear, speak bool) (*models, error) {
 
 // node hears and speaks for the hub's streams, in the worker process (work.go).
 type node struct {
-	m    *models
-	sink atomic.Pointer[sink] // the pipe to the link process
-	gpu  *gpu
+	m     *models
+	sink  atomic.Pointer[sink] // the pipe to the link process
+	gpu   *gpu
+	takes *takes // the voice that speaks whole takes, when it's Qwen3
 
 	mu      sync.Mutex
 	streams map[uint32]*hearStream
@@ -109,6 +131,9 @@ func newNode(m *models) *node {
 	n := &node{m: m, streams: map[uint32]*hearStream{}}
 	n.gpu = newGPU(n)
 	go n.gpu.run()
+	if m.voice != nil {
+		n.takes = newTakes(n, m.voice)
+	}
 	return n
 }
 
@@ -250,11 +275,19 @@ func (h *hearStream) Transcribe(id int, samples []float32) {
 // --- Speaking
 
 func (n *node) speak(stream, number uint32, text string) {
+	if n.takes != nil {
+		n.takes.speak(&piece{stream: stream, number: number, text: text})
+		return
+	}
 	n.gpu.speak(&piece{stream: stream, number: number, text: text, chunks: n.m.g2p.Chunks(text)})
 }
 
 func (n *node) cancel(stream uint32) {
-	if dropped := n.gpu.cancel(stream); dropped > 0 {
+	dropped := n.gpu.cancel(stream)
+	if n.takes != nil {
+		dropped += n.takes.cancel(stream)
+	}
+	if dropped > 0 {
 		logf("stream %d: speech cancelled, %d pieces dropped", stream, dropped)
 	}
 }
@@ -279,7 +312,7 @@ func (n *node) busy() bool {
 	n.mu.Lock()
 	streams := len(n.streams)
 	n.mu.Unlock()
-	return streams > 0 || n.gpu.busy()
+	return streams > 0 || n.gpu.busy() || (n.takes != nil && n.takes.busy())
 }
 
 // --- The GPU: one worker, so hearing and speaking take turns. Your

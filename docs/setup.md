@@ -7,7 +7,7 @@ the app on your phone:
 | Part | Runs on | Does |
 |---|---|---|
 | **hub** | one always-on Mac, Intel or Apple silicon | rings the phone (APNs), keeps the calls that wait, and carries each call's audio |
-| **speech node** (optional) | a Linux machine with an NVIDIA GPU | hears you (Silero, Parakeet) and speaks (Kokoro), for the hub; without one, the phone can hear and speak calls itself |
+| **speech node** (optional) | a Linux machine with an NVIDIA GPU | hears you (Silero, Parakeet) and speaks (Qwen3-TTS), for the hub; without one, the phone can hear and speak calls itself |
 | **agent** | each Mac that runs Claude Code sessions | the sessions' side: their briefings and questions, and the call's model through Claude Code |
 | **mod** | each Claude Code session | adds `/ringback`, and hands the agent the session's briefings |
 | **app** | your iPhone | rings like a phone call, and lists your calls and sessions |
@@ -32,10 +32,10 @@ say where else. Replace the example addresses (`10.0.0.1` for the hub) with your
   or ARM, built there.
 - **A Linux machine with an NVIDIA GPU** for the speech node, if you want one (step 4):
   x86-64, a GPU from the Turing generation (2018) or later, and a driver of the 580 series or
-  later, for CUDA 13 (it's tried on 610). A call takes about 3 GB of its GPU memory and 3 GB
-  of RAM; between calls it takes 16 MB and no GPU memory. Its install takes 4 GB of disk. While
-  it runs, it also holds its downloads (2.7 GB) and their unpacked files until each part is in
-  place, so keep about 10 GB free (the peak isn't measured).
+  later, for CUDA 13 (it's tried on 610). A call takes about 5 GB of its GPU memory and about
+  5.5 GB of RAM, with the voice's server; between calls it takes 16 MB and no GPU memory. Its
+  install takes 8.2 GB of disk. While it runs, it also holds its downloads (6.8 GB) and their
+  unpacked files until each part is in place, so keep about 20 GB free (the peak isn't measured).
 - **On each Mac that runs sessions:** a copy of this repository, which the mod loads from, and
   **Go**, to build the agent (step 5).
 - **Claude Code** on each Mac that runs sessions, version 2.1.287 or later, signed in to a

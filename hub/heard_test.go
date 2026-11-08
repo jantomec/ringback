@@ -10,18 +10,19 @@ import (
 // empty heard.
 func TestHeardSoFar(t *testing.T) {
 	start := time.Now()
-	p := &piece{text: "Going on now.", samples: speakingRate * 4 / 10, start: start} // 0.4 s of audio so far
+	// 0.4 s of audio so far; till it's done, its length is its text at the voice's pace, 0.72 s.
+	p := &piece{text: "Going on now.", samples: speakingRate * 4 / 10, start: start}
 	c := &Call{pieces: []*piece{p}}
-	at := start.Add(350 * time.Millisecond)
+	at := start.Add(600 * time.Millisecond)
 	first := c.heardSoFar(at)
 	if first != "Going on" {
-		t.Fatalf("0.35 s into 0.4 s: %q", first)
+		t.Fatalf("0.6 s into about 0.72 s: %q", first)
 	}
 	c.heardSent = first
-	p.samples = speakingRate * 12 / 10 // the rest comes: 1.2 s in all
+	p.samples = speakingRate * 12 / 10 // the rest comes: 1.2 s in all, slower than the pace
 	at = at.Add(50 * time.Millisecond)
-	if plain := c.heard(at); plain != "" {
-		t.Fatalf("the share played is now less than the first word: %q", plain)
+	if plain := c.heard(at); len(plain) >= len(first) {
+		t.Fatalf("the share played should now be less than what was told: %q", plain)
 	}
 	if got := c.heardSoFar(at); got != "Going on" {
 		t.Errorf("what you've heard shrank to %q", got)

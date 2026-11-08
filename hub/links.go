@@ -34,6 +34,9 @@ type link struct {
 	since      time.Time // when it linked
 	byKey      bool      // with its own key, from pairing, rather than the hub's token
 	unpaired   atomic.Bool
+	// wholeReplies: a speech node whose voice speaks a reply in one take, so it gets each
+	// reply once it's all written, not a sentence at a time (its hello says so).
+	wholeReplies bool
 	// A speech node's models: whether they're loaded, as it last said (`models`), and when.
 	modelsMu sync.Mutex
 	loaded   bool
@@ -136,6 +139,7 @@ func acceptLink(w http.ResponseWriter, r *http.Request, kind string, opened func
 		return
 	}
 	l.name = orDefault(str(hello, "name"), kind)
+	l.wholeReplies = hello["whole_replies"] == true
 	if byKey {
 		l.name, l.byKey = paired, true
 	}

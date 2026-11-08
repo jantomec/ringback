@@ -14,7 +14,8 @@ parts talk to each other.
 - `hub/` (Go): one always-on Mac. Push (APNs), work hours, the hold and the calls that wait,
   the sessions you can call, each call's audio (WebRTC, Opus) and timing, the portal.
 - `speech/` (Go, sherpa-onnx on CUDA): the optional speech node on a Linux machine with an
-  NVIDIA GPU. Hears (Silero, Parakeet v2) and speaks (Kokoro `af_heart`).
+  NVIDIA GPU. Hears (Silero, Parakeet v2) and speaks (Qwen3-TTS in Phonon's Hadley voice, a
+  whole reply in one take, through audio.cpp's server; or Kokoro `af_heart`).
   Without one, the phone's On-device Voice hears and speaks, and only text crosses.
 - `agent/` (Go): each Mac with sessions. The mods' socket, each call's state, and the call's
   model as `claude -p` on the user's subscription.

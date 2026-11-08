@@ -127,6 +127,7 @@ type (
 )
 
 type voice struct {
+	breakNow     bool // a tool call began: the words before it are a whole block (onEvent)
 	calls        *Calls
 	callID       string
 	link         *Link // to the calling session; its fields are guarded by calls.mu
@@ -342,6 +343,14 @@ func (v *voice) drainEvents() {
 
 func (v *voice) onEvent(e event) {
 	v.speak(v.nextText(e))
+	if v.breakNow {
+		// The model stopped writing words to call a tool: what it wrote is a whole block, so a
+		// voice that speaks whole replies needn't wait for the turn to end (docs/protocol.md).
+		v.breakNow = false
+		if v.writing && !v.cut && strings.TrimSpace(v.reply) != "" {
+			v.out(map[string]any{"type": "say", "call_id": v.callID, "reply": v.current, "text": "", "break": true})
+		}
+	}
 	if v.unfinished == 0 && v.writing {
 		v.writing = false
 		// Written as soon as it's complete, so it comes before what it passed on.
@@ -505,6 +514,7 @@ func (v *voice) nextText(e event) string {
 		if kind == "tool_use" {
 			// What it wrote before the tool is all it says first.
 			said = v.flush()
+			v.breakNow = true
 		}
 		switch {
 		case kind == "tool_use" && words(skip(v.reply, utf8.RuneCountInString(v.ack))) > 0:

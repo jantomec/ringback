@@ -25,6 +25,9 @@ type config struct {
 	idle time.Duration
 	// The models, relative to the config file's folder.
 	silero, smartTurn, parakeet, kokoro, espeak string
+	// voice is "qwen3", Qwen3-TTS through audio.cpp's server, which speaks a whole reply in one
+	// take in the voice of voiceClip, or "kokoro", Kokoro af_heart, a sentence at a time.
+	voice, qwen3, audiocpp, voiceClip string
 }
 
 // secret is what the node links with: its own key once paired, or the hub's token.
@@ -109,6 +112,17 @@ func loadConfig(path string) (config, error) {
 		parakeet:  rel("models.parakeet", "models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-fp16"),
 		kokoro:    rel("models.kokoro", "models/kokoro-multi-lang-v1_0"),
 		espeak:    rel("models.espeak", ""),
+		voice:     values["voice"],
+		qwen3:     rel("models.qwen3", "models/qwen3-tts-12hz-1.7b-base-q8_0.gguf"),
+		audiocpp:  rel("models.audiocpp", "audiocpp"),
+		voiceClip: rel("models.voice_clip", "voices/hadley.wav"),
+	}
+	switch c.voice {
+	case "":
+		c.voice = "qwen3"
+	case "qwen3", "kokoro":
+	default:
+		return config{}, fmt.Errorf("%s: voice is \"qwen3\" or \"kokoro\", not %q", path, c.voice)
 	}
 	if c.name == "" {
 		c.name = "speech node"

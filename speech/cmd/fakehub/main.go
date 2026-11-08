@@ -67,6 +67,7 @@ type hub struct {
 	lastSent time.Time
 	links    chan *websocket.Conn // the node's links after this one
 	loading  time.Duration        // from `warm` to the first event, while the models loaded
+	whole    bool                 // the node speaks whole replies, through audio.cpp's server
 }
 
 func main() {
@@ -225,6 +226,10 @@ func (h *hub) run(wavPath, outDir string, pid int, idle time.Duration) int {
 	if pid > 0 {
 		h.check(worker == 0 || slices.Equal(children(pid), []int{worker}), "one worker did all of that: %v", children(pid))
 		h.memory("models loaded", pid)
+		if h.whole {
+			h.crashing(pid, syscall.SIGKILL, "dies", 80, outDir)
+			h.crashing(pid, syscall.SIGSTOP, "hangs", 81, outDir)
+		}
 		if idle > 0 {
 			h.idling(pid, idle, recording)
 		}
@@ -251,6 +256,7 @@ func (h *hub) welcome() bool {
 	json.Unmarshal(data, &hello)
 	h.check(hello["type"] == "hello" && num(hello["version"]) == 1 && hello["hearing"] == true && hello["speaking"] == true,
 		"hello: %s", data)
+	h.whole = hello["whole_replies"] == true
 	h.send(map[string]any{"type": "welcome", "version": 1})
 	go h.read()
 	return true
@@ -472,7 +478,7 @@ var speakCases = []spokenCase{
 	{"The ringback mod runs Parakeet through sherpa-onnx on the Nebula tunnel.",
 		[][]string{{"parakeet"}, {"sherpa"}, {"onnx", "onyx", "onx", "on x", "anks", "onks"}, {"nebula"}}},
 	{"The node uses 2.1 GB of VRAM, and 500ms is 0.5 s.",
-		[][]string{{"2.1", "two point one"}, {"gigabytes", "gb"}, {"500", "five hundred"}, {"milliseconds"}, {"0.5", "zero point five", "point five"}}},
+		[][]string{{"2.1", "two point one"}, {"gigabytes", "gigabyte", "gb"}, {"500", "five hundred"}, {"milliseconds"}, {"0.5", "zero point five", "point five"}}},
 	{"Sure.", [][]string{{"sure"}}},
 }
 
@@ -562,6 +568,78 @@ func (h *hub) cancelling() {
 	h.send(map[string]any{"type": "speak", "stream": stream, "piece": 4, "text": "And now I speak again."})
 	ok := h.waitFor(10*time.Second, func() bool { return len(h.eventsOf(stream, "spoken")) == 1 })
 	h.check(ok, "the stream speaks again after a cancel")
+}
+
+// crashReply is long enough that the voice is still making it when its server is stopped.
+var crashReply = []string{
+	"I looked through the parser change this morning and it holds up well.",
+	"The old version read the whole file before it checked the header, so a broken file took a long time to fail.",
+	"Now it checks the header first and stops at once.",
+	"I also added a test with a file that ends halfway through a line.",
+	"The last thing left is the release note, which I can write after lunch.",
+}
+
+// crashing stops the voice's server partway through a long reply, by killing it or by
+// freezing it (sig), and checks the reply goes on: more audio comes, then `spoken`, and
+// hearing it back has its first words, the notice that the server was restarted, and its
+// last words.
+func (h *hub) crashing(pid int, sig syscall.Signal, how string, stream uint32, outDir string) {
+	fmt.Printf("== a voice server that %s partway through a reply\n", how)
+	server := 0
+	for _, w := range children(pid) {
+		for _, c := range children(w) {
+			if comm, _ := os.ReadFile(fmt.Sprintf("/proc/%d/comm", c)); strings.TrimSpace(string(comm)) == "audiocpp_server" {
+				server = c
+			}
+		}
+	}
+	if !h.checkf(server != 0, "no audio.cpp server under the worker") {
+		return
+	}
+	audio := func() int {
+		n := 0
+		for _, a := range h.audio[stream] {
+			n += len(a.samples)
+		}
+		return n
+	}
+	h.send(map[string]any{"type": "speak", "stream": stream, "piece": 1, "text": strings.Join(crashReply, " ")})
+	if !h.checkf(h.waitFor(20*time.Second, func() bool { return audio() >= 8*speakRate }), "no 8 s of audio to stop the server in") {
+		return
+	}
+	syscall.Kill(server, sig)
+	stopped := time.Now()
+	h.mu.Lock()
+	before := audio()
+	h.mu.Unlock()
+	var spoken event
+	ok := h.waitFor(60*time.Second, func() bool {
+		if e := h.eventsOf(stream, "spoken"); len(e) > 0 {
+			spoken = e[0]
+			return true
+		}
+		return false
+	})
+	h.mu.Lock()
+	var samples []int16
+	var again time.Time
+	for _, a := range h.audio[stream] {
+		samples = append(samples, a.samples...)
+		if again.IsZero() && a.at.After(stopped.Add(200*time.Millisecond)) {
+			again = a.at
+		}
+	}
+	h.mu.Unlock()
+	if !h.checkf(ok && !again.IsZero(), "the reply didn't go on after the server %s: %.1f s of audio, `spoken` %v", how, float64(len(samples))/speakRate, ok) {
+		return
+	}
+	h.check(math.Abs(float64(len(samples))/speakRate-num(spoken.msg["secs"])) < 0.002,
+		"the server %s %.1f s into the audio; it went on %.1f s later, to %.1f s in all; `spoken` says %.3f s",
+		how, float64(before)/speakRate, again.Sub(stopped).Seconds(), float64(len(samples))/speakRate, num(spoken.msg["secs"]))
+	wav.Write(filepath.Join(outDir, "crash-"+how+".wav"), samples, speakRate)
+	h.hearOne(stream+10, hearCase{name: "hearing it back", speech: [][]int16{trim(wav.Resample(samples, speakRate, hearRate))},
+		sensitivity: 0.5, gate: 0.5, minTurns: 1, maxTurns: 12,
+		words: [][]string{{"parser"}, {"crashed"}, {"restarted"}, {"continuing"}, {"release note"}, {"lunch"}}})
 }
 
 // --- Hearing

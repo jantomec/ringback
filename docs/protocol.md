@@ -71,7 +71,8 @@ speaking, both with the same number. Binary frames carry audio: 4 bytes of strea
 (big-endian), then for hearing the samples, for speaking 4 more bytes of piece number
 (big-endian) and then the samples. Samples are signed 16-bit little-endian, mono.
 
-Hello: `{"type": "hello", "version": 1, "name": "…", "hearing": true, "speaking": true}`.
+Hello: `{"type": "hello", "version": 1, "name": "…", "hearing": true, "speaking": true, "whole_replies": true}`
+(`whole_replies`: its voice speaks a reply in one take; see Speaking).
 
 | Direction | Message |
 |---|---|
@@ -94,11 +95,14 @@ Hello: `{"type": "hello", "version": 1, "name": "…", "hearing": true, "speakin
 | Direction | Message |
 |---|---|
 | hub → node | `{"type": "speak", "stream": 7, "piece": 3, "text": "…"}` asks for one piece of a reply |
-| node → hub | binary: stream 7, piece 3, then Kokoro's audio at 24 kHz, in chunks as it's made |
+| node → hub | binary: stream 7, piece 3, then the voice's audio at 24 kHz, in chunks as it's made |
 | node → hub | `{"type": "spoken", "stream": 7, "piece": 3, "secs": 2.1, "took": 0.08}` after the last chunk |
 | hub → node | `{"type": "speak_cancel", "stream": 7}` drops every piece of the stream not yet sent |
 
-Pieces of one stream are made in the order asked. The voice is Kokoro `af_heart`.
+Pieces of one stream are made in the order asked. With `"whole_replies": true` in its hello, the
+node's voice (Qwen3-TTS) speaks a reply in one take, and the hub sends each reply as one piece
+once it's all written; `speak_cancel` cuts off the one being spoken too. Without it (Kokoro),
+the hub sends a reply a sentence or more at a time.
 
 ## The agent (`/agent`)
 
@@ -170,7 +174,7 @@ written can be told from the next.
 |---|---|
 | hub → agent | `{"type": "answered", "call_id"}` when you answer (`/answered`, or an offer without ringing) |
 | hub → agent | `{"type": "connected", "call_id"}` when the audio connects; the voice may speak once both have come |
-| agent → hub | `{"type": "say", "call_id", "reply": 3, "text": "…"}`: the reply's text as it's written, in any slices (the agent sends a sentence at a time); the hub cuts it into spoken pieces |
+| agent → hub | `{"type": "say", "call_id", "reply": 3, "text": "…"}`: the reply's text as it's written, in any slices (the agent sends a sentence at a time); the hub cuts it into spoken pieces. With `"break": true` (and no text), the model stopped writing words to call a tool: a node that speaks whole replies gets what's written so far now, as one take |
 | agent → hub | `{"type": "said", "call_id", "reply": 3}` at the end of a reply; a reply with nothing to say (only a tool call) is just this, and the hub says `idle` once the voice is. `"waiting": true`: the model chose to wait for you to go on (`[wait]`), so nothing was said, and the hub starts the limit on that wait |
 | hub → agent | `{"type": "heard", "call_id", "reply": 3, "text": "…"}` as reply 3 plays: everything of the current reply you've heard so far (for what's held until you've heard it announced) |
 | hub → agent | `{"type": "interrupted", "call_id", "reply": 3, "heard": "…", "paused": true}` when you speak over the voice: what you'd heard of reply 3. With `paused`, the hub keeps the rest, playing none of it, until the agent says `resume`, or a new reply takes its place, when the hub tells the node `speak_cancel` and drops whatever more comes of reply 3. Without it (you'd heard none of it, or the phone speaks itself) the rest is never spoken, and the agent stops the model writing it. You also cut off a reply to your turn that hasn't come yet: `reply` is then the next number and `heard` is empty |

@@ -139,6 +139,9 @@ func fromAgent(l *link, message map[string]any) {
 		switch message["type"] {
 		case "say":
 			c.write(n, str(message, "text"))
+			if brk, _ := message["break"].(bool); brk {
+				c.breakReply(n)
+			}
 		case "said":
 			waiting, _ := message["waiting"].(bool)
 			c.written(n, waiting)

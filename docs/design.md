@@ -58,7 +58,7 @@ no server of anyone else's in between, apart from Apple's push service.
   ┌───────────────────────────┐  link            ▲
   │ speech node: Silero,      │──────────────────┘
   │ Smart Turn, Parakeet,     │
-  │ Kokoro                    │
+  │ Qwen3-TTS                 │
   └───────────────────────────┘
 ```
 
@@ -66,7 +66,7 @@ no server of anyone else's in between, apart from Apple's push service.
 |---|---|---|
 | **app** (`app/`, Swift) | an iPhone on iOS 26 or later | rings through CallKit when a VoIP push comes; carries the call's audio to the hub (WebRTC, Opus), or with On-device voice hears and speaks the call itself; Recents, Sessions and the hold switch; what sessions show you, with its notification extension, and a model's live view; its settings are in the Settings app |
 | **hub** (`hub/`, Go) | one always-on machine | the phone's endpoints; pushes through Apple (APNs); work hours, the hold and the calls that wait; the sessions you can call; each call's audio (WebRTC through Pion, Opus through libopus) and its timing; what sessions show you, kept a week, and a model's live view, relayed; the portal |
-| **speech node** (`speech/`, Go with sherpa-onnx) | a Linux machine with an NVIDIA GPU | hearing: Silero VAD v5, Smart Turn v3.2, Parakeet TDT 0.6B v2; speaking: Kokoro v1.0 with the `af_heart` voice |
+| **speech node** (`speech/`, Go with sherpa-onnx) | a Linux machine with an NVIDIA GPU | hearing: Silero VAD v5, Smart Turn v3.2, Parakeet TDT 0.6B v2; speaking: Qwen3-TTS 1.7B in Phonon's Hadley voice, through audio.cpp, or Kokoro v1.0 `af_heart` |
 | **agent** (`agent/`, Go) | each Mac that runs sessions | the mods' socket; each call's state; the call's model as `claude -p`, on your Claude subscription; the call transcripts; sends what sessions show you to the hub, and streams a model's live view from its renderer |
 | **renderer** (`render/`, C++ and Swift) | beside the agent, optional | renders a 3D model a session shows you: its picture, and its live view as H.264; OpenUSD's Storm, or on a Mac without it, Apple's SceneKit |
 | **mod** (`mod/`, TypeScript) | each Claude Code session, as a plugin | `/ringback`; has the session write its call briefing; brings what you say on a call to the session as a prompt; puts permissions and questions to the call; the `show` tool |
@@ -107,7 +107,7 @@ builds on Linux too, but has no service there yet.
    asks the hub to ring. The hub either holds the call (outside your hours, on hold, or with
    no speech; see the next sections) or rings: a VoIP push to every paired phone with the
    call's ID, project, subject and session, and a word to the speech nodes to load their
-   models (about 2.2 s, while the phone rings). The agent starts the model on the briefing at
+   models (about 5 s with Qwen3, while the phone rings). The agent starts the model on the briefing at
    once, so its opening is written while the phone rings, as a person thinks of what to say
    while the other side picks up.
 3. **Ringing.** The phone rings for 30 s. Meanwhile the app reaches the hub (`/ping`, each
@@ -147,12 +147,44 @@ builds on Linux too, but has no service there yet.
 
 ### Speaking a reply
 
-The first sentence is spoken on its own as soon as it's complete, so the voice starts fast.
-Then, one second before the piece that's playing ends, everything the model has finished since,
-up to its last complete sentence, becomes the next piece. Larger pieces keep the intonation
-and pauses natural; one sentence per piece left about 0.75 s of silence between sentences.
-The speech node makes a sentence's first audio in about 0.12 s (`speech/README.md`), well
-inside the one second.
+The speech node's voice, Qwen3-TTS, speaks a whole reply in one take. The node's hello says so
+(`whole_replies`), so the hub waits until the model has written all of the reply and sends it
+as one piece. The node streams the take as it's made: first audio comes 0.02–0.07 s after the
+text, about 3× faster than it plays, and the voice has no joins to hear. Pieces made
+separately, as before, joined audibly wherever they met, and a fresh start at each sentence
+changed how sentences began.
+
+What it costs is the wait for the whole reply. On Opus the first sentence was complete 1.31 s
+after your words were sent and the whole reply 1.66 s (medians; the slowest, 138 words, 4.68 s;
+`tools/reply-speed`), so the voice starts about 0.35 s later than it would with the first
+sentence alone. Every reply of 102 in real calls was under 65 words. When the model writes
+some words and then calls a tool, as when it passes your words to the session, the words before
+the tool go at once as a take of their own (the agent's `break`): the turn can go on for
+seconds after them.
+
+While a take is still streaming, more of it has arrived than has played, and less than it will
+be, so what you've heard of it is its text at the voice's pace: the call's measured seconds a
+character once a piece is done, and 0.055 s before. Spread over the audio so far, as for Kokoro's
+pieces, it had you hearing nearly all of a reply 3 s into it, so "mm-hmm" seemed to come at the
+end.
+
+Cutting a take off, when you interrupt, closes its request to audio.cpp's server, which stops
+within a chunk or two: the next reply's first audio came 0.34–0.36 s after a cut, in 30 cuts
+at random points (`tools/tts-trial`).
+
+If the server dies, or a take goes 5 s with no audio, at its start or partway, the node starts
+it again and the reply goes on: from the sentence it was in, after the voice says "The voice
+server crashed and has been restarted. Continuing from the last sentence." (or only the first
+sentence of that, when none of the reply had come). The node has no word timings from the
+voice, so where that sentence starts comes from the audio it sent and the voice's pace, with a
+margin of 15% (at least a second) back, so a sentence may be said twice rather than missed. The
+phone still plays what had come before the crash, which runs 3× ahead, so the gap you hear is
+shorter than the restart.
+
+A node with `voice = "kokoro"`, and On-device Voice, still take a reply in pieces: the first
+sentence on its own as soon as it's complete, then, one second before a piece ends,
+everything finished since, up to its last complete sentence. Kokoro makes each sentence on
+its own anyway, about 0.12 s to first audio (`speech/README.md`).
 
 ### Whose turn it is
 
@@ -266,7 +298,8 @@ Each call uses the first of these:
 1. **A speech node linked to the hub.** If several are linked, the hub picks one; for a call
    that rings, it warms them all. Between calls a node holds nothing on the GPU: a small
    process keeps its link (16 MB), and a worker process with the models (2.8 GB of memory,
-   2.9 GB of the GPU's) starts when a call is coming and exits after 60 s without one
+   2.9 GB of the GPU's, and with Qwen3 audio.cpp's server beside it, 2.6 GB more of memory and
+   4.9 GB of the GPU's in all) starts when a call is coming and exits after 60 s without one
    (`speech/README.md`).
 2. **The phone itself**, if On-device Voice is on in the Settings app. The hub refuses the
    call's offer for want of a node (503, `"no speech node"`), and the app opens its own link
@@ -755,14 +788,15 @@ with a certificate, or a private certificate authority installed on each device 
   comparison and takes no vocabulary, so it's the fallback only. A bigger gain than any model may
   be how speech is cut: on free speech Parakeet made 27 errors split at pauses of 0.6 s, and 44 cut
   stretch by stretch as a call does (not tried yet: it needs a whole turn written down at once).
-- **Kokoro `af_heart`** for the voice, for now. It was only ever compared with Pocket TTS and
-  Apple's standard voices, and eight open models outscore it on the one large blind listening board.
-  Five rivals run on the speech node, all faster than real time and fitting beside Parakeet
-  (`tools/tts-trial`): Phonon 31M, LFM3-Audio 2B, VoxCPM2 2B, Ming-3.0-tts-0.5B, and Breeze TTS 2,
-  whose licence is non-commercial. Kokoro is the fastest on the GPU at 40×, and the blind listening test,
-  through the call's own audio, decides. It reads phonemes from ringback's own front end, which the
-  others can't: they'd need your text rewritten first. Pieces play as made: trimming the silence
-  between them sounded worse.
+- **Qwen3-TTS 1.7B Base for the voice, in Phonon's Hadley voice,** a whole reply in one take
+  (`tools/tts-trial`). Picked by ear: a blind test of six voices, then long stretches, where
+  Hadley sounded best and pieces joined audibly. A take had to keep its words: Ming-3.0-tts-0.5B,
+  the blind test's other favourite, skipped words past about 50 words a take (7 of 64), as its
+  makers' own advice to cut text at 24 words suggests. Qwen3 kept every phrase up to 200 words
+  in 96 takes, and skipped in 2 of 24 at 300. It's Apache 2.0, makes Hadley from a 6.7 s clip,
+  and holds about 3× real time with 3 GB of the GPU. No larger model with a free licence did
+  better on paper. Kokoro `af_heart` stays as `voice = "kokoro"`: faster (40×), but
+  a sentence at a time. Breeze TTS 2 sounded best in the blind test and is non-commercial.
 - **The model decides when you've finished,** not Smart Turn, a fixed wait or a list of words.
   Smart Turn hears audio only, and it closed 89 of 98 real turns after 0.2 s of silence, scoring
   "But uh there should be some kind of" 0.98; it told turns you went on from barely better than
@@ -831,6 +865,15 @@ with a certificate, or a private certificate authority installed on each device 
 
 ## Limits and risks
 
+- **A long reply waits, and can skip.** The voice starts only once the whole reply is written:
+  about 5 s for 150 words (estimated from one timed reply). One take of 300 words skipped a
+  phrase in 2 of 24, and a take stops at 2048 of Qwen3's frames, 164 s. Replies on calls have
+  all been under 65 words, so neither has come up on a call.
+- **audio.cpp's server can crash when a take is cut off.** It did once in 33 cut-offs ("double
+  free or corruption"), and hung. The node starts it again and the reply goes on from the
+  sentence it was in (above), but where that is comes from the voice's pace: a reply full of
+  numbers, which the voice reads slower, could skip the end of a sentence; and the hub, not
+  told of the repeat, places what you've heard of that reply behind by it.
 - **A missed call can hold every call up for long.** After its last try, nothing rings until
   you call its session back or cancel it, however many calls wait; the app lists them under
   Waiting. And a
@@ -999,6 +1042,11 @@ how things look):
   and a Kokoro voice for yours, and a replay of real turns; on no call with a person yet);
 - the model for conversation: the agent asking Claude Code, the hub keeping the lists and the
   choice, and the app's sheet (the agent's and hub's tests, `tools/app-screens`);
+- the voice as Qwen3-TTS in Hadley's voice, a whole reply in one take: its words, speed and
+  first audio on long takes, and cutting a take off (`tools/tts-trial`), the hub holding a reply
+  for it and the agent's `break` (their tests), the node (`check.sh` on the GPU), and a whole
+  call (`tools/line-check`: the voice answered 2.6–3.6 s after you stopped, with the model's
+  first words taking 2.0–3.1 s that day); not on the phone yet;
 - the hub serving HTTPS and WSS (`[tls]`), renewed without a restart, and the agent and the
   speech node linking to it; the app's side isn't tried at all;
 - Macs and speech nodes pairing and linking with their own keys (a Mac's agent paired with
@@ -1110,5 +1158,6 @@ host unable to read their calls.
 - [ ] **The caller's name from where the session started and its title:** it's the session's
   current folder now, so a session that moved rings as "data", and its transcript goes there too.
 - [ ] **Better speech models:** five rivals to each model were tried on the speech node
-  (`tools/stt-trial`, `tools/tts-trial`). Parakeet v2 stays. Left: the blind listening test of the
-  voice, writing down a whole turn at once, and a test on your own technical words.
+  (`tools/stt-trial`, `tools/tts-trial`). Parakeet v2 stays, and the voice is now Qwen3-TTS in
+  Hadley's voice, a whole reply in one take. Left: trying the voice on a call, writing down a
+  whole turn at once, and a test on your own technical words.
