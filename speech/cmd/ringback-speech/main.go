@@ -30,7 +30,8 @@ const usage = `usage: ringback-speech [--config FILE] install | uninstall | serv
             ringback-hub pair node: writes the hub's address and the node's own key into
             the settings
   say       speak TEXT as the voice does, into a WAV file (24 kHz)
-  phonemes  print the phonemes the voice would speak for TEXT, chunk by chunk
+  phonemes  print the phonemes Kokoro would speak for TEXT, chunk by chunk (Qwen3 reads
+            the text itself)
   hear      print Parakeet's words for a WAV file (16 kHz, one stretch of speech)
   listen    hear WAV files as a call does, each its own call, with the app's interruption
             sensitivity and background filter (0 to 1; 0.5 each by default): print what's
@@ -110,7 +111,19 @@ func main() {
 		}
 		var all []float32
 		t := time.Now()
-		for i, chunk := range m.g2p.Chunks(args[1]) {
+		if m.voice != nil { // Qwen3: one take
+			err := m.voice.Speak(context.Background(), spokenText(args[1]), func(audio []float32) {
+				if len(all) == 0 {
+					fmt.Printf("first audio in %.0f ms\n", time.Since(t).Seconds()*1000)
+				}
+				all = append(all, audio...)
+			})
+			m.voice.Close()
+			if err != nil {
+				fail(err.Error())
+			}
+		}
+		for i, chunk := range chunksOf(m, args[1]) {
 			audio, err := m.tts.Speak(chunk)
 			if err != nil {
 				fail(err.Error())
@@ -125,6 +138,7 @@ func main() {
 			fail(err.Error())
 		}
 	case args[0] == "phonemes" && len(args) == 2:
+		c.voice = "kokoro" // Qwen3 reads the text itself
 		m, err := loadModels(c, false, true)
 		if err != nil {
 			fail(err.Error())
@@ -159,4 +173,12 @@ func main() {
 func fail(message string) {
 	fmt.Fprintln(os.Stderr, message)
 	os.Exit(1)
+}
+
+// chunksOf is the text in Kokoro's chunks, or none for a voice that reads it whole.
+func chunksOf(m *models, text string) []string {
+	if m.g2p == nil {
+		return nil
+	}
+	return m.g2p.Chunks(text)
 }

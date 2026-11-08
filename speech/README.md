@@ -138,10 +138,10 @@ SIGKILL it was running again and linked 5 s later. Starting at boot isn't tried.
 speech/build.sh                     # on the speech node, into bin/
 . ~/ringback-speech/env.sh
 ~/ringback-speech/bin/ringback-speech serve    # in a terminal, with no service running
-~/ringback-speech/bin/ringback-speech phonemes "All 142 tests pass."   # what the voice would say
-~/ringback-speech/bin/ringback-speech say "All 142 tests pass." out.wav
+~/ringback-speech/bin/ringback-speech phonemes "All 142 tests pass."   # what Kokoro would say
+~/ringback-speech/bin/ringback-speech say "All 142 tests pass." out.wav  # in the voice speech.toml sets
 ~/ringback-speech/bin/ringback-speech listen --gate 0.5 yes.wav   # heard as a call hears it
-speech/check.sh                     # the node against fakehub, about 2.5 min
+speech/check.sh                     # the node against fakehub, about 5 min
 # A build in bin-next/, beside a node that runs, with its own port and settings (a copy of
 # speech.toml in the install directory):
 speech/build.sh ~/ringback-speech bin-next

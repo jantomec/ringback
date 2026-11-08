@@ -245,8 +245,9 @@ and holds no models until a call comes: the hub tells it when a call rings, and 
 while the phone rings, in about 2 s. A minute after the call, it lets go of the GPU and its
 memory again.
 
-`speech/check.sh` checks the node against a stand-in hub (about 2.5 min): its hearing, its
-speaking, and its memory before, during and after a call.
+`speech/check.sh` checks the node against a stand-in hub (about 5 min): its hearing, its
+speaking, the voice going on after its server is killed or frozen partway through a reply, and
+its memory before, during and after a call.
 
 ## 5. The agent (every Mac that runs sessions)
 
@@ -454,7 +455,7 @@ These need uv (`brew install uv`); they run in the tools' Python environment
 
       (cd hub && go build -o build/ringback-hub .) && uv run --project tools tools/hub-check/hub_check.py
 
-- **The speech node,** on the node (step 4): `speech/check.sh` (about 2.5 min).
+- **The speech node,** on the node (step 4): `speech/check.sh` (about 5 min).
 - **A model's live view,** through a hub, an agent and the renderer started on this Mac, with
   a stand-in phone that decodes its video (about 20 s; build the three first, as its README
   says):
