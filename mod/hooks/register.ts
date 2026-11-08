@@ -299,7 +299,7 @@ async function show($: EngineInterface, path: unknown, caption: unknown) {
     response = await voice($, `/sessions/${await $.session.id()}/show`, {
       path,
       caption: typeof caption === 'string' ? caption : '',
-      project: projectOf(cwd),
+      project: projectOf(await $.session.root()),
       cwd,
     })
   } catch {
@@ -335,14 +335,14 @@ async function finished($: EngineInterface, answer: string): Promise<void> {
 
 // Submits what the voice passed on for this session, each as a prompt of its own. A call's
 // outcome isn't a prompt: it's added to the conversation. Collecting also says the session's
-// project and folder, so the app's Sessions tab can list it while ringback is on, and a call from
-// there knows where its transcript goes.
+// project and folder (where it started: rootOf), so the app's Sessions tab can list it while
+// ringback is on, and a call from there knows where its transcript goes.
 async function collect($: EngineInterface): Promise<void> {
   if (!isOn || isCollecting) return
   isCollecting = true
   try {
-    const cwd = await $.session.cwd()
-    const where = `project=${encodeURIComponent(projectOf(cwd))}&cwd=${encodeURIComponent(cwd)}`
+    const root = await $.session.root()
+    const where = `project=${encodeURIComponent(projectOf(root))}&cwd=${encodeURIComponent(root)}`
     const response = await voice($, `/sessions/${await $.session.id()}/messages?${where}`)
     if (!response.ok) return
     for (const m of JSON.parse(response.text).messages as { kind?: string; text: string; transcript?: string }[]) {
@@ -379,11 +379,11 @@ async function call($: EngineInterface, answer: string): Promise<void> {
   const hasSubject = /^\W*subject:/i.test(first)
   const subject = hasSubject ? first.replace(/^\W*subject:\s*/i, '').replace(/\W+$/, '').slice(0, 80) : ''
   const briefing = (hasSubject ? rest.join('\n') : answer).trim()
-  const cwd = await $.session.cwd()
+  const root = await $.session.root()
   const body = {
     session_id: await $.session.id(),
-    project: projectOf(cwd),
-    cwd,
+    project: projectOf(root),
+    cwd: root,
     subject,
     briefing,
   }
@@ -435,7 +435,10 @@ async function place($: EngineInterface, body: object, tries: number): Promise<v
   $.ui.invalidate('ui.render')
 }
 
-const projectOf = (cwd: string) => cwd.split('/').filter(Boolean).pop() ?? 'Claude'
+// A session is named for the folder it started in, its root, which a shell `cd` doesn't move:
+// in a subfolder, it would ring as "data". That folder also keeps its call transcripts. (The
+// agent adds the session's title to the name.) Shown files are found from where it is now.
+const projectOf = (root: string) => root.split('/').filter(Boolean).pop() ?? 'Claude'
 
 // While your phone holds calls (outside your work hours, or paused in the app) the
 // hub holds the call: a dim line says when it rings, in this Mac's time, with the
@@ -665,11 +668,11 @@ async function doing($: EngineInterface) {
   } catch {
     // No context: the voice still has the request.
   }
-  const cwd = await $.session.cwd()
+  const root = await $.session.root()
   return {
     context: context.length > 1500 ? `…${context.slice(-1500)}` : context,
-    project: projectOf(cwd),
-    cwd,
+    project: projectOf(root),
+    cwd: root,
   }
 }
 

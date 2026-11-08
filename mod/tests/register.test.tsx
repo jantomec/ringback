@@ -22,6 +22,7 @@ type Voice = {
   held?: boolean
   // The session's folder can't be read: the mod's hook fails.
   isCwdBroken?: boolean
+  cwd?: string // where the session is now, if not where it started
   // The agent isn't running: its socket refuses every request while this is set.
   isDown?: boolean
   // What the mod's store holds at the start.
@@ -63,6 +64,10 @@ function engine(on: On, voice: Voice = {}) {
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: 'session-1234' }))
   on('session.cwd', () => {
+    if (voice.isCwdBroken) throw new Error('no folder')
+    return { value: voice.cwd ?? '/home/someone/Projects/demo' }
+  })
+  on('session.root', () => {
     if (voice.isCwdBroken) throw new Error('no folder')
     return { value: '/home/someone/Projects/demo' }
   })
@@ -260,6 +265,25 @@ test("collecting says the session's project and folder, for the app's Sessions t
   const where = new URL(collects[0].url).searchParams
   expect(where.get('project')).toBe('demo')
   expect(where.get('cwd')).toBe('/home/someone/Projects/demo')
+})
+
+test('a session that moved into a subfolder still calls as its project, with its transcripts there', async ($, on) => {
+  const asked = engine(on, { cwd: '/home/someone/Projects/demo/data' })
+  const clock = mock.clock(on)
+  await start($)
+  await clock.advance(1000)
+  await settle()
+  const collects = asked.fetches.filter(f => new URL(f.url).pathname === '/sessions/session-1234/messages')
+  const where = new URL(collects[0].url).searchParams
+  expect([where.get('project'), where.get('cwd')]).toEqual(['demo', '/home/someone/Projects/demo'])
+  await $.turn.complete(turn('All tests pass.'))
+  await settle()
+  await $.turn.complete(turn('Subject: Tests pass.\n\nThe parser is fixed.'))
+  await settle()
+  const calls = asked.fetches.filter(f => f.url === 'http://voice/calls')
+  expect(calls.length).toBe(1)
+  const body = JSON.parse(calls[0].init.body)
+  expect([body.project, body.cwd]).toEqual(['demo', '/home/someone/Projects/demo'])
 })
 
 const unanswered = `The call about "Tests pass" wasn't answered within 1 min 30 s: declined, missed, or its audio didn't connect.`

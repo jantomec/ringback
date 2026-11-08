@@ -102,8 +102,8 @@ func sessionSide(c *Calls) http.Handler {
 		}
 		link, _ := c.hub.(*hubLink)
 		answer, err := show(link, showRequest{
-			Session: r.PathValue("id"), Project: body["project"].(string), Cwd: pyString(body["cwd"]),
-			Path: body["path"].(string), Caption: pyString(body["caption"]),
+			Session: r.PathValue("id"), Project: callerName(body["project"].(string), c.titles.of(r.PathValue("id"))),
+			Cwd: pyString(body["cwd"]), Path: body["path"].(string), Caption: pyString(body["caption"]),
 		}, c.log)
 		var problem errShow
 		switch {

@@ -13,7 +13,8 @@ no server of anyone else's in between, apart from Apple's push service.
 ## What a call does
 
 1. **It rings like a phone call.** A locked phone rings through CallKit, in your headphones
-   too, with the project's name as the caller and a few words on what the call is about.
+   too, with the session as the caller, its project and title ("ringback · Whole turns"), and a
+   few words on what the call is about.
 2. **It's a conversation.** The voice lets you finish: its model reads your words at each
    pause, and waits if you're going on. You can interrupt mid-sentence: the voice stops the
    moment it hears you, then answers you or carries on from the sentence it stopped in, going by
@@ -314,9 +315,21 @@ voice's audio play out, waits a second more for the phone's own buffer, then tel
 on the call's data channel, and the phone ends the call through CallKit, as the other side
 hanging up. Without that message, the phone would only find its audio lost.
 
+### The caller's name
+
+A call rings with the session's project, the folder it started in, and its title in Claude
+Code, as "webshop · Checkout page redesign": the name you gave it with `/rename`,
+or else the one Claude Code wrote. Several sessions in one project ring apart, and so they're
+listed in the app's Sessions tab. The folder is the session's root, which a shell `cd`
+doesn't move: named for where it was, a session that had moved into a subfolder rang as
+"data". The agent reads the title from the end of the session's transcript, where Claude Code
+writes it again as the session goes on (under 1 ms, even for 100 MB), at most every 10 s; a
+title that repeats the folder's name is left out, and one over 60 characters is cut.
+
 ### Call transcripts
 
-The agent writes each call's transcript into the calling session's project, under
+The agent writes each call's transcript into the calling session's project (its root, as
+above), under
 `.ringback/calls/`: the briefing, your words as recognised, what the voice said and where you
 cut it off, and what went to the session. The folder holds its own `.gitignore` of `*`, so
 git ignores it without a change to the project. Each message from the call ends with the
@@ -1091,6 +1104,8 @@ how things look):
   call (`tools/line-check`: the voice answered 2.6–3.6 s after you stopped, with the model's
   first words taking 2.0–3.1 s that day), and going on after its server is killed or frozen
   partway through a reply (`check.sh`); not on the phone yet;
+- the caller's name as the session's project and title, from where it started (the agent's and
+  the mod's tests, and the agent reading the titles of real transcripts); not on the phone yet;
 - at least a minute between calls: a session's call placed within a minute of the end of one
   you were on waits until then (the hub's tests, `tools/hub-check` with a 2 s rest); not on the
   phone yet;
@@ -1211,8 +1226,9 @@ host unable to read their calls.
 - [ ] **What a session showed you, during a call:** the call screen can't be left, so nothing
   shown can be opened until you hang up.
 - [ ] **Sending text or a link to the phone,** which `show` can't: it takes files.
-- [ ] **The caller's name from where the session started and its title:** it's the session's
-  current folder now, so a session that moved rings as "data", and its transcript goes there too.
+- [ ] **The caller's name from where the session started and its title** (The caller's name):
+  a call rings as "project · title", from the session's root, and its transcript goes there.
+  Built; left: trying it on the phone.
 - [ ] **Better speech models:** five rivals to each model were tried on the speech node
   (`tools/stt-trial`, `tools/tts-trial`). Parakeet v2 stays, and the voice is now Qwen3-TTS in
   Hadley's voice, a whole reply in one take, and your whole turn is written down at once. Left:

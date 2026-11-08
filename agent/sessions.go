@@ -622,6 +622,7 @@ type Calls struct {
 	// says them when it collects: the app's Sessions tab.
 	since   map[string]float64
 	named   map[string][2]string
+	titles  titles // each session's title, for the caller's name (title.go)
 	asking  sync.Mutex
 	awake   *exec.Cmd
 	closing sync.WaitGroup // Models of forgotten calls, while they close
@@ -719,7 +720,7 @@ func (c *Calls) newLink(call *Call) *Link {
 func (c *Calls) askHub(call *Call, question bool) (string, error) {
 	c.mu.Lock()
 	message := map[string]any{
-		"type": "place", "call_id": call.ID, "project": call.Project, "subject": call.Subject,
+		"type": "place", "call_id": call.ID, "project": callerName(call.Project, c.titles.of(call.Session)), "subject": call.Subject,
 		"session_id": call.Session, "question": question,
 	}
 	c.mu.Unlock()
@@ -1226,7 +1227,7 @@ func (c *Calls) contacts() []map[string]any {
 		if !ok {
 			at = unixNow()
 		}
-		entry := map[string]any{"session_id": session, "project": project, "since": stamp(at)}
+		entry := map[string]any{"session_id": session, "project": callerName(project, c.titles.of(session)), "since": stamp(at)}
 		if latest != nil {
 			entry["subject"], entry["briefed_at"] = latest.Subject, stamp(latest.At)
 		}
