@@ -116,7 +116,9 @@ struct WaitingDetailsView: View {
                         Text("The speech computer isn't connected to your hub, so this call can't be talked through yet.")
                     }
                     if call.reason == "in turn" {
-                        Text("One call rings at a time: this one rings once the calls before it are over.")
+                        Text(call.heldUntil == nil
+                            ? "One call rings at a time: this one rings once the calls before it are over."
+                            : "Calls ring at least a minute apart: this one rings a minute after your last call ended.")
                     }
                     if call.reason == "missed" {
                         Text("You didn't answer it. Until it rings again, no other call rings.")

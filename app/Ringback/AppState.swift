@@ -68,7 +68,8 @@ struct WaitingCall: Identifiable, Equatable {
     var session: String?
     /// Why it waits, when it isn't your work hours or the hold switch: "no speech", the
     /// speech computer isn't linked to the hub, so it can't be talked through; "in turn",
-    /// another call rings or is on, or waits before it, as one rings at a time; "missed", you
+    /// another call rings or is on, or waits before it, as one rings at a time, or, with
+    /// heldUntil, the last call you were on ended less than a minute ago; "missed", you
     /// didn't answer it, and it rings again at heldUntil; "call back", you didn't answer its
     /// last try, and it waits until you call its session, as every call does meanwhile.
     var reason: String?
@@ -81,7 +82,11 @@ struct WaitingCall: Identifiable, Equatable {
     func rings(sentence: Bool) -> String? {
         switch reason {
         case "no speech": return sentence ? "when the speech computer is back" : "When the speech computer is back"
-        case "in turn": return sentence ? "after the call before it" : "After the call before it"
+        case "in turn":
+            if let heldUntil {
+                return sentence ? heldUntil.ringsLabel : heldUntil.formatted(date: .omitted, time: .shortened)
+            }
+            return sentence ? "after the call before it" : "After the call before it"
         case "call back": return nil
         case "missed":
             let at = heldUntil?.formatted(date: .omitted, time: .shortened) ?? ""

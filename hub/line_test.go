@@ -56,16 +56,19 @@ func waitingEntry(callID string) map[string]string {
 	return loadWaiting()[callID]
 }
 
+// resetLine starts a test with the line free, nothing waiting, and no rest after calls (as
+// TestLineRests sets it).
 func resetLine(t *testing.T) {
 	t.Helper()
+	gap := callGap
 	lineMu.Lock()
-	onLine = nil
+	onLine, restUntil, callGap = nil, time.Time{}, 0
 	lineMu.Unlock()
 	os.Remove(waitingPath)
 	os.Remove(devicesPath)
 	t.Cleanup(func() {
 		lineMu.Lock()
-		onLine = nil
+		onLine, restUntil, callGap = nil, time.Time{}, gap
 		lineMu.Unlock()
 		os.Remove(waitingPath)
 		os.Remove(devicesPath)
@@ -217,5 +220,78 @@ func TestLineNoWordFromThePhone(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 	if got := waitingEntry(callB); got != nil {
 		t.Errorf("an answered call counted as missed: %v", got)
+	}
+}
+
+// Once a call you were on ends, the line rests a minute: a session's call placed meanwhile
+// waits in turn until then, and is asked again when it's over. A call you make yourself goes
+// through, and one you didn't answer doesn't make the line rest.
+func TestLineRests(t *testing.T) {
+	resetLine(t)
+	saved, timer := now(), afterRest
+	var rested []func()
+	callGap, afterRest = time.Minute, func(f func()) { rested = append(rested, f) }
+	defer func() { setClock(saved); afterRest = timer }()
+
+	if why, _ := placeAs(t, callA, "session-a"); why != "" {
+		t.Fatalf("the first call is held: %s", why)
+	}
+	phoneSays(callA, "answered")
+	advance(30*time.Second + 500*time.Millisecond) // the rest ends mid-second, and is rounded up
+	phoneSays(callA, "ended")
+	ended := now()
+	advance(20*time.Second + 300*time.Millisecond)
+	why, until := placeAs(t, callB, "session-b")
+	if want := ended.Add(time.Minute + time.Second).Truncate(time.Second).UTC().Format(time.RFC3339); why != inTurn || until != want {
+		t.Fatalf("20 s after a call ended, the next waits in turn until a minute after it, rounded up: %q %q, want %q", why, until, want)
+	}
+	if e := waitingEntry(callB); e["reason"] != inTurn || e["held_until"] != until {
+		t.Errorf("and the waiting calls say so: %v", e)
+	}
+	if len(rested) != 1 {
+		t.Fatalf("the hub waits for the rest to end once: %d", len(rested))
+	}
+	asked := strings.Count(strings.Join(logTail(), "\n"), "its turn, it asks again")
+	stateMu.Lock()
+	nextInTurn()
+	stateMu.Unlock()
+	if strings.Count(strings.Join(logTail(), "\n"), "its turn, it asks again") != asked {
+		t.Error("during the rest, no call in turn is asked again")
+	}
+
+	// You call a session yourself meanwhile: it goes through.
+	lineOffered(callC, "now")
+	lineMu.Lock()
+	mine := onLine != nil && onLine.id == callC
+	lineMu.Unlock()
+	if !mine {
+		t.Fatal("a call you make yourself doesn't wait for the rest")
+	}
+	stateMu.Lock()
+	lineEnded(callC)
+	stateMu.Unlock()
+	if why, until = placeAs(t, callB, "session-b"); why != inTurn || until == "" {
+		t.Errorf("once it's over, the line rests again: %q %q", why, until)
+	}
+
+	// The rest is over: the first in turn is asked again, and rings.
+	advance(time.Minute)
+	rested[len(rested)-1]()
+	if tail := strings.Join(logTail(), "\n"); !strings.Contains(tail, "call line-cal: its turn, it asks again") {
+		t.Errorf("the next in turn isn't asked again:\n%s", tail)
+	}
+	if why, _ := placeAs(t, callB, "session-b"); why != "" {
+		t.Fatalf("after the rest it rings: %q", why)
+	}
+
+	// Not answered: no rest, as nothing rings until it does again anyway.
+	phoneSays(callB, "missed")
+	stateMu.Lock()
+	lineMu.Lock()
+	resting := now().Before(restUntil)
+	lineMu.Unlock()
+	stateMu.Unlock()
+	if resting || len(rested) != 2 {
+		t.Errorf("a call you didn't answer makes the line rest: %v, %d", resting, len(rested))
 	}
 }

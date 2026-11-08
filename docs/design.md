@@ -407,6 +407,15 @@ While a call rings or you're on one, a call that would ring is held in turn, as 
 its agent keeps it and asks again, and once the line is free the hub asks the call that's
 waited longest, which rings. A call you make yourself takes the line too.
 
+**At least a minute between calls.** Once a call you were on ends, the line rests for 60 s
+before a session's next call rings, so you can think about the last one first: a call placed
+meanwhile waits in turn until then, with the time ("Rings at 14:05" in the app), and the hub
+asks the first in turn again when the rest is over. It matters more now that the voice hangs
+up once only the session's work is left, which can be done within the minute. A call you make
+yourself doesn't wait, and starts the rest again when it ends; one you didn't answer doesn't
+start it, as nothing rings until it does again anyway. The rest is kept in the hub's memory
+only, so a hub restarted meanwhile forgets it.
+
 **A call you don't answer**, or decline, rings again 5 min, 20 min, 1 h, 2½ h and 6 h after it
 first rang (at least 5 min after its last ring), and until it does, nothing else rings: you
 weren't there, so other calls would only pile up. After its last try it doesn't ring again; it
@@ -1082,6 +1091,9 @@ how things look):
   call (`tools/line-check`: the voice answered 2.6–3.6 s after you stopped, with the model's
   first words taking 2.0–3.1 s that day), and going on after its server is killed or frozen
   partway through a reply (`check.sh`); not on the phone yet;
+- at least a minute between calls: a session's call placed within a minute of the end of one
+  you were on waits until then (the hub's tests, `tools/hub-check` with a 2 s rest); not on the
+  phone yet;
 - the voice ending the call, through the model, once you've said goodbye or only the session's
   work is left (the agent's tests, `tools/hub-check`, and a goodbye on a whole call in
   `tools/line-check`); not on the phone yet;
@@ -1193,8 +1205,9 @@ host unable to read their calls.
   and hangs up; when only the session's work is left, it says what you agreed and what the
   session will do, says goodbye and hangs up; speaking before its end keeps the call on. Built;
   left: trying it on a call.
-- [ ] **At least 60 s between calls,** so you can think about the last one before the next rings;
-  not for calls you make yourself.
+- [ ] **At least 60 s between calls** (At least a minute between calls): once a call you were on
+  ends, a session's next call waits a minute; not calls you make yourself. Built; left: trying
+  it on the phone.
 - [ ] **What a session showed you, during a call:** the call screen can't be left, so nothing
   shown can be opened until you hang up.
 - [ ] **Sending text or a link to the phone,** which `show` can't: it takes files.

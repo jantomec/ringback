@@ -8,6 +8,10 @@ package main
 // session back, and so does every other call. Calling the session back, or calling the waiting
 // call now, takes it off the waiting calls (state.go), which keep the calls held in turn and
 // those missed, with when each was first held, how often it has rung and when it first did.
+//
+// Once a call you were on ends, the line rests for callGap before a session's next call rings,
+// so you can think about the last one first: a call placed meanwhile waits in turn until the
+// rest is over, and the first in turn is asked again then. Calls you make yourself don't wait.
 
 import (
 	"fmt"
@@ -28,6 +32,13 @@ var retries = []time.Duration{5 * time.Minute, 20 * time.Minute, time.Hour, 150 
 
 const retryGap = 5 * time.Minute
 
+// callGap is how long the line rests once a call you were on has ended. RINGBACK_CALL_GAP sets
+// fewer seconds, for the checks; 0, none.
+var callGap = envSeconds("RINGBACK_CALL_GAP", 60)
+
+// afterRest runs f once the line has rested (a variable, for the tests' clock).
+var afterRest = func(f func()) { time.AfterFunc(callGap, f) }
+
 // ringFor: a call that rang but that the phone hasn't said it answered, declined or missed
 // within this long counts as missed, as when the phone is off. The app rings for 30 s.
 // RINGBACK_RING_FOR sets fewer seconds, for the checks.
@@ -43,14 +54,30 @@ type lineCall struct {
 }
 
 var (
-	lineMu sync.Mutex
-	onLine *lineCall
+	lineMu    sync.Mutex
+	onLine    *lineCall
+	restUntil time.Time // the line rests until then, after a call you were on
 )
+
+// resting is when the line's rest ends, as ISO 8601 rounded up to the second, if it hasn't yet.
+func resting(t time.Time) string {
+	lineMu.Lock()
+	until := restUntil
+	lineMu.Unlock()
+	if !t.Before(until) {
+		return ""
+	}
+	if whole := until.Truncate(time.Second); whole.Before(until) {
+		until = whole.Add(time.Second)
+	}
+	return until.UTC().Format(time.RFC3339)
+}
 
 // lineWaits is why a call that would ring waits for the line, and until when ("" if it rings
 // now): a missed call before its next try, or after its last; and any call while another rings
-// or is on, while a missed call waits to ring again, or while calls placed before it wait their
-// turn. entry is the call's own on the waiting calls, if it's there. The caller holds stateMu.
+// or is on, while a missed call waits to ring again, while calls placed before it wait their
+// turn, or, until a time, while the line rests after a call. entry is the call's own on the
+// waiting calls, if it's there. The caller holds stateMu.
 func lineWaits(callID string, entry map[string]string, waiting map[string]map[string]string) (string, string) {
 	t := now()
 	switch entry["reason"] {
@@ -81,6 +108,9 @@ func lineWaits(callID string, entry map[string]string, waiting map[string]map[st
 		case other["reason"] == inTurn && !ownMissed && before(id, other, callID, entry):
 			return inTurn, ""
 		}
+	}
+	if until := resting(t); until != "" {
+		return inTurn, until
 	}
 	return "", ""
 }
@@ -150,15 +180,27 @@ func lineOffered(callID, kind string) {
 }
 
 // lineEnded: a call ended, or its agent dropped it, so if it's on the line the line is free,
-// and the next call in turn is asked again. The caller holds stateMu.
+// and the next call in turn is asked again: at once, or if you were on the call, once the line
+// has rested. The caller holds stateMu.
 func lineEnded(callID string) {
 	lineMu.Lock()
 	freed := onLine != nil && onLine.id == callID
+	rest := freed && onLine.answered && callGap > 0
 	if freed {
 		onLine = nil
 	}
+	if rest {
+		restUntil = now().Add(callGap)
+	}
 	lineMu.Unlock()
-	if freed {
+	if rest {
+		log(fmt.Sprintf("the line rests until %s, before a session's next call rings", timeOfDay(restUntil.Local())))
+		afterRest(func() {
+			stateMu.Lock()
+			defer stateMu.Unlock()
+			nextInTurn()
+		})
+	} else if freed {
 		nextInTurn()
 	}
 }
@@ -224,10 +266,11 @@ func lineUnanswered(callID, how string) {
 }
 
 // nextInTurn asks the call that's waited longest in turn to ask again, so it rings, while the
-// line is free and no missed call waits to ring again. The caller holds stateMu.
+// line is free and not resting, and no missed call waits to ring again. The caller holds
+// stateMu.
 func nextInTurn() {
 	lineMu.Lock()
-	busy := onLine != nil
+	busy := onLine != nil || now().Before(restUntil)
 	lineMu.Unlock()
 	if busy {
 		return

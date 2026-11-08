@@ -154,7 +154,7 @@ Ringback is a working prototype: everything below is built and passes its offlin
 
 **Not yet tried on the phone:** work hours, the hold switch, its breathing light and the
 Lock Screen widget; calling a waiting call now, or cancelling it; calls ringing one at a time,
-and a missed call ringing again; weak signal; calls and asks surviving a restart of the agent
+at least a minute apart, and a missed call ringing again; weak signal; calls and asks surviving a restart of the agent
 or the hub.
 
 ## To do
@@ -176,7 +176,7 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 - [ ] 3D models on Linux: OpenUSD's live view, and an agent there
 - [ ] The call history in iCloud
 - [ ] Ending a call by voice: built, to try on a call
-- [ ] At least 60 s between calls
+- [ ] At least 60 s between calls: built, to try on the phone
 - [ ] Opening what a session showed you during a call
 - [ ] Sending text or a link to the phone
 - [ ] The caller's name from where the session started and its title

@@ -292,8 +292,11 @@ func placeCall(mac string, body map[string]any) (map[string]any, error) {
 			return nil, err
 		}
 		if entry["reason"] != why || entry["held_until"] != until {
-			log("call " + prefix(callID, 8) + ": waits, " + map[string]string{inTurn: "in turn",
-				missed: "missed, until " + until, callBack: "until you call its session back"}[why])
+			how := map[string]string{inTurn: "in turn", missed: "missed, until " + until, callBack: "until you call its session back"}[why]
+			if why == inTurn && until != "" {
+				how = "in turn, until the line has rested after the last call, " + until
+			}
+			log("call " + prefix(callID, 8) + ": waits, " + how)
 		}
 		answer := map[string]any{"ok": true, "held": true, "reason": why}
 		if until != "" {

@@ -21,6 +21,9 @@ state in a throwaway HOME, and checks:
   the agent is asked to ask again, and asked again, the call rings and the status is fine;
 - one call rings at a time: while it rings, another waits in turn; once the phone says it's
   over (`ended` on `/events`), the call in turn is asked again (`reask`), and rings;
+- once a call you were on ends (`answered`, then `ended`), the line rests (2 s here, set with
+  `RINGBACK_CALL_GAP`, a minute for real): a call placed meanwhile waits in turn with
+  `held_until`, is asked again when the rest is over, and rings;
 - an offer for a call no agent owns is refused (403);
 - an offer the agent accepts is answered; the agent hears `answered` and `connected`, and the
   node is told to warm up (`warm`, as for every offer and every call placed that rings), then

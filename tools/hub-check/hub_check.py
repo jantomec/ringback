@@ -33,6 +33,7 @@ SPEAKING = 24000
 SECS_PER_CHAR = 0.06  # the stand-in node's speech: this long per character of text
 REPLY = "Hello there. This is the hub check, speaking a reply that has two sentences in it."
 LONG = " ".join(["This is a long reply that goes on for a while, so you can cut it off."] * 4)
+GAP = 2  # seconds the line rests after a call you were on, rather than a minute
 
 lines: list[str] = []
 fails = 0
@@ -109,7 +110,7 @@ async def main() -> int:
         f'listen = "{HUB}"\n[tokens]\nagent = "{TOKENS["agent"]}"\nspeech = "{TOKENS["speech"]}"\n'
     )
     log = home / "hub.log"
-    hub = subprocess.Popen([*os.environ.get("RINGBACK_HUB_ARCH", "").split(), str(binary), "serve"], env=os.environ | {"HOME": str(home)}, stdout=log.open("w"), stderr=subprocess.STDOUT)
+    hub = subprocess.Popen([*os.environ.get("RINGBACK_HUB_ARCH", "").split(), str(binary), "serve"], env=os.environ | {"HOME": str(home), "RINGBACK_CALL_GAP": str(GAP)}, stdout=log.open("w"), stderr=subprocess.STDOUT)
     stand_in_phone.HUB = HUB
     agent, node = Link("agent"), Link("speech", whole_turns=True)
     try:
@@ -195,8 +196,24 @@ async def main() -> int:
         check(f"over, the call in turn is asked again: {nexts}", len(nexts) == 1)
         rang_next = await place(nexts[0][0]) if nexts else {}
         check(f"and rings: {rang_next}", rang_next.get("ok") is True and not rang_next.get("held"))
+        # You answer that one: once it's over, the line rests (GAP here, a minute for real), and
+        # a call placed meanwhile waits in turn until then; then it's asked again, and rings.
         async with aiohttp.ClientSession() as http:
-            async with http.post(f"http://{HUB}/events", json={"call_id": nexts[0][0] if nexts else "", "event": "ended"}) as r:
+            for what in ("answered", "ended"):
+                async with http.post(f"http://{HUB}/events", json={"call_id": nexts[0][0] if nexts else "", "event": what}) as r:
+                    pass
+        over = time.monotonic()
+        after_id = "known-" + secrets.token_hex(12)
+        rests = await place(after_id)
+        check(f"after a call you were on, the next waits in turn until the line has rested: {rests}",
+              rests.get("held") is True and rests.get("reason") == "in turn" and bool(rests.get("held_until")))  # fmt: skip
+        await until(lambda: [m for m in agent.of("reask") if m["call_ids"] == [after_id]], GAP + 3)
+        asked_in = time.monotonic() - over if [m for m in agent.of("reask") if m["call_ids"] == [after_id]] else None
+        rang_after = await place(after_id)
+        check(f"it's asked again {asked_in and round(asked_in, 2)} s after the call ended, and rings: {rang_after}",
+              asked_in is not None and GAP - 0.1 <= asked_in < GAP + 1 and rang_after.get("ok") is True and not rang_after.get("held"))  # fmt: skip
+        async with aiohttp.ClientSession() as http:
+            async with http.post(f"http://{HUB}/events", json={"call_id": after_id, "event": "ended"}) as r:
                 pass
 
         # The stand-in agent owns calls whose ID starts with "known-", and speaks a reply once
