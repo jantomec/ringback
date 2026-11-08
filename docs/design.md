@@ -1046,7 +1046,8 @@ how things look):
   first audio on long takes, and cutting a take off (`tools/tts-trial`), the hub holding a reply
   for it and the agent's `break` (their tests), the node (`check.sh` on the GPU), and a whole
   call (`tools/line-check`: the voice answered 2.6–3.6 s after you stopped, with the model's
-  first words taking 2.0–3.1 s that day); not on the phone yet;
+  first words taking 2.0–3.1 s that day), and going on after its server is killed or frozen
+  partway through a reply (`check.sh`); not on the phone yet;
 - the hub serving HTTPS and WSS (`[tls]`), renewed without a restart, and the agent and the
   speech node linking to it; the app's side isn't tried at all;
 - Macs and speech nodes pairing and linking with their own keys (a Mac's agent paired with
