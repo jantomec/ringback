@@ -81,7 +81,9 @@ What it needs to run is under "You need" in `docs/setup.md`.
 - Before every commit, scan the full content of every staged file and the commit message
   for personal details. The list of strings to look for is in Claude's private memory,
   because the list itself is personal.
-- Git: work on a short branch, merge it fast-forward into `main`, delete the branch, and
-  push when the user asks.
+- Git: commit often, on `main`, without waiting to be asked; push when several commits have
+  stacked up or a feature is built. Use a branch only for a change suspected of breaking
+  other parts, so `main` keeps a working version until the change is ready; then merge it
+  fast-forward and delete the branch.
 - Installing on the phone over the network needs it unlocked and on the same Wi-Fi as the
   Mac. Ask the user for that before installing, and for the test setup before a test call.
