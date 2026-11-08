@@ -161,3 +161,239 @@ recognition is working at the same time (the 3 GB held is idle memory), Vulkan a
 one GPU, and load times from a cold disk (the files were in the page cache). References were picked
 by rule and Phonon's voice by its description, so a better voice may be among the others. Weights are
 quantised and most runtimes are ports, so a voice may sound different through its maker's own code.
+
+## Does context fix sentence starts?
+
+The user picked Ming from the blind test, but heard "weird intonations at the beginnings of each
+sentence", and suspected it came from making each sentence separately. Their idea: one worker says
+sentence 1 alone for a fast start, while another says 1 to X, whose sentence 1 is cut away, so it
+shapes what follows; a third says 1 to Y, and so on. This tries that and cheaper forms of it, for Ming
+and Phonon with Kokoro as the reference. The same 24 sentences are made each way:
+
+| Method | What it does |
+|---|---|
+| `separate` | each sentence alone |
+| `whole` | one text, in the runtime's own chunks |
+| `call` | as a call does: sentence 1 alone, then the rest as one piece |
+| `overlap` | the user's idea, as far as a pass can hold |
+| `ctx1`, `ctx2` | each sentence with the one or two before it said first, then cut away |
+| `window` | six sentences a pass, the first two cut away |
+| `native1`, `native2`, `nativegrp` | Ming's own prompt: the last audio and its words, nothing regenerated |
+| `anchor`, `anchorgrp` | the same with one fixed clip as the prompt throughout, as Ming's own long-text code does |
+| `ming-speaker` | one fixed speaker embedding, and no audio prompt |
+| `ming-zero` | the empty speaker row Ming's README calls for |
+| `ming-zero-short` | the same, with text cut at about 130 characters |
+
+On the speech node, after the rest of the trial:
+
+    sh harness/gate.sh python3 harness/context_make.py kokoro      # also phonon, ming
+    env/bin/python -I harness/context_join.py kokoro phonon ming   # find the cuts, splice, score
+    python3 harness/context_make.py ming --save-prompt             # the clip for ming-anchored, ming-speaker
+    sh harness/gate.sh python3 harness/context_make.py ming-anchored --only drops   # also ming-speaker
+    env/bin/python -I harness/context_drops.py ming ming-anchored ming-speaker ming-zero ming-zero-short   # who loses words
+    sh harness/overlap_all.sh                                      # workers, Parakeet, replays
+    python3 harness/schedule.py ming                               # X and Y, from those numbers
+    env/bin/python -I harness/context_clips.py context-clips
+    env/bin/python -I harness/context_report.py
+
+All of it took 1 h 20 min on 2026-11-06. No call came during a run.
+
+**Ming was losing words because the request left out a setting.** Ming's README calls every built-in
+voice with `use_zero_spk_emb=True`, an empty speaker row, and `trial.py`'s `ming` didn't send audio.cpp's
+`zero_speaker_embedding`. Its own Python also cuts text at about 24 words by default, where audio.cpp cuts
+at 300 characters. All 60 passes below are the same text and seeds, straight from the server's stream, so
+none of our cutting is in the path:
+
+| Request | Passes that lost words | Words lost, of 2472 | Speed over the 60 passes, warm-up gaps included |
+|---|---|---|---|
+| `ming`: no speaker row, 300 characters | 30 of 60 | 108 | 2.76× |
+| `ming-zero`: empty row, 300 characters | 2 of 60 | 9 | 2.76× |
+| `ming-zero-short`: empty row, `text_chunk_size` 130 | 0 of 60 | 0 | 3.08× |
+| `ming-speaker`: a real speaker embedding, 300 characters | 0 of 60 | 0 | 2.75× |
+
+A sentence alone never lost a word, in any of them. The loss wasn't Parakeet (words were absent from short
+windows heard on their own, and Qwen3-ASR heard the same gaps), the Q8 weights (full precision lost as many,
+28 of 60) or the sampling settings (guidance 1 to 5, a lower noise scale). The voice runs on smoothly through
+each gap: Ming generates frame by frame and chooses when to stop, so nothing makes it say every word.
+
+A stored embedding of 856 bytes also works (`speaker_embedding_file`; 0 of 12 three-sentence passes), with
+speed unchanged at 3.16×, and moves the voice down, from 200 Hz to 184 on a call's pieces. The 490 MiB of GPU
+memory it adds in the table below is from loading the clip's encoders, and wasn't measured with the file.
+This was on audio.cpp v0.9.4, and Ming's own Python hasn't been tried.
+
+| Ming, words heard wrong of 305 | Built-in voice | With the speaker embedding |
+|---|---|---|
+| Each sentence alone | 0 | 0 |
+| One text | 7 | 0 |
+| As a call does | 20 | 0 |
+| Overlaps cut away (`ctx1`, `ctx2`, `window`) | 11, 4, 12 | not tried |
+
+**The overlap can't reach the end of a reply.** On Ming, a pass shares 512 positions between its prompt,
+its text and the audio it makes, so asking for more loses the end: 8 sentences came back as 20.9 of
+27 s, and 12 as 15 s. From sentence 1, X can't pass about 6 ordinary sentences, or about 20 s. On
+Phonon, a pass is at most 50 tokens, about 2 ordinary sentences, past which it starts again knowing
+nothing of what came before. Neither has anything like the whole reply in view.
+
+**More workers don't help, on the GPU.** It runs one at a time, so workers only divide it:
+
+| At once | Ming, each | First audio | Worst margin past the cut | Phonon, each |
+|---|---|---|---|---|
+| 1 | 2.43× | 117 ms | | 16.1× |
+| 2 | 1.23× | 242 ms | +0.46 s | 14.2× |
+| 3 | 0.81× | 378 ms | **-0.31 s** | 12.1× |
+
+The margin is how long before sentence 1 ran out the first audio past the cut came, over first
+sentences from "Okay." to one of 5.3 s. Worked out from these numbers, for Ming (`schedule.py`): two
+workers can do replies of up to 5 sentences with no gap, X being the whole reply. Three never help:
+they run dry by 0.16-0.57 s, always, and cost 25-45% more GPU time. From 8 sentences up there's no X and
+Y at all. One worker, going straight on from one piece to the next, never ran dry at any length, with
+the same first audio and 20-50% less GPU time than two. For Phonon, everything's so fast that it
+doesn't matter, and a pass holds so little that the idea doesn't apply.
+
+Played for real, with the text arriving over 1 or 2 s (`overlap.py replay`): 3, 8 and 24 sentences, one
+worker, today's hand-over one second before a piece ends, no dry time at all, in 13 runs, one of
+them with Parakeet transcribing all the time.
+
+**Parakeet barely touches Ming.** Pieces 2.64×, sentences 3.19×, first audio 110 ms alone. With Parakeet
+transcribing a stretch of 5.75 s once a second, far more than a call does: 2.57×, 3.11×, 112 ms. Doing
+nothing else, without a break: 1.54×, 1.67×, 208 ms, 262 ms at worst, and Parakeet's 23 ms became 57 ms.
+
+**Ming's prompt is real, and unsafe as a chain.** It takes earlier words and audio directly: `reference_text`
+with `voice_ref` through audio.cpp's C API (`audiocpp_request_set_voice_audio`), `prompt_text` with
+`prompt_latent` in its own Python. Nothing is regenerated, and a new prompt adds 30-140 ms to first audio. Chained, each
+piece prompted by the last, it loses its place in the text, skipping and repeating sentences (28 to 61
+words wrong) and making things up, and the voice drifts (pitch from 190 to 154 Hz, stability 0.60,
+where a changing voice scores 0.54). One fixed clip as the prompt works: 0 wrong words of 305, even at
+four sentences a piece, and stability 0.83. Phonon has no such way: every chunk starts again from its
+voice, and its released models can't encode audio.
+
+**One take, streamed, is the way.** `raw_text` puts a whole reply in one pass, and audio.cpp streams it from
+about 0.11 s, however long the text. Ming's own Python (`ming_own.py`, commit a39b806) gives the same results as
+audio.cpp, so these are Ming's behaviour, not the port's:
+
+| On the 60 passes, empty row unless said | Passes that lost words | Words lost, of 2472 |
+|---|---|---|
+| audio.cpp, one piece | 3 | 10 |
+| Ming's Python, one piece | 2 | 9 |
+| Ming's Python, its default cuts at 24 words | 3 | 3 |
+| Ming's Python, one piece, no row | 21 | 69 |
+
+Every loss with the row was in a pass of 4 or 6 sentences. On the 102 replies of 9 real calls
+(`context_make.py --only replies`, from a private `replies.json` on the node), two seeds each: all fit one take, the
+longest 18.1 s; first audio 0.113 s, worst 0.126 s; 2.79× real time. One reply lost a clause in both seeds, and
+one, "Mm-hmm.", wasn't heard at all. The scorer's other flags are mostly Parakeet writing "$7" for "seven dollars",
+read by hand. "1000 kg" came out as "kilobit", so units still need spelling out. Guidance 3 was no better.
+
+A take stops at about 21 s of speech through audio.cpp (512 positions). Ming's Python with `--cache 2048` said all 8
+sentences in 26 s with no loss, and fell apart past that: 36 of 498 words lost at 12 sentences, 254 of 915 at 24,
+so the backbone's 32768 positions don't help. Going on from a take, with its last sentence as the prompt
+(`--only takes`, one try), skipped the second take's first sentence, so that isn't a way past the limit.
+
+**Cutting a take off.** The voice cuts a take off by closing its request (`docs/design.md`,
+"Speaking a reply"). In `cut_loop.py qwen3-hadley 30`, 30 cuts at random points from 0.3 to 6 s
+into a long take, the server never crashed or hung, and the next reply's first audio came in
+0.344 s (median; 0.355 s worst), against 0.065 s from an idle server, as the cut take stops
+within a chunk or two. Once before that, in a first try, the server printed "double free or
+corruption" after a cut and hung, so the node restarts it when a take goes 5 s with no audio.
+
+**Why long takes fail, and what doesn't help.** `ming_own.py` records how each pass ended. With `--cache 2048`:
+
+| Sentences | Positions: prompt + speech, of 2048 | Audio | How it ended |
+|---|---|---|---|
+| 8 | 254 + 328 | 26.2 s | Ming stopped, all words said |
+| 12 | 328 + 412 | 32.9 s | Ming stopped, words skipped |
+| 24 | 490 + 593 | 47.4 s | Ming stopped, words skipped |
+
+So 512 positions is what ends a take at about 21 s, and it's not what ends one past 26 s: Ming stops itself with
+965 positions spare. Why isn't known, and its paper gives no length.
+
+Five texts that had lost words, six seeds each, 30 passes, chosen to fail, so these aren't typical rates:
+
+| Ming's own Python | Passes that lost words | Words lost, of 2040 |
+|---|---|---|
+| Built-in voice, empty row, one piece | 7 | 28 |
+| The same through its text path (`--prep`) | 7 | 28 |
+| With `language_id="English"` | 13 | 50 |
+| A real speaker embedding (`--speaker`) | 11 | 41 |
+| Its cloning call, on a 6 s clip (`--clone`) | 11 | 33 |
+| Its default cuts at 24 words | 6 | 6, the one word below |
+
+No setting beat the built-in voice in one piece. Only the default cuts kept whole clauses, and they leave joins.
+Their one loss, in all 6 tries of one text, was the word "because": Ming's splitter joins that fragment as
+"I didn't change it,because", with no space. Counts here are Parakeet's alone, without the second ear.
+
+**How long a batch can be.** Passes that lost words, by length, over the 60 passes through audio.cpp and through
+Ming's Python and the 204 of real replies: none of 260 at up to 50 words, 7 of 64 above that. Numbers Parakeet wrote
+as digits are left out, as in the table above. At 50 words a batch, 89% of the real replies have no join, and the
+rest one. `--only batches` makes the first eight sentences as three takes, with a join as long as a pause inside a
+take and 20 ms fades (`ming-batches.m4a`): no words lost, by either ear. The limit is what these texts showed, not
+a guarantee.
+
+**Qwen3 in one take** (`context_make.py MODEL --only long --label long --seeds 42,7,1895`). `long_texts.json` holds
+four technical replies of about 300 words, written for this: each is cut at whole sentences near 50, 100, 150,
+200 and 300 words, and every length made with three seeds, 60 takes per voice, each one request. `qwen3-aiden`
+is the CustomVoice preset; `qwen3-hadley` is the Base model cloning Phonon's Hadley from a 6.7 s clip
+(`refs/hadley.wav`). audio.cpp cuts Qwen3's text only past 8192 characters, so each take is one pass.
+
+Counting runs of 3 or more words missing (`skips.py`, with `singles.py` for the rest), so numbers Parakeet writes as digits
+and contractions don't count, at 50 to 200 words no take of 48 lost a phrase, for either voice. At 300 words one
+of 12 did for each: Aiden stopped about 130 words early, and Hadley left out one sentence. Kokoro, each sentence
+made alone, on the same texts: none, and the same few single-word differences ("I'd drop" heard as "I dropped"),
+which are Parakeet's. Qwen3 had a few more of those, such as "I've finished" heard as "I finished".
+
+| | Aiden | Hadley |
+|---|---|---|
+| First audio, median / worst | 0.015 / 0.087 s | 0.065 / 0.093 s |
+| Slowest 10 s of any take | 2.66× | 3.02× |
+| Whole run | 2.84× | 3.25× |
+| Seconds a word, 50 / 300 words | 0.325 / 0.330 | 0.285 / 0.252 |
+| GPU peak, whole card | 3.1 GB | 2.8 GB |
+
+First audio and speed hold to the longest take, 108 s. Hadley speaks fast and speeds up as a take grows: 12% more
+words a second at 300 words than at 50. Nothing here was heard, run beside Parakeet working, or on the phone.
+
+**What a join is.** Measured in `ming-zero`'s and `ming-zero-short`'s passes, against sentence ends inside a piece:
+0.45 s of pause against 0.38 s, and audio.cpp's `trim_silence` cuts the tail with no fade, up to 48 dB in 10 ms
+against 15. Each piece also starts with no memory of the last. Which of these the ear catches wasn't tested.
+
+**What context does to a sentence start.** Each sentence's opening is unchanged, as far as pitch shows:
+its rise in the first half second moved 0.2 st (`whole`), and was lower in 13 of 24 sentences, a coin
+flip. What does change is the join from one sentence to the next. On Ming the pitch step across a
+sentence end falls from 3.0 st when made separately to 1.4-2.4 st with context, and is smaller at
+15-19 of 23 ends. With the embedding the step is 2.5 st made separately. These are stand-ins for the
+ear, and don't say what the user heard. The listening clips do.
+
+| Ming, on sentences alone | Built-in voice | One clip as prompt | Embedding only |
+|---|---|---|---|
+| Losing words in longer passes, of 60 | 30 | 3 | 0 |
+| Stability | 0.77 | 0.82 | 0.81 |
+| Pitch range between sentences | 7.6 st | 3.5 st | 4.7 st |
+| Loudness range | 4.8 LU | 2.5 LU | 4.0 LU |
+| Raw keys missed, of 46 | 17 | 10 | 10 |
+| Speed, first audio | 3.14×, 106 ms | 3.11×, 115 ms | 3.16×, 106 ms |
+| Silence at the start | 0.14 s | 0.28 s | 0.14 s |
+| GPU peak | 1602 MiB | not measured | 2092 MiB from a clip |
+
+**Finding the cut.** Of 54 cuts, the pause nearest where the text says a sentence ends was right 53 times
+on Phonon and 45 on Ming; Parakeet's word times, 54 and 50, at a cost of about 0.3 s of CPU a pass. Some of
+Ming's misses are its own lost words, at the cut. On a very short first sentence, in 18 passes, 14 by pause
+on both, and 16-17 by word times: "Okay." and "Done." were right every time, as they're followed by a
+real pause, and what fails is a comma inside, as in "Got it, thanks." ("Got it. Dance."). Cut in the middle of
+a pause, joins are clean: no click (-53 dB or lower, against speech), and only 1-2 of 23 joins on Ming
+fell in speech, where it had no pause to cut at.
+
+**Kokoro makes every sentence on its own anyway.** `Chunks` keeps each sentence of five words or more as
+a chunk, so a larger piece changes nothing: 0.80 s between sentences whether it's made whole or
+separately. The design says larger pieces keep the pauses natural, which isn't so on Kokoro.
+
+**A second ear.** `second_ear.py` has Qwen3-ASR hear all 22 clips, under `tools/stt-trial/gpu.sh`, in the
+`qwen3` environment and with its `backends.py`. It heard the same gaps Parakeet did in `ming-call` and
+`ming-whole`, 7 and 3 words, and nothing else missing in any clip. Its one other difference is "passed" for
+"pass" in `ming-speaker-call`, where Parakeet heard "pass". It also finds each sentence's start for the
+listening page and hears each piece to prove the cut: 175 of 176 pieces began with their sentence's first two
+words, and the other was "I finish" for "I finished" at the top of a clip, so all 176 are right.
+
+Not checked: any of this by ear, on a phone, or on Ming's own Python. Why the empty row matters is inferred,
+not shown: without it the model gets a prompt shape its README never uses. 60 passes of one text isn't every text.
+A stored embedding with the audio prompt can't be tried, as the file replaces the prompt. No pass here
+was made with the text still arriving.

@@ -36,3 +36,7 @@ One Sonnet turn in an earlier run of this check had no text, and none in this on
 tools weren't there, so a real call's times can differ. `stop`, tried once on Sonnet: the reply
 ended 0.01 s after the stop (`control_request`, `interrupt`), and the session's next turn
 answered 2.60 s later.
+
+Result on 2026-11-06, the same three rounds on Opus, also timing the rest of each later turn: first text at a
+median of 1.03 s, the first sentence complete at 1.31 s, the whole reply at 1.66 s (slowest 4.68 s, for 138
+words). So waiting for the whole reply costs about 0.35 s more than waiting for its first sentence.

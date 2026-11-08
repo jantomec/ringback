@@ -161,4 +161,5 @@ def main():
     print(len(clips), "clips for", len(key), "voices; highest peak", round(max(stats.values()), 3))
 
 
-main()
+if __name__ == "__main__":
+    main()

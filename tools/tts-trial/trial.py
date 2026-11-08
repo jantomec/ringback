@@ -47,7 +47,6 @@ def free_port():
         return s.getsockname()[1]
 
 
-PORT = free_port()
 SEED = 42
 WARM_UP = [
     "Hello, the voice is ready.",
@@ -79,6 +78,28 @@ MODELS = {
     "kokoro-alloy": {"runtime": "kokoro", "rate": 24000, "sid": 0},
     "ming": audiocpp("ming3_tts", "ming/ming-3.0-tts-0.5b-q8_0.gguf", 44100,
                      options={"template_name": "ip", "voice_id": "US_Emma", "language": "en"}),
+    # Ming with one fixed clip of its own as the prompt for everything it says: see context_make.py.
+    "ming-anchored": audiocpp("ming3_tts", "ming/ming-3.0-tts-0.5b-q8_0.gguf", 44100,
+                              options={"template_name": "ip", "voice_id": "US_Emma", "language": "en"},
+                              ref="ming"),
+    # The same clip for its speaker embedding alone, with no audio prompt.
+    "ming-speaker": audiocpp("ming3_tts", "ming/ming-3.0-tts-0.5b-q8_0.gguf", 44100,
+                             options={"template_name": "ip", "voice_id": "US_Emma", "language": "en"},
+                             ref="ming", ref_audio_only=True),
+    # The built-in voice as Ming's README calls it: use_zero_spk_emb=True keeps the speaker row, empty.
+    "ming-zero": audiocpp("ming3_tts", "ming/ming-3.0-tts-0.5b-q8_0.gguf", 44100,
+                          options={"template_name": "ip", "voice_id": "US_Emma", "language": "en",
+                                   "zero_speaker_embedding": True}),
+    # The same with text cut about where Ming's own default of 24 words cuts it, not at 300 characters.
+    "ming-zero-short": audiocpp("ming3_tts", "ming/ming-3.0-tts-0.5b-q8_0.gguf", 44100,
+                                options={"template_name": "ip", "voice_id": "US_Emma", "language": "en",
+                                         "zero_speaker_embedding": True, "text_chunk_size": 130}),
+    # The empty row, with the text in one piece: no chunks, so no joins, up to Ming's 512 positions.
+    "ming-raw": audiocpp("ming3_tts", "ming/ming-3.0-tts-0.5b-q8_0.gguf", 44100,
+                         options={"template_name": "ip", "voice_id": "US_Emma", "language": "en",
+                                  "zero_speaker_embedding": True, "raw_text": True}),
+    "ming-bf16": audiocpp("ming3_tts", "ming/ming-3.0-tts-0.5b-bf16.gguf", 44100,
+                          options={"template_name": "ip", "voice_id": "US_Emma", "language": "en"}),
     "audio8": audiocpp("audio8_tts", "audio8/audio8-tts-realistic-0.6b-q8_0.gguf", 44100,
                        options={"language": "en"}, ref="audio8"),
     "audio8-noref": audiocpp("audio8_tts", "audio8/audio8-tts-realistic-0.6b-q8_0.gguf", 44100,
@@ -89,6 +110,9 @@ MODELS = {
                       options={"voice_id": "Serena", "language": "en"}),
     "qwen3-aiden": audiocpp("qwen3_tts", "qwen3/qwen3-tts-12hz-1.7b-customvoice-q8_0.gguf", 24000,
                             options={"voice_id": "Aiden", "language": "en"}),
+    # Qwen3's voice-clone model, with Phonon's Hadley as the voice: the one the user liked on a long stretch.
+    "qwen3-hadley": audiocpp("qwen3_tts", "qwen3/qwen3-tts-12hz-1.7b-base-q8_0.gguf", 24000,
+                             options={"language": "en"}, ref="hadley"),
     "voxcpm2": audiocpp("voxcpm2", "voxcpm2/voxcpm2-q8_0.gguf", 48000,
                         options={"retry_badcase": False}, ref="voxcpm2"),
     "voxcpm2-design": audiocpp("voxcpm2", "voxcpm2/voxcpm2-q8_0.gguf", 48000,
@@ -185,7 +209,8 @@ class AudioCpp:
         entry = {"id": "m", "family": cfg["family"], "path": str(ROOT / "models" / cfg["path"]),
                  "task": "tts", "mode": "streaming"}
         entry.update(cfg.get("entry", {}))
-        conf = {"host": "127.0.0.1", "port": PORT, "backend": "cuda", "device": 0,
+        self.port = free_port()
+        conf = {"host": "127.0.0.1", "port": self.port, "backend": "cuda", "device": 0,
                 "threads": cfg.get("threads", 4), "lazy_load": False, "models": [entry]}
         path = log.with_name("server.json")
         path.write_text(json.dumps(conf, indent=1))
@@ -202,15 +227,21 @@ class AudioCpp:
         if cfg.get("ref"):
             ref = ROOT / "refs" / cfg["ref"]
             self.body["voice_ref"] = str(ref.with_suffix(".wav"))
-            self.body["reference_text"] = ref.with_suffix(".txt").read_text().strip()
+            if not cfg.get("ref_audio_only"):
+                self.body["reference_text"] = ref.with_suffix(".txt").read_text().strip()
 
     def ready(self):
-        wait_http(self.proc, "/health")
+        wait_http(self.proc, "/health", self.port)
 
-    def speak(self, text):
-        c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=300)
+    def speak(self, text, extra=None):
+        """`extra` adds to the request, and its `options` to the options, for one sentence."""
+        body = {**self.body, "input": self.cfg.get("prefix", "") + text, "seed": self.seed}
+        if extra:
+            options = {**body["options"], **extra.get("options", {})}
+            body = {**body, **extra, "options": options}
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=300)
         t0 = time.time()
-        c.request("POST", "/v1/audio/speech", json.dumps({**self.body, "input": self.cfg.get("prefix", "") + text, "seed": self.seed}),
+        c.request("POST", "/v1/audio/speech", json.dumps(body),
                   {"Content-Type": "application/json", "Accept": "text/event-stream"})
         r = c.getresponse()
         if r.status != 200:
@@ -243,16 +274,17 @@ class Breeze:
         self.cfg, self.rate = cfg, cfg["rate"]
         d = next((ROOT / "runtime/breeze").glob("breeze-tts-2-*"))
         env = dict(os.environ, LD_LIBRARY_PATH=str(d))
+        self.port = free_port()
         self.proc = subprocess.Popen(
             [str(d / "breeze-server"), str(ROOT / "models" / cfg["path"]), "--host", "127.0.0.1",
-             "--port", str(PORT), "--ws-port", "-1", "--voices-dir", str(ROOT / "refs/breeze-voices"),
+             "--port", str(self.port), "--ws-port", "-1", "--voices-dir", str(ROOT / "refs/breeze-voices"),
              *cfg.get("args", [])],
             env=env, cwd=d, stdout=log.open("w"), stderr=subprocess.STDOUT)
         self.pid = self.proc.pid
         self.seed = SEED
 
     def ready(self):
-        wait_http(self.proc, "/health")
+        wait_http(self.proc, "/health", self.port)
 
     def speak(self, text):
         fields = {"text": text, "seed": str(self.seed)}
@@ -263,7 +295,7 @@ class Breeze:
         boundary = uuid.uuid4().hex
         body = "".join(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'
                        for k, v in fields.items()) + f"--{boundary}--\r\n"
-        c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=300)
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=300)
         t0 = time.time()
         c.request("POST", "/v1/audio/speech", body.encode(),
                   {"Content-Type": f"multipart/form-data; boundary={boundary}"})
@@ -284,12 +316,12 @@ class Breeze:
         self.proc.wait(20)
 
 
-def wait_http(proc, path):
+def wait_http(proc, path, port):
     for _ in range(2400):
         if proc.poll() is not None:
             raise RuntimeError(f"runtime exited with {proc.returncode}")
         try:
-            c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=2)
+            c = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
             c.request("GET", path)
             r = c.getresponse()
             r.read()
@@ -330,7 +362,7 @@ class Kokoro(LineChild):
                           str(cfg.get("sid", 3))], env, cfg["rate"], log)
         self.tmp = log.with_name("kokoro-tmp.wav")
 
-    def speak(self, text):
+    def speak(self, text, extra=None):
         t0 = time.time()
         self.proc.stdin.write(json.dumps({"id": "x", "text": text, "out": str(self.tmp)}) + "\n")
         self.proc.stdin.flush()
@@ -351,7 +383,7 @@ class Phonon(LineChild):
         super().__init__([str(ROOT / "env/bin/python"), "-I", str(HERE / "phonon_trial.py"),
                           cfg["voice"], str(cfg["threads"])], env, cfg["rate"], log)
 
-    def speak(self, text):
+    def speak(self, text, extra=None):
         t0 = time.time()
         self.proc.stdin.write(json.dumps({"text": text}) + "\n")
         self.proc.stdin.flush()
@@ -486,4 +518,5 @@ def main():
     print(json.dumps(show, default=lambda x: round(x, 3)))
 
 
-main()
+if __name__ == "__main__":
+    main()

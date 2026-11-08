@@ -60,18 +60,26 @@ def run(flags):
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=1)
         time.sleep(RING_SECS)
         firsts, thought = [], 0
+        shapes = []  # each later turn: first words, first sentence complete, whole reply, its length
         for words in TURNS:
             t = time.monotonic()
             p.stdin.write(json.dumps({"type": "user", "message": {"role": "user", "content": words}}) + "\n")
             p.stdin.flush()
-            first = None
+            first = sentence = last = None
+            said = ""
             for line in p.stdout:
                 m = json.loads(line)
                 if m["type"] == "stream_event":
-                    delta = m["event"].get("delta", {}).get("type")
+                    event_delta = m["event"].get("delta", {})
+                    delta = event_delta.get("type")
                     thought += delta == "thinking_delta"
-                    if delta == "text_delta" and first is None:
-                        first = time.monotonic() - t
+                    if delta == "text_delta":
+                        now = time.monotonic() - t
+                        first = now if first is None else first
+                        last = now
+                        said += event_delta.get("text", "")
+                        if sentence is None and re.search(r"[.!?](\s|$)", said):
+                            sentence = now
                 elif m["type"] == "result":
                     if first is None:
                         # A turn with no words: the voice would stay silent, so say what it was.
@@ -79,9 +87,11 @@ def run(flags):
                               f"stop={m.get('stop_reason')} error={m.get('is_error')}", flush=True)
                     break
             firsts.append(first)
+            if first is not None:
+                shapes.append((first, sentence or last, last, len(said.split())))
         p.stdin.close()
         p.wait()
-        return firsts, thought
+        return firsts, thought, shapes[1:]
 
 
 def stop(model):
@@ -129,8 +139,10 @@ def main():
     for name in names:
         flags = SETTINGS[name]
         first_turns, later_turns, thought, silent = [], [], 0, 0
+        shapes = []
         for _ in range(rounds):
-            firsts, t = run(flags)
+            firsts, t, shape = run(flags)
+            shapes += shape
             silent += firsts.count(None)
             first_turns += [f for f in firsts[:1] if f is not None]
             later_turns += [f for f in firsts[1:] if f is not None]
@@ -144,6 +156,11 @@ def main():
             f"{len(later_turns)} turns) | thinking chunks {thought}",
             flush=True,
         )
+        if shapes:
+            middle = [statistics.median(column) for column in zip(*shapes)]
+            worst = [max(column) for column in zip(*shapes)]
+            print(f"{'':12} later turns, medians: first sentence complete {middle[1]:.2f} s, whole reply "
+                  f"{middle[2]:.2f} s (slowest {worst[2]:.2f} s), {middle[3]:.0f} words (longest {worst[3]})", flush=True)
 
 
 if __name__ == "__main__":

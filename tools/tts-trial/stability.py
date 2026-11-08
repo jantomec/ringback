@@ -82,4 +82,5 @@ def main():
     (ROOT / f"stability-{args.embedding}.json").write_text(json.dumps(out, indent=1))
 
 
-main()
+if __name__ == "__main__":
+    main()

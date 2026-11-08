@@ -1,0 +1,53 @@
+// Keeps speech recognition working on the GPU, to see what that does to a voice beside it: Parakeet
+// through the speech node's own code (internal/engine), transcribing one WAV again and again.
+// setup.sh copies this into the copy of speech/ as cmd/parakeet-load/main.go, as with kokoro-trial.
+//
+// parakeet-load MODEL_DIR WAV GAP_SECONDS prints {"ready":true}, then each transcription's time.
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"strconv"
+	"time"
+
+	"ringback/speech/internal/engine"
+	"ringback/speech/internal/wav"
+)
+
+const rate = 16000
+
+func main() {
+	gap, err := strconv.ParseFloat(os.Args[3], 64)
+	check(err)
+	asr, err := engine.OpenParakeet(os.Args[1], "cuda", 2) // 2 threads, as speech.example.toml
+	check(err)
+	samples, from, err := wav.Read(os.Args[2])
+	check(err)
+	samples = wav.Resample(samples, from, rate)
+	audio := make([]float32, len(samples))
+	for i, s := range samples {
+		audio[i] = float32(s) / 32768
+	}
+	asr.Transcribe(audio)
+	emit(map[string]any{"ready": true, "seconds": float64(len(audio)) / rate})
+	for {
+		t := time.Now()
+		asr.Transcribe(audio)
+		emit(map[string]any{"took_s": time.Since(t).Seconds()})
+		time.Sleep(time.Duration(gap * float64(time.Second)))
+	}
+}
+
+func emit(v any) {
+	b, _ := json.Marshal(v)
+	fmt.Println(string(b))
+}
+
+func check(err error) {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}

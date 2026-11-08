@@ -71,10 +71,12 @@ hf() { # REPO PATH-IN-REPO FILE-UNDER-models/
 }
 g=audio-cpp/audio.cpp-gguf
 hf audio-cpp/Ming-3.0-TTS-0.5B-GGUF ming-3.0-tts-0.5b-q8_0.gguf ming/ming-3.0-tts-0.5b-q8_0.gguf
+hf audio-cpp/Ming-3.0-TTS-0.5B-GGUF ming-3.0-tts-0.5b-bf16.gguf ming/ming-3.0-tts-0.5b-bf16.gguf
 hf audio-cpp/Audio8-TTS-Realistic-0.6b-GGUF audio8-tts-realistic-0.6b-q8_0.gguf audio8/audio8-tts-realistic-0.6b-q8_0.gguf
 hf LiquidAI/LFM3-Audio-2B-GGUF LFM3-Audio-2B-Q8_0.gguf lfm3/LFM3-Audio-2B-Q8_0.gguf
 hf LiquidAI/LFM3-Audio-2B-GGUF mmproj-LFM3-Audio-2B-Q8_0.gguf lfm3/mmproj-LFM3-Audio-2B-Q8_0.gguf
 hf $g Qwen3-TTS-12Hz-1.7B-CustomVoice-GGUF/qwen3-tts-12hz-1.7b-customvoice-q8_0.gguf qwen3/qwen3-tts-12hz-1.7b-customvoice-q8_0.gguf
+hf $g Qwen3-TTS-12Hz-1.7B-Base-GGUF/qwen3-tts-12hz-1.7b-base-q8_0_v2.gguf qwen3/qwen3-tts-12hz-1.7b-base-q8_0.gguf
 hf $g VoxCPM2-GGUF/voxcpm2-q8_0.gguf voxcpm2/voxcpm2-q8_0.gguf
 hf $g KugelAudio-0-Open-GGUF/kugelaudio-0-open-q4_k.gguf kugel/kugelaudio-0-open-q4_k.gguf
 hf $g Breeze-TTS-2-GGUF/breeze-tts-2-q8_0.gguf breeze/audiocpp/breeze-tts-2-q8_0.gguf
@@ -100,7 +102,10 @@ if [ -d "$SPEECH_SRC" ] && [ ! -x "$KDIR/bin/kokoro-trial" ]; then
       export CGO_CFLAGS="-O2 -I$KDIR/sherpa-onnx/include -I$KDIR/onnxruntime/include"
       export CGO_LDFLAGS="-L$KDIR/sherpa-onnx/lib -Wl,-rpath,\$ORIGIN/../sherpa-onnx/lib"
       GO=go; [ -x "$KDIR/go/bin/go" ] && GO="$KDIR/go/bin/go"
-      "$GO" build -o "$KDIR/bin/kokoro-trial" ./cmd/kokoro-trial )
+      "$GO" build -o "$KDIR/bin/kokoro-trial" ./cmd/kokoro-trial
+      mkdir -p cmd/parakeet-load
+      cp "$ROOT/harness/parakeet_load.go.txt" cmd/parakeet-load/main.go
+      "$GO" build -o "$KDIR/bin/parakeet-load" ./cmd/parakeet-load )
 fi
 
 # Python 3.12 and the environment that scores the clips and runs Phonon
