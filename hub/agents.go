@@ -148,7 +148,7 @@ func fromAgent(l *link, message map[string]any) {
 		case "resume":
 			c.resume(n)
 		case "hang_up":
-			c.end("hung up by the voice")
+			c.hangUp()
 		}
 	}
 }

@@ -613,7 +613,8 @@ final class CallService: NSObject, CXProviderDelegate {
     }
 
     /// A new link for the call, which tells the in-call screen and the hub when its
-    /// audio connects or fails. While the phone rings, a failure only drops it.
+    /// audio connects or fails. While the phone rings, a failure only drops it. When the voice
+    /// hangs up, the call ends as the other side hanging up.
     private func makeLink(_ uuid: UUID, _ callID: String) -> AudioLink {
         let link = AudioLink()
         links[uuid] = link
@@ -634,6 +635,11 @@ final class CallService: NSObject, CXProviderDelegate {
                 audioFailed(uuid, callID, reason, note: offerNote(uuid))
                 callFailed(uuid, "Its audio was lost: the connection to your hub failed.")
             }
+        }
+        link.onEnded = { [self, weak link] in
+            guard let link, links[uuid] === link, !isRinging(uuid) else { return }
+            provider.reportCall(with: uuid, endedAt: nil, reason: .remoteEnded)
+            finish(uuid, endedOutcome(uuid), event: "ended", extra: ["note": "the voice hung up"])
         }
         return link
     }
@@ -881,6 +887,9 @@ protocol CallLink: AnyObject {
     /// Called once, on the main queue, when the call's audio is connected; with when.
     var onConnected: ((Date) -> Void)? { get set }
     var onFailed: ((String) -> Void)? { get set }
+    /// Called once, on the main queue, when the hub ends the call: the phone's own speech is told
+    /// whenever it does; an audio link, when the voice hangs up.
+    var onEnded: (() -> Void)? { get set }
     /// How it connected, for the hub's log.
     var addresses: String { get }
     func setMuted(_ muted: Bool)

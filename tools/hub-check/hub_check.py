@@ -417,6 +417,25 @@ async def main() -> int:
               len(ended) == 1 and ended[0]["lasted"] is not None and abs(ended[0]["lasted"] - talked) < 3)  # fmt: skip
         check(f"and the node to stop hearing: {node.of('hear_end')}", len(node.of("hear_end")) == 1)
 
+        # The voice hangs up, told while its goodbye still plays: the goodbye plays to its end,
+        # then a second more, for the phone's buffer, and the hub tells the phone on the call's
+        # channel; the call ends.
+        bye_id, bye = "known-" + secrets.token_hex(12), "Okay, that is everything for now. Talk soon, bye."
+        replies.append(bye)
+        caller = stand_in_phone.Phone()
+        await caller.offer(bye_id, ringing=False)
+        await until(lambda: caller.first_audio, 10)
+        await agent.ws.send_json({"type": "hang_up", "call_id": bye_id})
+        await until(lambda: caller.ended, 10)
+        spoke = (caller.last_audio or 0) - (caller.first_audio or 0)
+        after = caller.ended - caller.last_audio if caller.ended and caller.last_audio else None
+        check(f"the voice hangs up: its goodbye plays to the end ({spoke:.2f} s of {len(bye) * SECS_PER_CHAR:.2f}), "
+              f"and the phone is told {after and round(after, 2)} s after its last audio",
+              after is not None and spoke > 0.8 * len(bye) * SECS_PER_CHAR and 0.9 <= after < 1.8)  # fmt: skip
+        await until(lambda: [m for m in agent.of("ended") if m["call_id"] == bye_id], 5)
+        check(f"then the call ends: the agent hears so, and the node stops hearing: {len(node.of('hear_end'))} hear_end",
+              len([m for m in agent.of("ended") if m["call_id"] == bye_id]) == 1 and len(node.of("hear_end")) == 2)  # fmt: skip
+
         # With no speech node, a phone that speaks itself: the call rings, and the phone hears and
         # speaks it over its own link, saying what it plays (docs/protocol.md).
         await node.close()
@@ -511,6 +530,27 @@ async def main() -> int:
         ended = [m for m in agent.of("ended") if m["call_id"] == phone_id]
         check(f"the phone hangs up: the call ended, lasting {ended and ended[0]['lasted']} (on the phone {talked:.1f} s)",
               len(ended) == 1 and ended[0]["lasted"] is not None and abs(ended[0]["lasted"] - talked) < 2)  # fmt: skip
+
+        # The voice hangs up a call the phone speaks itself: a second later the phone is told to end it.
+        bye_id = "known-" + secrets.token_hex(12)
+        async with aiohttp.ClientSession() as http:
+            ws = await http.ws_connect(f"http://{HUB}/phone-speech")
+            await ws.send_json({"type": "hello", "version": 1, "call_id": bye_id, "kind": "now"})
+            await ws.receive_json(timeout=5)
+            await until(lambda: [m for m in agent.of("connected") if m["call_id"] == bye_id], 5)
+            asked, told = time.monotonic(), []
+            await agent.ws.send_json({"type": "hang_up", "call_id": bye_id})
+            while time.monotonic() - asked < 5 and "end" not in told:
+                try:
+                    message = await ws.receive(timeout=5)
+                except asyncio.TimeoutError:
+                    break
+                if message.type != aiohttp.WSMsgType.TEXT:
+                    break
+                told.append(json.loads(message.data)["type"])
+            took = time.monotonic() - asked
+        check(f"the voice hangs up a call the phone speaks itself: the phone is told to end it {took:.2f} s later: {told}",
+              "end" in told and 0.9 <= took < 2)  # fmt: skip
 
         # The agent's link drops during a call: the hub ends the call.
         # (A call the phone speaks itself, as no node is linked now.)

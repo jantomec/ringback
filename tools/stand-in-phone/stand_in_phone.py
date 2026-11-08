@@ -1,7 +1,8 @@
 """A stand-in for the iPhone app's side of a call, for the checks that need one
 (`tools/hub-check`, `tools/line-check`, `tools/portal-screens`): an aiortc peer that makes
 the call's offer to the hub as the app does, with all its ICE candidates in it, sends your
-voice once you've answered, and notes when the hub's voice is heard.
+voice once you've answered, notes when the hub's voice is heard, and hangs up when the hub
+says the voice has (`ended`).
 
     sys.path.insert(0, ".../tools/stand-in-phone")
     import stand_in_phone
@@ -12,6 +13,7 @@ voice once you've answered, and notes when the hub's voice is heard.
 
 import asyncio
 import fractions
+import json
 import re
 import socket
 import time
@@ -83,6 +85,15 @@ class Phone:
         self.heard: list[tuple[float, bool]] = []  # when each frame came, and whether the voice spoke in it
         self.on_answer = None  # called with the hub's answer before it's applied
         self._listener: asyncio.Task | None = None
+        # The call's channel, as the app opens it: the hub says on it when the voice hangs up.
+        self.ended: float | None = None  # when it did
+        self.channel = self.pc.createDataChannel("call")
+
+        @self.channel.on("message")
+        def message(data):
+            if isinstance(data, str) and json.loads(data).get("type") == "end":
+                self.ended = time.monotonic()
+                asyncio.ensure_future(self.hang_up())
 
         @self.pc.on("track")
         def track(track):

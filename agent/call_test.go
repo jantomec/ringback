@@ -45,7 +45,7 @@ func TestCallHeldUntilHeard(t *testing.T) {
 	check(t, "the model starts on a new session, Claude Code's default", start["model"] == "" && start["how"] == "--session-id", start)
 	check(t, "with the session's rules and briefing", strings.HasPrefix(start["system"].(string), rules+sessionRules) &&
 		strings.HasSuffix(start["system"].(string), "The parser fix is done; it needs a push.\n"))
-	check(t, "and the session's tools", slices.Equal(anyStrings(start["tools"]), []string{"pass_to_session", "answer_permission", "answer_question", "better_model"}), start["tools"])
+	check(t, "and the session's tools", slices.Equal(anyStrings(start["tools"]), []string{"pass_to_session", "answer_permission", "answer_question", "better_model", "end_call"}), start["tools"])
 
 	opening := a.answer(callID)
 	check(t, "the opening", opening == "Hi, the parser fix is done.", opening)

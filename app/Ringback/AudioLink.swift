@@ -10,7 +10,10 @@ import WebRTC
 ///
 /// CallKit owns the audio session, so WebRTC runs in manual-audio mode: CallKit activates
 /// the session and `activate`/`deactivate` hand it to WebRTC.
-final class AudioLink: NSObject, RTCPeerConnectionDelegate {
+///
+/// Beside the audio, a data channel, "call", on which the hub says when the voice has hung up
+/// (`{"type": "end"}`), so the call ends as the other side hanging up, not as audio lost.
+final class AudioLink: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDelegate {
     /// The one WebRTC factory, which a model's live view shares (ModelLink).
     static let factory: RTCPeerConnectionFactory = {
         RTCInitializeSSL()
@@ -37,6 +40,7 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     }
 
     private var peer: RTCPeerConnection?
+    private var channel: RTCDataChannel?
     private var microphone: RTCAudioTrack?
     /// What the hub sends: the voice.
     private var voice: RTCMediaStreamTrack?
@@ -55,6 +59,8 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     /// Called once, on the main queue, when audio is connected; with when.
     var onConnected: ((Date) -> Void)?
     var onFailed: ((String) -> Void)?
+    /// Called once, on the main queue, when the hub says the voice has hung up.
+    var onEnded: (() -> Void)?
 
     /// Tries to reach the hub over Nebula until it answers or `deadline` passes, and
     /// returns when it answered and after how many tries; nil if it never did. Any HTTP answer
@@ -197,6 +203,8 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
         microphone = track
         voice = peer.transceivers.first { $0.mediaType == .audio }?.receiver.track
         updateTracks()
+        channel = peer.dataChannel(forLabel: "call", configuration: RTCDataChannelConfiguration())
+        channel?.delegate = self
 
         let offer = try await peer.offer(for: none)
         try await peer.setLocalDescription(offer)
@@ -298,6 +306,9 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
         stopped = true
         onConnected = nil
         onFailed = nil
+        onEnded = nil
+        channel?.close()
+        channel = nil
         peer?.close()
         peer = nil
         microphone = nil
@@ -315,6 +326,7 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
         stopped = true
         onConnected = nil
         onFailed = nil
+        onEnded = nil
         reporting = done
         peer.statistics { report in
             let stats = Self.stats(report)
@@ -398,6 +410,20 @@ final class AudioLink: NSObject, RTCPeerConnectionDelegate {
     func peerConnection(_ peer: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {}
     func peerConnection(_ peer: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
     func peerConnection(_ peer: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
+
+    // MARK: RTCDataChannelDelegate (called on WebRTC's signalling thread)
+
+    func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {}
+
+    func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
+        guard let message = try? JSONSerialization.jsonObject(with: buffer.data) as? [String: Any],
+            message["type"] as? String == "end"
+        else { return }
+        DispatchQueue.main.async { [self] in
+            onEnded?()
+            onEnded = nil
+        }
+    }
 }
 
 /// The hub answered `answered` with 404: it wasn't offered this call.

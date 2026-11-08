@@ -8,7 +8,9 @@ The iPhone app's side of a call, for the checks that run a call without the phon
   rings, once you've answered, or marked as a call back, a call now or a call to a session;
 - sends nothing until you answer, then silence, and your reply when a check gives it one
   (`phone.mic.say(samples)`, 48 kHz);
-- notes when the hub's voice is heard (`first_audio`, `heard_after`, `quiet_for`).
+- notes when the hub's voice is heard (`first_audio`, `heard_after`, `quiet_for`);
+- opens the call's data channel, `call`, as the app does, and hangs up when the hub says on it
+  that the voice has (`ended`, when it did).
 
 A check sets where the hub is, then makes a phone per call:
 

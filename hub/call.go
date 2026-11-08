@@ -29,6 +29,10 @@ const quietAfter = 8 * time.Second
 // you haven't: then the agent is told (`quiet`, `waited`), and the model answers what you said.
 var waitLimit = envSeconds("RINGBACK_WAIT_LIMIT", 3)
 
+// hangUpAfter is how long the hub waits, once the voice has ended the call and its audio has
+// played, before it hangs up: the phone's own buffer still holds the last of it.
+const hangUpAfter = time.Second
+
 // frameSecs is how long a frame of the voice's audio lasts.
 const frameSecs = 0.02
 
@@ -86,6 +90,8 @@ type Call struct {
 	sensitivity     float64
 	gate            float64
 	pc              *webrtc.PeerConnection
+	channel         *webrtc.DataChannel // the phone's "call" channel, which says when the voice hangs up
+	hangingUp       bool                // the voice ended the call: the phone is told so as it ends
 	track           *webrtc.TrackLocalStaticSample
 	enc             *opusEncoder
 	offeredAt       time.Time
@@ -215,6 +221,13 @@ func newCall(id string, offer string, ringing bool, sensitivity, gate float64, a
 		return nil, "", err
 	}
 	pc.OnTrack(func(remote *webrtc.TrackRemote, _ *webrtc.RTPReceiver) { go c.hear(remote) })
+	pc.OnDataChannel(func(channel *webrtc.DataChannel) {
+		if channel.Label() == "call" {
+			c.mu.Lock()
+			c.channel = channel
+			c.mu.Unlock()
+		}
+	})
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		switch state {
 		case webrtc.PeerConnectionStateConnected:
@@ -248,6 +261,18 @@ func (c *Call) close() {
 	if c.phone {
 		c.node.cancel() // its link: the phone hangs up with it
 		return
+	}
+	c.mu.Lock()
+	channel, told := c.channel, c.hangingUp
+	c.mu.Unlock()
+	if told && channel != nil && channel.ReadyState() == webrtc.DataChannelStateOpen {
+		// The phone ends the call itself, as the other side hanging up, rather than finding its
+		// audio lost; the message gets a moment to leave before the connection closes.
+		_ = channel.SendText(`{"type":"end"}`)
+		for i := 0; i < 50 && channel.BufferedAmount() > 0; i++ {
+			time.Sleep(20 * time.Millisecond)
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 	c.pc.Close()
 	if c.enc != nil {
@@ -794,6 +819,31 @@ func (c *Call) turn(text string, secs, took float64, again bool) {
 		message["again"] = true
 	}
 	_ = c.agent.send(message)
+}
+
+// hangUp: the voice has ended the call (the agent's hang_up), once you'd heard it to the end.
+// The rest of its audio plays out, at most 10 s more, then hangUpAfter, and the call ends.
+func (c *Call) hangUp() {
+	c.mu.Lock()
+	if c.hangingUp || c.ended {
+		c.mu.Unlock()
+		return
+	}
+	c.hangingUp = true
+	c.mu.Unlock()
+	c.say("the voice hangs up")
+	go func() {
+		for deadline := now().Add(10 * time.Second); now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			c.mu.Lock()
+			played := c.ended || (!c.playing && len(c.queue) == 0)
+			c.mu.Unlock()
+			if played {
+				break
+			}
+		}
+		time.Sleep(hangUpAfter)
+		c.end("hung up by the voice")
+	}()
 }
 
 // end: the call is over, or replaced by a new offer for it. Unless replaced, the agent hears

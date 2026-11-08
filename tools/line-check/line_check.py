@@ -106,7 +106,9 @@ async def main() -> int:
             speech = np.concatenate([np.array(r.audio) for r in kokoro.generate(text, voice=YOUR_VOICE, lang_code="a")])
             return (np.clip(soxr.resample(speech, 24000, RATE), -1, 1) * 32767).astype(np.int16)
 
-        reply = spoken(REPLY)
+        # Saying there's more keeps the call on: answered alone, the model may well end the call
+        # there, as only the session's work is left ("Ending the call" in docs/design.md).
+        reply = spoken(REPLY + " Then stay on, I have more for you.")
 
         socket_side = aiohttp.ClientSession(connector=aiohttp.UnixConnector(path=str(sock)))
         http = aiohttp.ClientSession()
@@ -237,12 +239,25 @@ async def main() -> int:
               seen(hub_log, "paused reply") > paused and answer is not None and seen(hub_log, "so the rest of reply") >= 1)  # fmt: skip
         await phone.quiet_for(2.0, limit=30)
 
-        hung_up = time.monotonic()
-        talked = hung_up - answered_at
-        await phone.hang_up()
-        ended = await wait_for(agent_log, r"finished: you talked ([\d.]+) s", 40)
-        check(f"hung up, the call ended {time.monotonic() - hung_up:.1f} s later, lasting {ended and ended[1]} s (on the phone {talked:.1f} s)",
-              ended is not None and abs(float(ended[1]) - talked) < 3)  # fmt: skip
+        # You say goodbye: the voice says it back, in the model's own words, and hangs up once
+        # you've heard it; the phone is told a second after its last audio.
+        stopped = await say(spoken("Okay, that's all for now, thanks. Bye."))
+        answer = await voice_after(stopped + 0.2, 20)
+        end_by = time.monotonic() + 30
+        while phone.ended is None and time.monotonic() < end_by:
+            await asyncio.sleep(0.05)
+        after = phone.ended - phone.last_audio if phone.ended and phone.last_audio else None
+        check(f"you say bye: the voice answers {answer and round(answer - stopped, 2)} s later, and once it's heard "
+              f"the phone is told to end the call, {after and round(after, 2)} s after its last audio",
+              answer is not None and after is not None and 0.8 <= after < 2.5)  # fmt: skip
+        ended = await wait_for(agent_log, r"finished: you talked ([\d.]+) s", 10)
+        on_phone = phone.ended - answered_at if phone.ended else 0
+        transcript = next(iter((project / ".ringback/calls").glob("*")), None)
+        goodbye = re.findall(r"\*\*Voice:\*\* (.*)\n\n(?:\*\*Passed to the session:\*\* .*\n\n)?\*\*Voice:\*\* \(hangs up\)",
+                             transcript.read_text() if transcript else "")  # fmt: skip
+        check(f"the call ended, lasting {ended and ended[1]} s (on the phone {on_phone:.1f} s), and the transcript says "
+              f"the voice hung up after {goodbye[-1] if goodbye else None!r}",
+              ended is not None and abs(float(ended[1]) - on_phone) < 3 and bool(goodbye))  # fmt: skip
         gone_by = time.monotonic() + 5
         while subprocess.run(["pgrep", "-P", str(agent.pid), "-f", "input-format stream-json"], capture_output=True).stdout and time.monotonic() < gone_by:
             await asyncio.sleep(0.1)

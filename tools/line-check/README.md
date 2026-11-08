@@ -8,7 +8,9 @@ session's side is played through the agent's socket, as a mod plays it.
 
 It places a call for a session with the stand-in phone's sample briefing, makes the phone's
 offer while it rings, answers 6 s after placing, and once the opening has played says its reply
-("Yes, push it and open the pull request.", spoken by another Kokoro voice). It checks:
+("Yes, push it and open the pull request. Then stay on, I have more for you.", spoken by another
+Kokoro voice: answered alone, the model may end the call there, as only the session's work is
+left). It checks:
 - the speech node and the agent link to the hub, with their tokens;
 - the node loads its models when the call is placed (the hub's `warm`), before you answer;
 - the call is placed through the hub, and the offer made while it rings is answered;
@@ -20,8 +22,10 @@ offer while it rings, answers 6 s after placing, and once the opening has played
 - a "mm-hmm" over the voice stops it and it carries on, saying whether a word list or the model
   decided that;
 - a real interruption stops it, and its answer takes the place of the rest of the reply;
-- hung up, the call ended and lasted as long as on the phone (within 3 s), no Haiku is left,
-  and there is one transcript, with your words.
+- you say goodbye: the voice answers, and once you've heard it, the phone is told to end the
+  call, 0.8 to 2.5 s after the voice's last audio; the call ended and lasted as long as on the
+  phone (within 3 s), and the transcript says the voice hung up after its goodbye;
+- no Haiku is left, and there is one transcript, with your words.
 
 It then prints the timings: from answering to the voice, Haiku's first words, how long your
 reply was and how soon the node recognised it, and from your last word to the voice's

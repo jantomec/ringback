@@ -9,11 +9,11 @@ package main
 // on. voice.go is the call's voice that reads it.
 //
 // the model's tools are a small MCP server (this binary's `mcp`, tools.go) that relays each tool
-// call over a socket in the session's private folder. Every call has better_model, and a
-// call for a session also pass_to_session, answer_permission and answer_question. The call's
-// voice takes the tool calls from your first words on. One made in the opening does nothing:
-// you haven't said anything yet. Once, writing its opening while the phone rang, the model passed
-// a message nobody had said.
+// call over a socket in the session's private folder. Every call has better_model and
+// end_call, and a call for a session also pass_to_session, answer_permission and
+// answer_question. The call's voice takes the tool calls from your first words on. One made
+// in the opening does nothing: you haven't said anything yet. Once, writing its opening while
+// the phone rang, the model passed a message nobody had said.
 //
 // A better model: the session is kept on disk under a known ID, so Opus can take the call
 // over by resuming it (`--resume`), with the whole conversation, tool calls included.
@@ -60,7 +60,10 @@ var claudeArgs = []string{
 
 var sessionTools = []string{"pass_to_session", "answer_permission", "answer_question"}
 
-const betterModel = "better_model"
+const (
+	betterModel = "better_model"
+	endCall     = "end_call"
+)
 
 // event is one line Claude Code writes (stream-json); nil once the session has ended.
 type event = map[string]any
@@ -177,9 +180,9 @@ func (h *Talker) HandOver() error {
 
 // run starts claude on the session: a new one (--session-id) or resumed (--resume).
 func (h *Talker) run(how string) error {
-	names := []string{betterModel}
+	names := []string{betterModel, endCall}
 	if h.withTools {
-		names = append(append([]string{}, sessionTools...), betterModel)
+		names = append(append([]string{}, sessionTools...), betterModel, endCall)
 	}
 	server := map[string]any{"command": selfCommand, "args": append([]string{"mcp", h.socket()}, names...)}
 	config, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"ringback": server}})

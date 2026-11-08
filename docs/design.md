@@ -140,7 +140,8 @@ builds on Linux too, but has no service there yet.
    once the voice had started on it: a "bye", or anything else you said over it, makes hanging
    up your choice. Noise that cut the voice off doesn't count, once its turn comes back with
    no words.
-8. **The end.** Either side hangs up. The agent finishes the transcript and leaves the
+8. **The end.** Either side hangs up: you, or the voice, once you've said goodbye or only the
+   session's work is left (Ending the call, below). The agent finishes the transcript and leaves the
    session a note on how the call went: answered and for how long, with the transcript's path;
    not answered, and when it rings again; or answered but the audio never connected. The note is added to
    the session's conversation without starting a turn, so it can't set off another call, and
@@ -263,7 +264,7 @@ Isolation (switched on once in Control Center) more of it.
 On a call for a session, the model has three tools, served by a small MCP server the agent starts
 with each `claude -p`: `pass_to_session` for what you want the session to do or know, and
 `answer_permission` and `answer_question` for what the session asks you. Every call also has
-`better_model`.
+`better_model` and `end_call` (Ending the call, below).
 
 - The model says what it's passing on, or what it will answer, then calls the tool. The message
   is held until you've heard the voice say so, and dropped if you cut it off before; the model is
@@ -293,6 +294,25 @@ The voice's instructions are in `agent/texts.go`. Its style: short sentences, ro
 numbers, nothing read out that's meant to be seen (tables, lists, code), detail offered
 rather than recited, and your words read in context, since speech recognition gets
 similar-sounding words wrong, technical ones especially.
+
+### Ending the call
+
+The voice hangs up too, through the model, so its goodbye is its own words, not a script:
+
+- **You say goodbye:** it says a short goodbye back, and hangs up. It doesn't sum anything up.
+- **Only the session's work is left,** and you'd only be waiting for its results: the model
+  ends the call itself, without waiting for a goodbye, unless something still waits for your
+  answer. It doesn't sum up the call: it says in a sentence or two what you agreed and what
+  the session will do, then a goodbye. What it passes on in the same reply goes first.
+
+The model calls `end_call` last, after its goodbye. Like the other tools, it's held until
+you've heard the reply to its end, and dropped if you speak first: then the call goes on, and
+the model is told. It does nothing in the opening, before you've said anything. Once you've
+heard it, the agent tells the hub (`hang_up`), and says nothing more, even if the session's
+answer comes meanwhile: that rings as a call of its own, as when you hang up. The hub lets the
+voice's audio play out, waits a second more for the phone's own buffer, then tells the phone
+on the call's data channel, and the phone ends the call through CallKit, as the other side
+hanging up. Without that message, the phone would only find its audio lost.
 
 ### Call transcripts
 
@@ -1062,6 +1082,9 @@ how things look):
   call (`tools/line-check`: the voice answered 2.6–3.6 s after you stopped, with the model's
   first words taking 2.0–3.1 s that day), and going on after its server is killed or frozen
   partway through a reply (`check.sh`); not on the phone yet;
+- the voice ending the call, through the model, once you've said goodbye or only the session's
+  work is left (the agent's tests, `tools/hub-check`, and a goodbye on a whole call in
+  `tools/line-check`); not on the phone yet;
 - your whole turn written down again at each pause until the voice speaks, and the model told it
   takes the place of the words it had (the hearing and agent tests, `tools/hub-check`, `check.sh`
   on the GPU, and a whole call in `tools/line-check`, where a sentence paused for 2.2 s reached
@@ -1166,9 +1189,10 @@ host unable to read their calls.
   in `ringback-render`, encoding H.264 there (NVENC); and the agent needs a service on Linux
   (systemd, as the hub's and the speech node's), with the mod in its sessions.
 - [ ] **The call history in iCloud,** rather than on the phone only.
-- [ ] **Ending a call by voice:** when you say bye the voice goes over what you settled, says bye
-  and hangs up; speaking during that stops it. It needs the app to end the call through CallKit
-  when the hub says so (`hang_up` is there, and nothing sends it yet).
+- [ ] **Ending a call by voice** (Ending the call): when you say goodbye, the voice says it back
+  and hangs up; when only the session's work is left, it says what you agreed and what the
+  session will do, says goodbye and hangs up; speaking before its end keeps the call on. Built;
+  left: trying it on a call.
 - [ ] **At least 60 s between calls,** so you can think about the last one before the next rings;
   not for calls you make yourself.
 - [ ] **What a session showed you, during a call:** the call screen can't be left, so nothing

@@ -46,6 +46,13 @@ A better model:
   as "Sure, I'll put Opus on.", then call better_model. Opus then takes over the call,
   with everything said so far. Don't offer it unprompted.
 
+Ending the call:
+- If the developer says goodbye, say a short goodbye back in your own words, then call
+  end_call. Don't sum anything up.
+- Call end_call last, after everything you say: nothing you say after a tool is heard. The
+  call ends once the developer has heard you to the end. If they speak before that, it
+  goes on, and you're told.
+
 `
 	// What the voice can do for a session that listens.
 	sessionRules = `Passing things to the session:
@@ -97,6 +104,15 @@ When the session asks the developer something:
 - Several can wait at once: answer each with its own id. Don't say the ids aloud.
 - If a note says the session no longer needs an answer, drop it.
 - You can only answer what the session asks. You can't approve anything else for it.
+
+When only the session's work is left:
+- Once the conversation has reached its end, and what's left is for the session to do, so
+  the developer would only be waiting for its results, end the call yourself, without
+  waiting for a goodbye. Not while something still waits for their answer, or they've
+  asked something you haven't answered.
+- Don't sum up the call. Say in a sentence or two what you agreed and what the session
+  will do, then a short goodbye, then call end_call. If you're passing it on in the same
+  reply, say all of that first, then call pass_to_session, and end_call last.
 
 The session's briefing:
 `
@@ -171,6 +187,10 @@ words, and ask what they want. You can pass their questions or instructions to t
 	// What better_model answers.
 	handOverHeld = `Held until the developer has heard you say you're putting Opus on; then Opus takes over this call, with everything said so far, and speaks next. If they cut you off before that, it doesn't happen and you'll be told. End your reply now, after saying so if you haven't yet.`
 	opusAlready  = `Nothing done: you're Opus, the better model, already. If the developer asked for one, tell them so.`
+	// What end_call answers, and what the model's told if the call didn't end.
+	hangUpHeld    = `Held until the developer has heard you to the end; then the call ends. If they speak before that, it doesn't, and you'll be told. Don't say anything more.`
+	hangUpDropped = `The call didn't end: the developer spoke before hearing you to the end. Answer them, and end the call again only once it's over.`
+	stoppedHangUp = `The call hasn't ended yet. It ends if you carry on and they hear you to the end. If you answer them instead it doesn't: end the call again only once it's over.`
 	// The note that starts Opus's first turn, which it speaks first.
 	handOver = `You're Opus, taking over this call at the developer's request. Say briefly that you're on the line, then carry on from where it was.`
 	// The first turn. A call for a session asks for it while the phone rings, but its reply is
@@ -179,7 +199,7 @@ words, and ask what they want. You can pass their questions or instructions to t
 	// The first turn of a call back: you called, so the voice picks up.
 	pickedUp = `[The developer has called you, and you've picked up.]`
 	// What a tool call in the opening answers: you haven't said anything yet.
-	nothingYet = `Nothing passed or answered: the developer hasn't said anything yet, so there's nothing from them for the session. Just open the call.`
+	nothingYet = `Nothing done: the developer hasn't said anything yet, so there's nothing from them for the session, and the call doesn't end before they've spoken. Just open the call.`
 	// Sent to the model when something stopped the voice but no words were recognised (see
 	// "Interruptions" in docs/design.md): the hub's turn with no words.
 	noise = `Something stopped you, but no words were recognised, so it was probably noise. Carry on from the start of the sentence you were in.`
@@ -280,6 +300,14 @@ const toolsJSON = `[
   {
     "name": "better_model",
     "description": "Put a better model, Opus, on the line in your place, when the developer asks for a better or smarter model, or for Opus. Opus takes over this call with everything said so far. Say in a few words that you're putting Opus on before you call this.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "end_call",
+    "description": "End the call once the developer has heard you to the end: when they say goodbye, or when only the session's work is left. Say your goodbye first, and call this last.",
     "inputSchema": {
       "type": "object",
       "properties": {}

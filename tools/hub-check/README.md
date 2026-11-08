@@ -42,6 +42,9 @@ state in a throwaway HOME, and checks:
   not before: none came while you kept talking;
 - hung up, the agent hears the call ended and how long you talked, within 3 s of the time on
   the phone, and the node to stop hearing;
+- the voice hangs up (`hang_up`) while its goodbye still plays: the goodbye plays to its end,
+  the phone is told on the call's channel 0.9 to 1.8 s after its last audio, and the call
+  ends;
 - with no node linked, a call waiting for speech asks again once the phone turns its own
   voice on (`on_device` on `/register`);
 - with no node linked, a phone that speaks itself: a call rings
@@ -50,7 +53,8 @@ state in a throwaway HOME, and checks:
   reply in pieces, the first sentence alone, and from its `playing` and `played` the agent
   hears what you've heard, to the end, then `idle`; cut off in a long reply, it's told to stop
   and the agent hears what you'd heard; your turn reaches the agent; it hangs up, and the call
-  ended and lasted as long as on the phone, within 2 s;
+  ended and lasted as long as on the phone, within 2 s; the voice hanging up such a call has
+  the phone told to end it a second later;
 - the agent's link dropping during a call ends the call, and the phone is told so.
 
 Build the hub first, then run from the repo root:

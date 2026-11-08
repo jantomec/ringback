@@ -18,7 +18,9 @@ package main
 //
 // On every call, better_model puts Opus on the line when you ask for a better model, the same
 // way: once you've heard the model say so and its turn has ended, the model's process is closed and
-// Opus resumes its session, with the whole call so far, and speaks next.
+// Opus resumes its session, with the whole call so far, and speaks next. And end_call ends the
+// call once you've heard the voice to the end: the hub lets its audio play out, then hangs up.
+// If you speak first, the call goes on, and the model is told.
 //
 // A note from the session waits until the hub says the voice is idle (it has finished
 // speaking and you aren't), then starts a reply.
@@ -66,10 +68,10 @@ func justListening(text string) bool {
 
 // toolNamed finds a tool's name in a sentence: the model once wrote out the call it was about to
 // make ("Then call answer_permission with allow true."), which isn't for saying.
-var toolNamed = regexp.MustCompile(`\b(` + strings.Join(append([]string{betterModel}, sessionTools...), "|") + `)\b`)
+var toolNamed = regexp.MustCompile(`\b(` + strings.Join(append([]string{betterModel, endCall}, sessionTools...), "|") + `)\b`)
 
-// held is a message or an answer for the session, or Opus taking over ("model"), until
-// you've heard the reply up to where the model gave it.
+// held is a message or an answer for the session, Opus taking over ("model"), or the call
+// ending ("hang_up"), until you've heard the reply up to where the model gave it.
 type held struct {
 	turn  int
 	words *int // of the reply before the model gave it; nil if it said nothing first
@@ -164,6 +166,7 @@ type voice struct {
 	handingOver bool // you heard the model say it's putting Opus on: Opus takes the next reply
 	switching   bool // the model's process closing and Opus's starting
 	handed      bool // Opus has taken over, and its first reply hasn't gone yet
+	hangingUp   bool // you've heard the voice to the end of a reply that ended the call
 	unsent      string
 
 	// Your turn, which a speech node writes down whole at each pause until you've heard the voice:
@@ -750,7 +753,7 @@ func (v *voice) onQuiet(waited bool) {
 const maxRecoveries = 1
 
 func (v *voice) tryAnswer() {
-	if !v.opened || v.ended || v.unfinished > 0 || v.switching || v.talker == nil {
+	if !v.opened || v.ended || v.unfinished > 0 || v.switching || v.hangingUp || v.talker == nil {
 		return
 	}
 	if v.due || (v.idle && !v.waited && (len(v.parts) > 0 || v.handingOver)) {
@@ -890,8 +893,11 @@ func (v *voice) writeReply() {
 func (v *voice) tool(name string, arguments map[string]any) string {
 	// What the model wrote before the call is spoken first, if the call came before its event did.
 	v.speak(v.flush())
-	if name == betterModel {
+	switch name {
+	case betterModel:
 		return v.betterModel()
+	case endCall:
+		return v.endCall()
 	}
 	v.calls.mu.Lock()
 	listening := v.link.listening
@@ -993,6 +999,31 @@ func (v *voice) betterModel() string {
 	return handOverHeld
 }
 
+// endCall: the call ends once you've heard the reply to the end, which the model has finished
+// with its goodbye.
+func (v *voice) endCall() string {
+	if !v.holds("hang_up") {
+		v.hold("hang_up", "the call ends", func() bool {
+			v.hangUp()
+			return true
+		})
+		v.log("ends the call, held until heard")
+	}
+	return hangUpHeld
+}
+
+// hangUp: you've heard the voice's goodbye to the end, so the hub ends the call once its audio
+// has played. The session's news the model had been given was in what you heard; nothing more
+// is said.
+func (v *voice) hangUp() {
+	v.hangingUp = true
+	if v.newsGiven > 0 && v.current >= v.newsReply {
+		v.unheard = v.unheard[v.newsGiven:]
+		v.newsGiven = 0
+	}
+	v.out(map[string]any{"type": "hang_up", "call_id": v.callID})
+}
+
 func (v *voice) holds(kind string) bool {
 	for _, h := range v.held {
 		if h.kind == kind {
@@ -1064,6 +1095,21 @@ func (v *voice) pass(goes func(*held) bool, dropped string) string {
 		text := h.text
 		if message {
 			text = pyrepr(h.text)
+		}
+		if h.kind == "hang_up" {
+			if goes(h) {
+				v.remove(h)
+				v.writeReply()
+				v.log("heard to the end: it hangs up")
+				v.addTranscript("Voice", "(hangs up)")
+				h.give()
+			} else if dropped != "" {
+				v.remove(h)
+				v.log("doesn't hang up, " + dropped)
+				v.addTranscript("Voice", "(doesn't hang up, "+dropped+")")
+				note += "[" + hangUpDropped + "]\n"
+			}
+			continue
 		}
 		if h.kind == "model" {
 			if goes(h) {
@@ -1147,6 +1193,10 @@ func (v *voice) stoppedNote() string {
 	rest := strings.Join(all[min(heard, len(all)):], " ")
 	note += "[" + strings.NewReplacer("{heard}", strings.Join(fields, " "), "{rest}", rest).Replace(stoppedLead) + "]\n"
 	for _, h := range v.held {
+		if h.kind == "hang_up" {
+			note += "[" + stoppedHangUp + "]\n"
+			continue
+		}
 		what := map[string]string{"message": "Your message to the session", "answer": "Your answer to the session",
 			"model": "Opus taking over"}[h.kind]
 		note += "[" + strings.ReplaceAll(stoppedHeld, "{what}", fmt.Sprintf("%s (%s)", what, h.text)) + "]\n"
@@ -1180,12 +1230,12 @@ func (v *voice) cutOffNote() string {
 	return fmt.Sprintf("[You were interrupted. The developer heard your last reply up to: \"…%s\"]\n", strings.Join(fields, " "))
 }
 
-// close: you hung up, or a new offer replaced this one. Opus isn't needed any more, but what
-// you'd heard announced still goes.
+// close: the call ended, or a new offer replaced this one. Opus isn't needed any more, nor
+// hanging up, but what you'd heard announced still goes.
 func (v *voice) close() {
 	kept := v.held[:0]
 	for _, h := range v.held {
-		if h.kind != "model" {
+		if h.kind != "model" && h.kind != "hang_up" {
 			kept = append(kept, h)
 		}
 	}

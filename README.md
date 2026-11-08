@@ -175,7 +175,7 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 - [x] Showing you things: images, PDFs, clips and 3D models a call can't say
 - [ ] 3D models on Linux: OpenUSD's live view, and an agent there
 - [ ] The call history in iCloud
-- [ ] Ending a call by voice, with a recap
+- [ ] Ending a call by voice: built, to try on a call
 - [ ] At least 60 s between calls
 - [ ] Opening what a session showed you during a call
 - [ ] Sending text or a link to the phone
