@@ -23,6 +23,10 @@ keep them and the results out of this repository:
         --calls <project>/.ringback/calls ... --out results.jsonl --since 07:00:00
     python3 tools/turn-replay/score.py results.jsonl labels.json
 
+`--waits` has the model answer WAIT N, the seconds to wait, as the call's model writes `[wait N]`,
+kept from 2 to 60 s as the agent keeps it, and `score.py` then sets each wait against how long you
+took to go on, where you did (from the turn's end in the node's log to the start of your next).
+
 Take the agent's log from the day of the speech log: it has no dates, so `--since` is a time of
 day. `--dry-run 3` prints three prompts and asks nothing. It uses your Claude subscription:
 392 calls took 215 s, eight at a time.
@@ -50,3 +54,11 @@ short-answer rule was tuned on these same turns, so these numbers flatter it. Ea
 one-shot `claude -p` with start-up and no briefing, so the times here don't say how fast it would
 be in a call's session: `tools/reply-speed` measures that. The conversation holds the replies the
 voice gave to fragments, which wouldn't exist if it had waited.
+
+With `--waits`, on the same 98 turns on 2026-11-08 (Opus, words only, 98 asks in 62 s): it waited
+on 36 of 50 unfinished turns, and stalled on 7 of 48 finished ones, 2 of the 11 short answers
+among them. It chose 3 s 15 times, 4 s 22 times, 5 s 3 times, 8 s twice and 30 s once. On the
+23 unfinished turns you went on from, no wait was shorter than you took (0.2 to 3.5 s). The 7
+stalls came to 49 s, 30 of them on a single turn, where you'd said you'd call back. None of these
+turns asks for a long moment, so the longer waits are hardly tried. The wording of the wait is
+the call's (`agent/texts.go`), but the rest of the prompt is this tool's.

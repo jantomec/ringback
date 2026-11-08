@@ -26,8 +26,8 @@ package main
 // speaking and you aren't), then starts a reply.
 //
 // The model decides when to speak. Your words come at each pause, and it answers them, or writes
-// [wait] if you're going on; if you say nothing more, it's asked again after a few seconds and
-// must answer. A speech node writes down your whole turn again at each pause, so its words take
+// [wait N] if you're going on, N being the seconds it gives you (waitLeast to waitMost); if you
+// say nothing more in that time, it's asked again and must answer. A speech node writes down your whole turn again at each pause, so its words take
 // the place of the turn's earlier ones, and the model is told so. If you speak over the voice, it
 // stops and the hub keeps the rest of the reply: the model is told what you heard and what you
 // didn't, and answers you, or writes [continue] and the voice goes back to the start of the
@@ -37,6 +37,7 @@ package main
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -46,11 +47,35 @@ import (
 
 var okayStart = regexp.MustCompile(`(?i)^\s*(okay|ok|alright|all right)\b[,.!]?\s*`)
 
-// markerOnly is a reply that's only a decision; strayMarker, one left in a reply that says more.
+// markerOnly is a reply that's only a decision, with the seconds of a wait; strayMarker, one
+// left in a reply that says more.
 var (
-	markerOnly  = regexp.MustCompile(`(?i)^\s*\[(wait|continue)\]\W*$`)
-	strayMarker = regexp.MustCompile(`(?i)\[(wait|continue)\]\s*`)
+	markerOnly  = regexp.MustCompile(`(?i)^\s*\[(wait|continue)(?:\s+(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?)?)?\]\W*$`)
+	strayMarker = regexp.MustCompile(`(?i)\[(wait|continue)(?:\s+\d+(?:\.\d+)?\s*(?:s|secs?|seconds?)?)?\]\s*`)
 )
+
+// The model's wait for you to go on lasts as many seconds as it says, within waitLeast and
+// waitMost (as the rules tell it); a [wait] with no number, waitBare.
+const (
+	waitLeast = 2 * time.Second
+	waitMost  = 60 * time.Second
+	waitBare  = 3 * time.Second
+)
+
+// waitFor is how long a wait of the seconds the model wrote lasts: within the limits, whatever
+// it wrote.
+func waitFor(seconds string) time.Duration {
+	var n float64
+	if _, err := fmt.Sscan(seconds, &n); err != nil {
+		return waitBare
+	}
+	return min(max(time.Duration(n*float64(time.Second)), waitLeast), waitMost)
+}
+
+// seconds is a wait as it's logged: "12 s".
+func seconds(d time.Duration) string {
+	return strconv.FormatFloat(d.Seconds(), 'f', -1, 64) + " s"
+}
 
 // listening matches what only shows you're listening, a piece of your words at a time.
 var listening = regexp.MustCompile(`^(mm+[- ]?h+m+|mh+m|uh[- ]?huh|yeah|yep|yes|right|okay|ok|sure|i see|got it)$`)
@@ -192,6 +217,7 @@ type voice struct {
 
 	stopped *stoppedReply // the reply you spoke over, until the model decides
 	mark    string        // "wait" or "continue" if the reply being written is only that
+	waitFor time.Duration // how long a wait lasts, if it's one
 	waited  bool          // the model chose to wait, and you haven't spoken since
 	forced  bool          // this reply was told not to wait
 
@@ -387,10 +413,10 @@ func (v *voice) replyDone() {
 	wait := v.mark == "wait" && !v.forced
 	said := map[string]any{"type": "said", "call_id": v.callID, "reply": v.current}
 	if wait {
-		said["waiting"] = true
+		said["waiting"], said["wait"] = true, v.waitFor.Seconds()
 		v.waited = true
-		v.log("waits for you to go on")
-		v.addTranscript("Voice", "(waits)")
+		v.log(fmt.Sprintf("waits %s for you to go on", seconds(v.waitFor)))
+		v.addTranscript("Voice", fmt.Sprintf("(waits %s)", seconds(v.waitFor)))
 	}
 	v.out(said)
 	if v.stopped != nil && v.stopped.asked && nothing && !wait {
@@ -506,7 +532,7 @@ func (v *voice) nextText(e event) string {
 			v.opener = nil
 		}
 		if m := markerOnly.FindStringSubmatch(v.unspoken); m != nil && v.reply == "" {
-			v.mark, v.unspoken = strings.ToLower(m[1]), ""
+			v.mark, v.waitFor, v.unspoken = strings.ToLower(m[1]), waitFor(m[2]), ""
 		}
 		text := v.flush()
 		if v.unsaid != "" {
@@ -711,7 +737,7 @@ func (v *voice) heardAgain(text string) string {
 // onQuiet: the voice finished a while ago and you haven't spoken since (the hub's quietAfter).
 // If the session still waits for your answer to something put to you, as when your "yes" went
 // unheard, the voice asks again, once for each. Or the model chose to wait, and you didn't go on
-// (the hub's waitLimit): it answers what you said.
+// in the time it gave you (the hub times it): it answers what you said.
 func (v *voice) onQuiet(waited bool) {
 	if waited {
 		if v.waited && v.unfinished == 0 {
@@ -851,7 +877,7 @@ func (v *voice) heardNews() {
 
 // send sends a turn to the model, as reply number reply.
 func (v *voice) send(message string, reply int) {
-	v.reply, v.unspoken, v.written, v.cut, v.quiet, v.mark = "", "", false, false, false, ""
+	v.reply, v.unspoken, v.written, v.cut, v.quiet, v.mark, v.waitFor = "", "", false, false, false, "", 0
 	v.ack, v.opener = "", nil
 	v.turn++
 	// From your first words on, the model's tool calls are yours to pass on (see model.go).

@@ -5,7 +5,7 @@
         --out RESULTS.jsonl [--models haiku,sonnet] [--dry-run N]
 
 Takes each turn the speech node closed, with what you had heard by then, and asks the model
-what the voice should do: REPLY, WAIT or CONTINUE. Each is asked with each hint of Smart Turn's score (--hints), and the answers are set against what you did: whether you spoke again before the voice
+what the voice should do: REPLY, WAIT or CONTINUE (with --waits, WAIT N, for N seconds). Each is asked with each hint of Smart Turn's score (--hints), and the answers are set against what you did: whether you spoke again before the voice
 did. See README.md. Your transcripts and logs are private: they stay out of this repo.
 """
 
@@ -37,6 +37,17 @@ They've heard only what's shown as heard. What the voice hadn't said yet can't b
 they're answering.
 
 Answer with one word: REPLY, WAIT or CONTINUE."""
+
+# With --waits, the model also says how long to wait, as the call's model does (agent/texts.go),
+# within the same limits (agent/voice.go).
+WAITS = SYSTEM.replace(
+    "WAIT: they're probably in the middle of a thought and will go on, so stay silent.",
+    "WAIT N: they're probably in the middle of a thought and will go on, so stay silent for N seconds, "
+    "from 2 to 60, before the voice answers. Give them as long as they'll probably need: about 3 seconds "
+    "when they've stopped in the middle of a sentence to find a word, longer when they've asked for a "
+    "moment to think, check or look something up, and the time they asked for if they said how long.",
+).replace("Answer with one word: REPLY, WAIT or CONTINUE.", "Answer with REPLY, WAIT N or CONTINUE, and nothing else.")
+WAIT_LEAST, WAIT_MOST, WAIT_BARE = 2, 60, 3
 
 # What the model is told of their intonation, by name: Smart Turn's score, or only that they
 # sound unfinished when the score is very low, which is when it means something.
@@ -146,11 +157,13 @@ def cases(streams, replies, context=10):
                     heard = ""
                 n = yous.index(e) + 1
                 next_you = yous[n] if n < len(yous) else None
-                went_on = False
+                went_on, gap = False, None
                 if next_you is not None:
                     began = next_you["t"] - next_you["spoke"]
                     later = [x["t"] for x in events if x["kind"] == "voice" and x["t"] > e["t"]]
                     went_on = began < (later[0] if later else 1e12)
+                    if went_on:
+                        gap = round(began - e["t"], 2)  # from the turn's end until you went on
                 lines = list(said)
                 if heard:
                     lines.append("Voice: " + heard + (" (cut off here)" if cut is not None else ""))
@@ -158,7 +171,7 @@ def cases(streams, replies, context=10):
                 if cut is not None and (pieces or heard):
                     now = f'\nThese words cut the voice off. It still had to say: "{unheard}"' if unheard else ""
                 out.append({"stream": stream, "t": round(e["t"], 3), "text": e["text"], "p": e["p"], "spoke": e["spoke"],
-                            "went_on": went_on, "cut": cut is not None, "heard_any": bool(heard),
+                            "went_on": went_on, "gap": gap, "cut": cut is not None, "heard_any": bool(heard),
                             "prompt": "The conversation so far, as the developer heard it:\n"
                                       + ("\n".join(lines[-context:]) or "(nothing yet)")
                                       + f'\n\nThe developer\'s words just now: "{e["text"]}"' + now})
@@ -171,9 +184,9 @@ def cases(streams, replies, context=10):
     return out
 
 
-def ask(case, model, hint):
+def ask(case, model, hint, waits=False):
     words = HINTS[hint](case["p"])
-    system = SYSTEM + ("\n\n" + words if words else "")
+    system = (WAITS if waits else SYSTEM) + ("\n\n" + words if words else "")
     env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_PLUGIN_DIRS"}
     with tempfile.TemporaryDirectory() as cwd:
         began = time.monotonic()
@@ -186,9 +199,12 @@ def ask(case, model, hint):
         text = json.loads(r.stdout).get("result", "")
     except json.JSONDecodeError:
         text = "ERROR " + (r.stderr or r.stdout)[:200]
-    word = re.search(r"\b(REPLY|WAIT|CONTINUE)\b", text)
-    return {**{k: v for k, v in case.items() if k != "prompt"}, "model": model, "hint": hint,
-            "decision": word[1] if word else "ERROR", "raw": text[:80], "secs": round(took, 2)}
+    word = re.search(r"\b(REPLY|WAIT|CONTINUE)\b(?:\s+(\d+(?:\.\d+)?))?", text)
+    result = {**{k: v for k, v in case.items() if k != "prompt"}, "model": model, "hint": hint,
+              "decision": word[1] if word else "ERROR", "raw": text[:80], "secs": round(took, 2)}
+    if waits and word and word[1] == "WAIT":
+        result["wait"] = min(max(float(word[2]), WAIT_LEAST), WAIT_MOST) if word[2] else WAIT_BARE
+    return result
 
 
 def main():
@@ -202,6 +218,7 @@ def main():
     parser.add_argument("--since", default="07:00:00", help="only the agent log's cuts from this time")
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--dry-run", type=int, default=0, help="print this many prompts and stop")
+    parser.add_argument("--waits", action="store_true", help="the model says how long to wait, 2 to 60 s")
     args = parser.parse_args()
 
     speech = read_speech(args.speech)
@@ -219,7 +236,7 @@ def main():
     began = time.monotonic()
     done = 0
     with open(args.out, "w") as out, ThreadPoolExecutor(args.workers) as pool:
-        for result in pool.map(lambda job: ask(*job), jobs):
+        for result in pool.map(lambda job: ask(*job, waits=args.waits), jobs):
             out.write(json.dumps(result) + "\n")
             out.flush()
             done += 1

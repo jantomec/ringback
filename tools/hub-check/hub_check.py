@@ -406,15 +406,16 @@ async def main() -> int:
               f"{[round(q, 2) for q in quiets]} s",
               len(quiets) == 1 and 7.9 <= quiets[0] < 8.5)  # fmt: skip  (the idle can reach this a little late)
 
-        # The model waits for you to go on, and you don't: the agent hears so at the wait's limit.
+        # The model waits for you to go on, as long as it chose, and you don't: the agent hears so
+        # once that time is up (not the 3 s of a wait that doesn't say how long).
         await node.ws.send_json({"type": "turn", "stream": stream, "text": "So the", "secs": 0.4, "took": 0.05})
         await until(lambda: len(agent.of("turn")) == 6, 3)
         waited_at = time.monotonic()
-        await agent.ws.send_json({"type": "said", "call_id": call_id, "reply": 8, "waiting": True})
-        await until(lambda: len(agent.of("quiet")) == 2, 5)
+        await agent.ws.send_json({"type": "said", "call_id": call_id, "reply": 8, "waiting": True, "wait": 4.5})
+        await until(lambda: len(agent.of("quiet")) == 2, 7)
         waited = time.monotonic() - waited_at
-        check(f"the model's wait ends after 3 s without you: {waited:.2f} s, {agent.of('quiet')[1:]}",
-              2.9 <= waited < 3.6 and agent.of("quiet")[1].get("waited") is True)  # fmt: skip
+        check(f"the model's wait ends after the 4.5 s it chose without you: {waited:.2f} s, {agent.of('quiet')[1:]}",
+              4.4 <= waited < 5.1 and agent.of("quiet")[1].get("waited") is True)  # fmt: skip
 
         # The node writes down the whole turn again: the agent hears it takes the place of the last.
         await node.ws.send_json({"type": "turn", "stream": stream, "text": "So the plan is good.", "secs": 1.4, "took": 0.09, "again": True})

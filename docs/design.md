@@ -129,7 +129,7 @@ builds on Linux too, but has no service there yet.
    log.
 6. **The reply.** The hub gives your words to the agent, and the model answers in a Claude Code
    session that stays open for the whole call, so each turn sends only what's new, or writes
-   `[wait]` if you're going on (Whose turn it is, below). Its first words come about 0.9 s after
+   `[wait N]` if you're going on (Whose turn it is, below). Its first words come about 0.9 s after
    your turn on Opus, 1.2 s on Haiku and 2 s on Sonnet (`tools/reply-speed`). The agent passes
    the reply to the hub a sentence at a time as it's written, the hub cuts it into pieces, the
    speech node speaks each, and the hub plays them.
@@ -198,10 +198,21 @@ the words on 41 (`tools/turn-replay`). At each pause the model gets your words s
 
 - **It answers,** if you've said what you wanted to. A short, clear answer to a question you've
   heard is finished, even one word.
-- **Or it writes `[wait]`,** and nothing is said. At your next pause it gets your whole turn
+- **Or it writes `[wait N]`,** and nothing is said. At your next pause it gets your whole turn
   again, written down in one piece with what you've added, and is told it takes the place of the
   words it had. A session's note waits meanwhile, so the voice doesn't talk over your thinking.
-  If you've said nothing 3 s later, it's told so and answers.
+  If you've said nothing N seconds later, it's told so and answers. N is the model's: about 3 s
+  in the middle of a sentence, longer if you've asked for a moment to think or look something
+  up, and as long as you asked for if you said. The agent keeps it from 2 to 60 s whatever the
+  model writes, and a `[wait]` with no number is 3 s; the hub times it. Choosing it in the
+  reply's words, rather than in structured output, keeps the reply streaming as it's written:
+  Claude Code's `--json-schema` sends the reply as a forced tool call at the end, after any other
+  tool call, so the voice couldn't start on its first sentence, and runs one more model turn
+  after it (tried with Claude Code 2.1.319). On your 98 turns of 2026-11-06, Opus chose 3 s 15
+  times, 4 s 22 times, 5 s 3 times, 8 s twice and 30 s once; on the 23 unfinished turns you went
+  on from, its wait was never shorter than you took (0.2 to 3.5 s), and the 7 finished turns it
+  waited on cost 49 s, 30 of them on one where you'd said you'd call back
+  (`tools/turn-replay --waits`).
 - **If you go on before it's spoken,** its reply is stopped where it is and never spoken. Claude
   Code keeps the turn, so your words stay in its session, and your turn goes on.
 
@@ -232,7 +243,7 @@ to anything in the rest. It then does one of three things:
 - **Writes `[continue]`,** if you only showed you're listening, or what you said changes nothing.
   The voice goes back to the start of the sentence it stopped in and plays on, as it was, and what
   it held goes as you hear it announced.
-- **Writes `[wait]`,** if you're going on.
+- **Writes `[wait N]`,** if you're going on.
 
 Two cases don't need the model, so the voice goes on at once: a stop with no words, as with a
 cough, and a bare "mm-hmm", "yeah" or "okay" before you've heard a question in that reply. A
@@ -980,9 +991,10 @@ with a certificate, or a private certificate authority installed on each device 
   unknown. The connection check is there for this.
 - **Opus unavailable** leaves the voice silent, with no way back.
 - **The voice can wait when you've finished.** The model waited on about 9 of 48 finished turns,
-  in a replay (`tools/turn-replay`), and each then takes 3 s more. It's tuned on those same turns,
-  and from one speaker. A model the app still lists after it's retired could leave a call silent
-  until the list next refreshes (not tried).
+  in a replay (`tools/turn-replay`), and each then takes the seconds it chose more: 3 or 4 s on
+  most, and in a replay where Opus chose them, 30 s once, where you'd said you'd call back. It's
+  tuned on those same turns, and from one speaker. A model the app still lists after it's
+  retired could leave a call silent until the list next refreshes (not tried).
 - **A crash mid-call** may leave that call's Claude Code session under `~/.claude/projects`
   (not checked).
 - **Several speech nodes aren't balanced:** a call goes to any one of them, and for a call
@@ -1092,10 +1104,12 @@ how things look):
 - calling a waiting call now;
 - a held call's question sent to the Claude app;
 - the voice leaving out a sentence that names a tool;
-- the model deciding when you've finished, with `[wait]` and its 3 s limit, and a reply you speak
-  over kept and carried on from the start of its sentence, or dropped for a new one (the agent's
-  tests, `tools/hub-check`, `check.sh` on the GPU, `tools/line-check` with the real model and node
-  and a Kokoro voice for yours, and a replay of real turns; on no call with a person yet);
+- the model deciding when you've finished, with `[wait N]` for the seconds it chooses, kept from 2
+  to 60 (built on 2026-11-08: the agent's tests, `tools/hub-check` and a replay of real turns, not
+  `tools/line-check` yet), and a reply you speak over kept and carried on from the start of its
+  sentence, or dropped for a new one (the agent's tests, `tools/hub-check`, `check.sh` on the GPU,
+  `tools/line-check` with the real model and node and a Kokoro voice for yours, and a replay of
+  real turns); on no call with a person yet;
 - the model for conversation: the agent asking Claude Code, the hub keeping the lists and the
   choice, and the app's sheet (the agent's and hub's tests, `tools/app-screens`);
 - the voice as Qwen3-TTS in Hadley's voice, a whole reply in one take: its words, speed and
@@ -1223,6 +1237,8 @@ host unable to read their calls.
 - [ ] **At least 60 s between calls** (At least a minute between calls): once a call you were on
   ends, a session's next call waits a minute; not calls you make yourself. Built; left: trying
   it on the phone.
+- [ ] **The model choosing how long to wait** (Whose turn it is): `[wait N]`, from 2 to 60 s, in
+  place of a fixed 3 s. Built; left: trying it on a call.
 - [ ] **What a session showed you, during a call:** the call screen can't be left, so nothing
   shown can be opened until you hang up.
 - [ ] **Sending text or a link to the phone,** which `show` can't: it takes files.

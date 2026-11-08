@@ -31,3 +31,17 @@ for (model, hint), rows in sorted(runs.items(), key=str):
             print(f"    stalled: {r['text'][:66]!r}")
     for r in spoke(unfinished):
         print(f"    {r['decision'].lower():8} on unfinished: p={r['p']:.2f} {r['text'][:60]!r}")
+    timed = [r for r in rows if "wait" in r]
+    if not timed:
+        continue
+    # With --waits: how long it chose, against how long you took to go on, where you did. The voice
+    # answers once the wait is up, so a wait shorter than you took would have answered too soon.
+    went = [r for r in unfinished if "wait" in r and r.get("gap") is not None]
+    short_waits = [r for r in went if r["wait"] < r["gap"]]
+    print(f"    waits chosen: {sorted(collections.Counter(r['wait'] for r in timed).items())}")
+    print(f"    unfinished turns waited on where you went on: {len(went)}, the wait shorter than you took on "
+          f"{len(short_waits)}; you took {sorted(r['gap'] for r in went)} s")
+    for r in short_waits:
+        print(f"        waited {r['wait']:g} s, you took {r['gap']:g} s: {r['text'][:60]!r}")
+    stalls = [r["wait"] for r in finished if "wait" in r]
+    print(f"    stalls on finished turns: {len(stalls)}, {sum(stalls):g} s in all, longest {max(stalls, default=0):g} s")

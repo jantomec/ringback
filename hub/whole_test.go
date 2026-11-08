@@ -67,7 +67,7 @@ func TestWholeRepliesGoInOneTake(t *testing.T) {
 	if text := spoken(got); text != "" {
 		t.Fatalf("spoken before the reply was all written: %q", text)
 	}
-	c.written(1, false)
+	c.written(1, 0)
 	if text := spoken(got); text != "The first sentence. And the second one." {
 		t.Fatalf("spoken %q, want the whole reply at once", text)
 	}
@@ -96,7 +96,7 @@ func TestBreakSpeaksTheBlockNow(t *testing.T) {
 		t.Fatalf("spoken %q at the break, want the words before it", text)
 	}
 	c.write(1, " It's done.")
-	c.written(1, false)
+	c.written(1, 0)
 	if text := spoken(got); text != "It's done." {
 		t.Fatalf("spoken %q after the break, want the rest as its own take", text)
 	}

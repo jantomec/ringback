@@ -143,8 +143,14 @@ func fromAgent(l *link, message map[string]any) {
 				c.breakReply(n)
 			}
 		case "said":
-			waiting, _ := message["waiting"].(bool)
-			c.written(n, waiting)
+			var wait time.Duration
+			if waiting, _ := message["waiting"].(bool); waiting {
+				wait = waitBare
+				if seconds, ok := message["wait"].(float64); ok && seconds > 0 {
+					wait = time.Duration(seconds * float64(time.Second))
+				}
+			}
+			c.written(n, wait)
 		case "resume":
 			c.resume(n)
 		case "hang_up":

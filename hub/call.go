@@ -25,9 +25,10 @@ const lead = time.Second
 // it tells the agent (`quiet`): an answer it asked for may have gone unheard.
 const quietAfter = 8 * time.Second
 
-// waitLimit is how long the model's wait lasts, once it has chosen to wait for you to go on and
-// you haven't: then the agent is told (`quiet`, `waited`), and the model answers what you said.
-var waitLimit = envSeconds("RINGBACK_WAIT_LIMIT", 3)
+// waitBare is how long the model's wait lasts, once it has chosen to wait for you to go on and
+// you haven't, if its agent doesn't say how long (the agent keeps the model's choice within
+// its limits): then the agent is told (`quiet`, `waited`), and the model answers what you said.
+const waitBare = 3 * time.Second
 
 // hangUpAfter is how long the hub waits, once the voice has ended the call and its audio has
 // played, before it hangs up: the phone's own buffer still holds the last of it.
@@ -498,10 +499,9 @@ func (c *Call) quiet(since int) {
 	}
 }
 
-// waited tells the agent, once, that you haven't gone on within waitLimit of the model choosing
-// to wait.
-func (c *Call) waited(since int) {
-	time.Sleep(waitLimit)
+// waited tells the agent, once, that you haven't gone on within the wait the model chose.
+func (c *Call) waited(since int, wait time.Duration) {
+	time.Sleep(wait)
 	c.mu.Lock()
 	still := !c.ended && !c.userSpeaking && c.quietSince == since
 	c.mu.Unlock()
@@ -551,8 +551,9 @@ func (c *Call) breakReply(n int) {
 	c.breakNow = false
 }
 
-// written: reply n is complete. waiting: it said nothing, as the model waits for you to go on.
-func (c *Call) written(n int, waiting bool) {
+// written: reply n is complete. wait: it said nothing, as the model waits this long for you to
+// go on (0 if it doesn't).
+func (c *Call) written(n int, wait time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.ended || n <= c.cut {
@@ -563,9 +564,9 @@ func (c *Call) written(n int, waiting bool) {
 		// Nothing of it was written: the voice is idle once what it says now has played.
 		c.idleSent = false
 		c.checkIdle()
-		if waiting {
+		if wait > 0 {
 			c.quietSince++
-			go c.waited(c.quietSince)
+			go c.waited(c.quietSince, wait)
 		}
 		return
 	}

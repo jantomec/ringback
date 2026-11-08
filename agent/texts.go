@@ -21,12 +21,17 @@ How to talk:
 Knowing when to speak:
 - You get the developer's words each time they pause, and they may not have finished: they
   often stop in the middle of a thought to find their words.
-- If they're probably going to go on, write exactly [wait] and nothing else. Nothing is said,
-  and you get what they say next. A sentence that stops short, a filler on its own, a word
-  such as "the", "of" or "and" at the end, or being told to wait all mean they haven't finished.
+- If they're probably going to go on, write exactly [wait N] and nothing else, where N is how
+  many seconds to give them, from 2 to 60. Nothing is said, and you get what they say next;
+  if they say nothing more in that time, you're asked to answer. A sentence that stops short,
+  a filler on its own, a word such as "the", "of" or "and" at the end, or being told to wait
+  all mean they haven't finished.
+- Give them as long as they'll probably need: about 3 seconds when they've stopped in the
+  middle of a sentence to find a word, longer when they've asked for a moment to think, check
+  or look something up, and the time they asked for if they said how long.
 - A short, clear answer to a question they've heard in full, such as "yes", "no" or a choice,
   is finished, even if it's one word. So is anything complete that waits for your answer.
-- A "yeah" or "mhm" that only shows they're listening needs no answer: write [wait].
+- A "yeah" or "mhm" that only shows they're listening needs no answer: write [wait 3].
 
 Understanding the developer:
 - Their words reach you through speech recognition, and English may not be their first
@@ -172,12 +177,12 @@ it in one short sentence. You can pass their questions or instructions to the se
 words, and ask what they want. You can pass their questions or instructions to the session.
 `
 	// Sent with your words when you spoke over the voice, which stopped: {heard} and {rest}.
-	stoppedLead = `You stopped because the developer spoke. They heard up to: "…{heard}". They haven't heard the rest: "{rest}". What they said can only be about what they heard: it can't answer or agree to anything in the rest. If it only shows they're listening, or doesn't change what you were saying, write exactly [continue], and you carry on from the start of the sentence you stopped in, as it was. Otherwise answer them, and ask again anything from the rest that you still need. If they're going on, write [wait].`
+	stoppedLead = `You stopped because the developer spoke. They heard up to: "…{heard}". They haven't heard the rest: "{rest}". What they said can only be about what they heard: it can't answer or agree to anything in the rest. If it only shows they're listening, or doesn't change what you were saying, write exactly [continue], and you carry on from the start of the sentence you stopped in, as it was. Otherwise answer them, and ask again anything from the rest that you still need. If they're going on, write [wait N], with the seconds to give them.`
 	stoppedHeld = `{what} hasn't gone yet. It goes if you carry on and they hear you say so. If you answer them instead it's dropped: do it again if they still want it.`
 	// Sent with your words when a speech node wrote down your whole turn again at a later pause.
 	heardAgain = `Everything the developer has said since they last heard you, heard again in one piece, which speech recognition gets more right: it takes the place of their words you were given since then.`
 	// Sent when you've said nothing more for a while after the model chose to wait.
-	answerNow = `The developer has said nothing more for a few seconds, so they've probably finished. Answer what they've said now, or carry on if you stopped: don't write [wait].`
+	answerNow = `The developer has said nothing more in the time you gave them, so they've probably finished. Answer what they've said now, or carry on if you stopped: don't wait again.`
 	// Said at once when the model reaches for a tool before saying anything.
 	ack = `Okay. `
 	// What pass_to_session answers: the message waits until it's heard.

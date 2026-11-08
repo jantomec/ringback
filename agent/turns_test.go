@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,14 +31,14 @@ func TestModelWaitsForYou(t *testing.T) {
 	hub := newFakeHub(t)
 	a := startAgent(t, hub, "")
 	callID := onCall(t, a, "w1-session",
-		fakeReply{Match: "some kind of", Steps: []fakeStep{say("[wait]")}},
+		fakeReply{Match: "some kind of", Steps: []fakeStep{say("[wait 12]")}},
 		fakeReply{Match: answerNow, Steps: []fakeStep{say("Some kind of what?")}},
 		fakeReply{Match: "instructions", Steps: []fakeStep{say("Got it, instructions.")}},
 	)
 	from := hub.mark()
 	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "There should be some kind of"})
 	said, _ := hub.wait(from, 5*time.Second, isType("said", 2))
-	check(t, "the model waits, and the hub is told", said != nil && said["waiting"] == true, said)
+	check(t, "the model waits, and the hub is told how long", said != nil && said["waiting"] == true && said["wait"] == 12.0, said)
 	check(t, "nothing is said", hub.count(isType("say", 2)) == 0)
 
 	// You go on: your words go, and the model has the earlier ones already.
@@ -63,7 +64,7 @@ func TestNotesWaitWhileTheModelWaits(t *testing.T) {
 		fakeReply{Match: "some kind of", Steps: []fakeStep{say("[wait]")}},
 	)
 	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "There should be some kind of"})
-	a.waitLog("waits for you to go on", 5*time.Second)
+	a.waitLog("waits 3 s for you to go on", 5*time.Second)
 	hub.send(map[string]any{"type": "idle", "call_id": callID})
 	if status, _ := a.mod("POST", "/sessions/w2-session/permissions", map[string]any{"tool": "Write", "project": "demo", "cwd": a.project()}); status != 200 {
 		t.Fatalf("the permission wasn't taken: %d", status)
@@ -253,4 +254,32 @@ func TestWholeTurnWhileTheModelWrites(t *testing.T) {
 	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "Tell me about the plan for today.", "again": true})
 	got := a.waitTurn(3, 5*time.Second)
 	check(t, "the latest whole turn goes once", got == "["+heardAgain+"]\nTell me about the plan for today.", got)
+}
+
+// The model's wait is as long as it says, within the limits whatever it writes, and a wait that
+// doesn't say how long is 3 s. Anything else isn't a wait.
+func TestWaitLimits(t *testing.T) {
+	for reply, want := range map[string]time.Duration{
+		"[wait]": 3 * time.Second, "[wait 12]": 12 * time.Second, "[Wait 4.5]": 4500 * time.Millisecond,
+		"[wait 30 seconds]": 30 * time.Second, "[wait 8s]": 8 * time.Second, " [wait 20]. ": 20 * time.Second,
+		"[wait 1]": waitLeast, "[wait 0]": waitLeast, "[wait 90]": waitMost, "[wait 100000]": waitMost,
+	} {
+		m := markerOnly.FindStringSubmatch(reply)
+		if m == nil || strings.ToLower(m[1]) != "wait" {
+			t.Errorf("%q: not taken as a wait", reply)
+			continue
+		}
+		if got := waitFor(m[2]); got != want {
+			t.Errorf("%q: waits %v, want %v", reply, got, want)
+		}
+	}
+	for _, reply := range []string{"[wait a moment]", "[wait -5]", "Sure. [wait 5]", "[wait 5] Sure."} {
+		if markerOnly.MatchString(reply) {
+			t.Errorf("%q: taken as only a wait", reply)
+		}
+	}
+	if got := strayMarker.ReplaceAllString("Sure. [wait 5] Go on.", ""); got != "Sure. Go on." {
+		t.Errorf("a stray wait is left in what's said: %q", got)
+	}
+	check(t, "the model is told the limits", strings.Contains(rules, fmt.Sprintf("from %d to %d", int(waitLeast.Seconds()), int(waitMost.Seconds()))))
 }

@@ -177,6 +177,7 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 - [ ] The call history in iCloud
 - [ ] Ending a call by voice: built, to try on a call
 - [ ] At least 60 s between calls: built, to try on the phone
+- [ ] The model choosing how long to wait for you, 2 to 60 s: built, to try on a call
 - [ ] Opening what a session showed you during a call
 - [ ] Sending text or a link to the phone
 - [ ] The caller's name from where the session started and its title: built, to try on the phone
