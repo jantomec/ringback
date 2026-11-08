@@ -71,8 +71,9 @@ speaking, both with the same number. Binary frames carry audio: 4 bytes of strea
 (big-endian), then for hearing the samples, for speaking 4 more bytes of piece number
 (big-endian) and then the samples. Samples are signed 16-bit little-endian, mono.
 
-Hello: `{"type": "hello", "version": 1, "name": "…", "hearing": true, "speaking": true, "whole_replies": true}`
-(`whole_replies`: its voice speaks a reply in one take; see Speaking).
+Hello: `{"type": "hello", "version": 1, "name": "…", "hearing": true, "speaking": true, "whole_replies": true, "whole_turns": true}`
+(`whole_replies`: its voice speaks a reply in one take; see Speaking. `whole_turns`: it writes
+down your whole turn at each pause; see Hearing).
 
 | Direction | Message |
 |---|---|
@@ -87,7 +88,8 @@ Hello: `{"type": "hello", "version": 1, "name": "…", "hearing": true, "speakin
 | hub → node | binary: stream 7, then 20 ms of your audio at 16 kHz (320 samples) |
 | node → hub | `{"type": "speech_started", "stream": 7}` when Silero hears you start (the hub interrupts the voice on it) |
 | node → hub | `{"type": "speech_stopped", "stream": 7}` when you pause |
-| node → hub | `{"type": "turn", "stream": 7, "text": "…", "secs": 2.4, "took": 0.05}` at each pause of about 0.7 s, with Parakeet's words since the last, how long you spoke and how long recognition took. Whether you've finished is for the call's model to say |
+| node → hub | `{"type": "turn", "stream": 7, "text": "…", "secs": 2.4, "took": 0.05, "again": true}` at each pause of about 0.7 s, with Parakeet's words, how long you spoke and how long recognition took. Whether you've finished is for the call's model to say. With `whole_turns`, the words are your whole turn, everything since the voice last started speaking, written down at once, and `again` says an earlier `turn` brought its start, so these take the place of its words. Without it, the words since the last `turn` |
+| hub → node | `{"type": "speaking", "stream": 7}` when the voice's audio starts playing, to a node with `whole_turns`: what its last `turn` brought is answered, and your next words start a new turn. Speech since that `turn`, or under way, starts it |
 | hub → node | `{"type": "hear_end", "stream": 7}` closes it |
 
 ### Speaking
@@ -178,7 +180,7 @@ written can be told from the next.
 | agent → hub | `{"type": "said", "call_id", "reply": 3}` at the end of a reply; a reply with nothing to say (only a tool call) is just this, and the hub says `idle` once the voice is. `"waiting": true`: the model chose to wait for you to go on (`[wait]`), so nothing was said, and the hub starts the limit on that wait |
 | hub → agent | `{"type": "heard", "call_id", "reply": 3, "text": "…"}` as reply 3 plays: everything of the current reply you've heard so far (for what's held until you've heard it announced) |
 | hub → agent | `{"type": "interrupted", "call_id", "reply": 3, "heard": "…", "paused": true}` when you speak over the voice: what you'd heard of reply 3. With `paused`, the hub keeps the rest, playing none of it, until the agent says `resume`, or a new reply takes its place, when the hub tells the node `speak_cancel` and drops whatever more comes of reply 3. Without it (you'd heard none of it, or the phone speaks itself) the rest is never spoken, and the agent stops the model writing it. You also cut off a reply to your turn that hasn't come yet: `reply` is then the next number and `heard` is empty |
-| hub → agent | `{"type": "turn", "call_id", "text": "…", "interrupted": true}`: your words, for the next reply, which the agent starts at once. `interrupted` says you cut the voice off since your last turn (or a reply that hadn't come yet), or it hadn't finished speaking once yet. Empty when a stop held no words the recogniser caught: if it interrupted, the voice carries on (the `noise` prompt in `agent/texts.go`), once in a row; otherwise it goes unanswered, and its reply is just `said` |
+| hub → agent | `{"type": "turn", "call_id", "text": "…", "interrupted": true, "again": true}`: your words, for the next reply, which the agent starts at once. With `again`, they're your whole turn written down again, from a node with `whole_turns`: they take the place of the turn's earlier words, and the model is told so (the `heardAgain` note in `agent/texts.go`); with nothing new in them, they're a stop with no words. `interrupted` says you cut the voice off since your last turn (or a reply that hadn't come yet), or it hadn't finished speaking once yet. Empty when a stop held no words the recogniser caught: if it interrupted, the voice carries on (the `noise` prompt in `agent/texts.go`), once in a row; otherwise it goes unanswered, and its reply is just `said` |
 | hub → agent | `{"type": "speaking", "call_id"}` when the voice's audio starts playing; the first one is the opening, which the session's notes wait for |
 | hub → agent | `{"type": "idle", "call_id"}` when the voice has finished speaking and you aren't speaking. A note from the session (`[The session: …]`, a new ask) waits for it, then runs the next reply |
 | hub → agent | `{"type": "quiet", "call_id", "waited": true}` 3 s after a `said` with `waiting`, if you haven't started speaking since: the model answers now. `{"type": "quiet", "call_id"}` once, 8 s after `idle` if you haven't started speaking since. If the session waits for your answer to something put to you, the voice asks again, once for each (the `reask` note in `agent/texts.go`) |

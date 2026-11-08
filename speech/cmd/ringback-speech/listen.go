@@ -15,7 +15,8 @@ import (
 // listen hears WAV files as a call does (Silero with the background filter, Smart Turn and
 // Parakeet, in 20 ms frames), each file as a call of its own, and prints each event as a JSON
 // line: when you started and stopped speaking, a stretch not taken for speech, and each turn
-// with its words. Each stretch is transcribed as soon as it ends, as on an idle GPU. Two
+// with its words. Each turn is written down as soon as you stop, as on an idle GPU, and taken
+// as answered, as if the voice spoke after each, so a file's turns don't run together. Two
 // seconds of silence follow each file, so the turn wait can end its last turn.
 func listen(c config, args []string) {
 	sensitivity, gate := hearing.DefaultSensitivity, hearing.DefaultGate
@@ -66,6 +67,10 @@ func listen(c config, args []string) {
 				text := m.asr.Transcribe(q.audio)
 				s.Transcribed(q.id, text, time.Since(t).Seconds())
 			}
+			if l.answered {
+				l.answered = false
+				s.VoiceSpeaking()
+			}
 			if err := s.Err(); err != nil {
 				fail(err.Error())
 			}
@@ -75,9 +80,10 @@ func listen(c config, args []string) {
 
 // listener prints a stream's events, at their time in the file.
 type listener struct {
-	file  string
-	at    float64
-	queue []struct {
+	file     string
+	at       float64
+	answered bool // a turn was given since the voice last spoke
+	queue    []struct {
 		id    int
 		audio []float32
 	}
@@ -92,8 +98,9 @@ func (l *listener) say(m map[string]any) {
 func (l *listener) SpeechStarted() { l.say(map[string]any{"event": "started"}) }
 func (l *listener) SpeechStopped() { l.say(map[string]any{"event": "stopped"}) }
 
-func (l *listener) Turn(text string, secs, took float64) {
+func (l *listener) Turn(text string, secs, took float64, _ bool) {
 	l.say(map[string]any{"event": "turn", "text": text, "secs": round3(secs)})
+	l.answered = true
 }
 
 func (l *listener) Transcribe(id int, samples []float32) {

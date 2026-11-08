@@ -367,9 +367,11 @@ func (c *Call) play() {
 			p.start = t
 		}
 		var events []map[string]any
+		toNode := false
 		if !c.playing {
 			c.playing, c.idleSent = true, false
 			events = append(events, map[string]any{"type": "speaking", "call_id": c.id})
+			toNode = c.node != nil && c.node.wholeTurns
 			if !c.voiceStarted {
 				c.voiceStarted = true
 				c.say(fmt.Sprintf("voice started %.2f s after you answered", t.Sub(c.answeredAt).Seconds()))
@@ -383,6 +385,10 @@ func (c *Call) play() {
 			}
 		}
 		c.mu.Unlock()
+		if toNode {
+			// Your turn so far is answered: what you say next starts a new one.
+			_ = c.node.send(map[string]any{"type": "speaking", "stream": c.stream})
+		}
 		for _, e := range events {
 			_ = c.agent.send(e)
 		}
@@ -764,8 +770,9 @@ func (c *Call) speechStopped() {
 	c.mu.Unlock()
 }
 
-// turn: you've finished, and these are your words for the next reply.
-func (c *Call) turn(text string, secs, took float64) {
+// turn: you've paused, and these are your words for the next reply. again: they're the whole
+// turn, written down again, so they take the place of the words the last turn brought.
+func (c *Call) turn(text string, secs, took float64, again bool) {
 	c.mu.Lock()
 	c.userSpeaking, c.idleSent, c.awaiting = false, false, true
 	// Interrupted: you cut the voice off, or a reply it was thinking of, or it hadn't
@@ -777,8 +784,16 @@ func (c *Call) turn(text string, secs, took float64) {
 	if ended {
 		return
 	}
-	c.say(fmt.Sprintf("you (%.1f s, heard in %.2f s): %q", secs, took, text))
-	_ = c.agent.send(map[string]any{"type": "turn", "call_id": c.id, "text": text, "interrupted": interrupted})
+	whole := ""
+	if again {
+		whole = " (the whole turn again)"
+	}
+	c.say(fmt.Sprintf("you (%.1f s, heard in %.2f s): %q%s", secs, took, text, whole))
+	message := map[string]any{"type": "turn", "call_id": c.id, "text": text, "interrupted": interrupted}
+	if again {
+		message["again"] = true
+	}
+	_ = c.agent.send(message)
 }
 
 // end: the call is over, or replaced by a new offer for it. Unless replaced, the agent hears

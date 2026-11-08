@@ -64,8 +64,9 @@ def read_speech(path):
         you = re.match(r'you \(([\d.]+) s, heard in [\d.]+ s; Smart Turn ([\d.]+) in [\d.]+ s\): "(.*)"', rest)
         voice = re.match(r'voice piece \d+ \([^)]*\): "(.*)"', rest)
         if you:
+            # A node that writes down whole turns marks a turn that takes the place of the last.
             events.append({"t": t, "stream": stream, "kind": "you", "spoke": float(you[1]),
-                           "p": float(you[2]), "text": you[3]})
+                           "p": float(you[2]), "text": you[3], "again": rest.endswith("(the whole turn again)")})
         elif voice:
             events.append({"t": t, "stream": stream, "kind": "voice", "text": voice[1]})
     return events
@@ -127,12 +128,16 @@ def cases(streams, replies, context=10):
     out = []
     for stream, events in sorted(streams.items()):
         said, pieces, cut, yous = [], [], None, [e for e in events if e["kind"] == "you"]
+        mine = 0  # the lines of said that are your turn's words so far
         for e in events:
             if e["kind"] == "voice":
                 pieces.append(e["text"])
             elif e["kind"] == "cut":
                 cut = e
             elif e["kind"] == "you":
+                if e["again"] and mine and not pieces and cut is None:
+                    del said[-mine:]  # the whole turn, written down again, takes their place
+                    mine = 0
                 heard, unheard, reply = "", "", ""
                 if pieces:
                     reply = full_reply(pieces, replies)
@@ -159,7 +164,9 @@ def cases(streams, replies, context=10):
                                       + f'\n\nThe developer\'s words just now: "{e["text"]}"' + now})
                 if heard:
                     said.append("Voice: " + heard + (" (cut off here)" if cut is not None else ""))
+                    mine = 0
                 said.append("Developer: " + e["text"])
+                mine += 1
                 pieces, cut = [], None
     return out
 

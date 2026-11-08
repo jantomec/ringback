@@ -120,11 +120,12 @@ builds on Linux too, but has no service there yet.
    on the app's banner. If you hang up first, it still says why.
 4. **Answering.** The app tells the hub (`/answered`), and the voice speaks its opening.
 5. **Hearing you.** The hub decodes your audio and sends it to the speech node at 16 kHz.
-   Silero says when you start and stop speaking; Parakeet writes down what you said, and when
-   it writes nothing for a stretch of speech, writes it down once more from just before it began
-   (it misses a short "Yes." with a second of audio before it). At every pause of about 0.7 s,
-   your words go to the hub: whether you've finished is for the model to say. Smart Turn still
-   scores each turn, for the log.
+   Silero says when you start and stop speaking. Each time you stop, Parakeet writes down your
+   whole turn so far, everything you've said since the voice last started speaking, and when it
+   writes nothing, writes it down once more from just before you began (it misses a short "Yes."
+   with a second of audio before it). At every pause of about 0.7 s, those words go to the hub:
+   whether you've finished is for the model to say. Smart Turn still scores each turn, for the
+   log.
 6. **The reply.** The hub gives your words to the agent, and the model answers in a Claude Code
    session that stays open for the whole call, so each turn sends only what's new, or writes
    `[wait]` if you're going on (Whose turn it is, below). Its first words come about 0.9 s after
@@ -195,11 +196,22 @@ the words on 41 (`tools/turn-replay`). At each pause the model gets your words s
 
 - **It answers,** if you've said what you wanted to. A short, clear answer to a question you've
   heard is finished, even one word.
-- **Or it writes `[wait]`,** and nothing is said. What you say next goes as the next turn, and
-  the earlier words are in its session already. A session's note waits meanwhile, so the voice
-  doesn't talk over your thinking. If you've said nothing 3 s later, it's told so and answers.
+- **Or it writes `[wait]`,** and nothing is said. At your next pause it gets your whole turn
+  again, written down in one piece with what you've added, and is told it takes the place of the
+  words it had. A session's note waits meanwhile, so the voice doesn't talk over your thinking.
+  If you've said nothing 3 s later, it's told so and answers.
 - **If you go on before it's spoken,** its reply is stopped where it is and never spoken. Claude
-  Code keeps the turn, so your words stay in its session.
+  Code keeps the turn, so your words stay in its session, and your turn goes on.
+
+Your turn ends when the voice starts speaking: the hub tells the speech node, and what you say
+from then on, over the voice or after it, is a new turn. Until then Parakeet writes down the
+whole turn again at each stop, because it gets far fewer words wrong in a whole turn than in the
+stretches between pauses of 0.2 s: on your recordings, 20 of 519 words in turns of about 30 s
+against 44, and a word misheard at the first pause can come out right at the next
+(`tools/stt-trial`). A turn of 45 s takes at most 0.36 s to write down, with the voice speaking,
+inside the 0.5 s before the turn wait ends; a turn over a minute keeps what its last pause heard,
+and only what came since is written down again. A pause that brings nothing new, as a cough,
+counts as a stop with no words.
 
 Turns are asked about at 0.7 s of pause: sooner would ask in the middle of more sentences, and
 later holds up every reply. So the voice's first words come about 0.7 s plus the model's time
@@ -787,9 +799,9 @@ with a certificate, or a private certificate authority installed on each device 
   slower, and invented words on short clips. Apple's on-device recognition got 10.3% wrong on that
   comparison and takes no vocabulary, so it's the fallback only. A bigger gain than any model may
   be how speech is cut: on free speech Parakeet made 44 errors cut stretch by stretch, as a call
-  does, and 20 with each turn of about 30 s written down at once (`tools/stt-trial`, `turns.py`);
+  did, and 20 with each turn of about 30 s written down at once (`tools/stt-trial`, `turns.py`);
   a turn of 45 s takes 0.13–0.36 s to write down, with the voice speaking or not, inside the
-  0.5 s it has.
+  0.5 s it has. So a call writes down your whole turn (Whose turn it is).
 - **Qwen3-TTS 1.7B Base for the voice, in Phonon's Hadley voice,** a whole reply in one take
   (`tools/tts-trial`). Picked by ear: a blind test of six voices, then long stretches, where
   Hadley sounded best and pieces joined audibly. A take had to keep its words: Ming-3.0-tts-0.5B,
@@ -1050,6 +1062,10 @@ how things look):
   call (`tools/line-check`: the voice answered 2.6–3.6 s after you stopped, with the model's
   first words taking 2.0–3.1 s that day), and going on after its server is killed or frozen
   partway through a reply (`check.sh`); not on the phone yet;
+- your whole turn written down again at each pause until the voice speaks, and the model told it
+  takes the place of the words it had (the hearing and agent tests, `tools/hub-check`, `check.sh`
+  on the GPU, and a whole call in `tools/line-check`, where a sentence paused for 2.2 s reached
+  the model whole); not on the phone yet;
 - the hub serving HTTPS and WSS (`[tls]`), renewed without a restart, and the agent and the
   speech node linking to it; the app's side isn't tried at all;
 - Macs and speech nodes pairing and linking with their own keys (a Mac's agent paired with
@@ -1162,5 +1178,5 @@ host unable to read their calls.
   current folder now, so a session that moved rings as "data", and its transcript goes there too.
 - [ ] **Better speech models:** five rivals to each model were tried on the speech node
   (`tools/stt-trial`, `tools/tts-trial`). Parakeet v2 stays, and the voice is now Qwen3-TTS in
-  Hadley's voice, a whole reply in one take. Left: trying the voice on a call, writing down a
-  whole turn at once, and a test on your own technical words.
+  Hadley's voice, a whole reply in one take, and your whole turn is written down at once. Left:
+  trying both on a call, and a test on your own technical words.

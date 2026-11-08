@@ -158,6 +158,8 @@ words, and ask what they want. You can pass their questions or instructions to t
 	// Sent with your words when you spoke over the voice, which stopped: {heard} and {rest}.
 	stoppedLead = `You stopped because the developer spoke. They heard up to: "…{heard}". They haven't heard the rest: "{rest}". What they said can only be about what they heard: it can't answer or agree to anything in the rest. If it only shows they're listening, or doesn't change what you were saying, write exactly [continue], and you carry on from the start of the sentence you stopped in, as it was. Otherwise answer them, and ask again anything from the rest that you still need. If they're going on, write [wait].`
 	stoppedHeld = `{what} hasn't gone yet. It goes if you carry on and they hear you say so. If you answer them instead it's dropped: do it again if they still want it.`
+	// Sent with your words when a speech node wrote down your whole turn again at a later pause.
+	heardAgain = `Everything the developer has said since they last heard you, heard again in one piece, which speech recognition gets more right: it takes the place of their words you were given since then.`
 	// Sent when you've said nothing more for a while after the model chose to wait.
 	answerNow = `The developer has said nothing more for a few seconds, so they've probably finished. Answer what they've said now, or carry on if you stopped: don't write [wait].`
 	// Said at once when the model reaches for a tool before saying anything.

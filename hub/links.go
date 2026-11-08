@@ -37,6 +37,9 @@ type link struct {
 	// wholeReplies: a speech node whose voice speaks a reply in one take, so it gets each
 	// reply once it's all written, not a sentence at a time (its hello says so).
 	wholeReplies bool
+	// wholeTurns: a speech node that writes down your whole turn at each pause, so it's told
+	// when the voice starts speaking (`speaking`), which ends your turn (its hello says so).
+	wholeTurns bool
 	// A speech node's models: whether they're loaded, as it last said (`models`), and when.
 	modelsMu sync.Mutex
 	loaded   bool
@@ -140,6 +143,7 @@ func acceptLink(w http.ResponseWriter, r *http.Request, kind string, opened func
 	}
 	l.name = orDefault(str(hello, "name"), kind)
 	l.wholeReplies = hello["whole_replies"] == true
+	l.wholeTurns = hello["whole_turns"] == true
 	if byKey {
 		l.name, l.byKey = paired, true
 	}

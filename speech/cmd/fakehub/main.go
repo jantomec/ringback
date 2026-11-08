@@ -254,8 +254,8 @@ func (h *hub) welcome() bool {
 	}
 	var hello map[string]any
 	json.Unmarshal(data, &hello)
-	h.check(hello["type"] == "hello" && num(hello["version"]) == 1 && hello["hearing"] == true && hello["speaking"] == true,
-		"hello: %s", data)
+	h.check(hello["type"] == "hello" && num(hello["version"]) == 1 && hello["hearing"] == true && hello["speaking"] == true &&
+		hello["whole_turns"] == true, "hello: %s", data)
 	h.whole = hello["whole_replies"] == true
 	h.send(map[string]any{"type": "welcome", "version": 1})
 	go h.read()
@@ -655,6 +655,13 @@ type hearCase struct {
 	minTurns, maxTurns int
 	words              [][]string
 	cutOff             bool // the audio stops in the middle of the speech, as if the phone had gone
+	// The node writes down your whole turn at each pause, until the voice speaks: the hub says
+	// it has (`speaking`) once the first turn has come, and the last turn holds these words and
+	// not those, and is marked as the whole turn again or not.
+	voiceAfterFirst bool
+	last            [][]string
+	notLast         []string
+	again           bool
 }
 
 func (h *hub) hearing(clips [][]int16, recording []int16) {
@@ -676,7 +683,8 @@ func (h *hub) hearing(clips [][]int16, recording []int16) {
 	}
 	// Made by the node itself: a turn that stops short, which ends after the turn wait as any
 	// does; the same followed by the rest of it after a pause shorter than the wait, which is
-	// one turn with the words of both; and after a longer pause, which is two.
+	// one turn with the words of both; and after a longer pause, which is two, the second the
+	// whole turn again, unless the voice spoke between them.
 	unfinished := h.say("So the next thing I want to do is")
 	cases = append(cases,
 		hearCase{name: "an unfinished turn", speech: [][]int16{unfinished}, sensitivity: 0.5, gate: 0.5, minTurns: 1, maxTurns: 1,
@@ -684,7 +692,11 @@ func (h *hub) hearing(clips [][]int16, recording []int16) {
 		hearCase{name: "a turn with a 0.4 s pause", speech: [][]int16{unfinished, h.say("merge the branch into main.")}, pause: 0.4,
 			sensitivity: 0.5, gate: 0.5, minTurns: 1, maxTurns: 1, words: [][]string{{"next"}, {"merge"}, {"main"}}},
 		hearCase{name: "two turns, with a 1.2 s pause", speech: [][]int16{unfinished, h.say("merge the branch into main.")}, pause: 1.2,
-			sensitivity: 0.5, gate: 0.5, minTurns: 2, maxTurns: 2, words: [][]string{{"next"}, {"merge"}, {"main"}}},
+			sensitivity: 0.5, gate: 0.5, minTurns: 2, maxTurns: 2, words: [][]string{{"next"}, {"merge"}, {"main"}},
+			last: [][]string{{"next"}, {"merge"}, {"main"}}, again: true},
+		hearCase{name: "two turns, the voice speaking between", speech: [][]int16{unfinished, h.say("merge the branch into main.")},
+			pause: 1.2, sensitivity: 0.5, gate: 0.5, minTurns: 2, maxTurns: 2, words: [][]string{{"next"}, {"merge"}, {"main"}},
+			voiceAfterFirst: true, last: [][]string{{"merge"}, {"main"}}, notLast: []string{"next"}},
 		hearCase{name: "silence", sensitivity: 0.5, gate: 0.5},
 		hearCase{name: "audio that stops mid-speech (stopped after 1 s without audio)", speech: [][]int16{unfinished[:len(unfinished)/2]},
 			sensitivity: 0.5, gate: 0.5, maxTurns: 1, cutOff: true})
@@ -755,9 +767,18 @@ func (h *hub) hearOne(stream uint32, c hearCase) (float64, float64) {
 
 	start := time.Now()
 	var ended time.Time
+	voiced := false
 	for i := 0; i+frame <= len(audio); i += frame {
 		time.Sleep(time.Until(start.Add(time.Duration(i) * time.Second / hearRate)))
 		h.sendAudio(stream, audio[i:i+frame])
+		if c.voiceAfterFirst && !voiced {
+			h.mu.Lock()
+			voiced = len(h.eventsOf(stream, "turn")) > 0
+			h.mu.Unlock()
+			if voiced {
+				h.send(map[string]any{"type": "speaking", "stream": stream})
+			}
+		}
 		if i < speechEnd && (i+frame >= speechEnd || i+2*frame > len(audio)) {
 			ended = time.Now() // the frame with the speech's end, or the last one sent
 		}
@@ -790,7 +811,21 @@ func (h *hub) hearOne(stream uint32, c hearCase) (float64, float64) {
 		"%s: %d started, %d stopped, %d turns (want %d to %d); stopped %.0f ms and turn %.0f ms after the speech ended: %q%s",
 		c.name, len(started), len(stopped), len(turns), c.minTurns, c.maxTurns, stopLatency, latency, text, describeMissing(missing))
 	for _, t := range turns {
-		fmt.Printf("      turn: secs %.2f, took %.3f\n", num(t.msg["secs"]), num(t.msg["took"]))
+		fmt.Printf("      turn: secs %.2f, took %.3f, again %v\n", num(t.msg["secs"]), num(t.msg["took"]), t.msg["again"] == true)
+	}
+	if c.last != nil && len(turns) > 0 {
+		last := turns[len(turns)-1]
+		s, _ := last.msg["text"].(string)
+		missing := missingWords(s, c.last)
+		var extra []string
+		for _, w := range c.notLast {
+			if len(missingWords(s, [][]string{{w}})) == 0 {
+				extra = append(extra, w)
+			}
+		}
+		h.check(len(missing) == 0 && len(extra) == 0 && (last.msg["again"] == true) == c.again && (!c.voiceAfterFirst || voiced),
+			"%s: the last turn, again %v (want %v), holds the turn since the voice spoke: %q%s%s", c.name,
+			last.msg["again"] == true, c.again, s, describeMissing(missing), describeExtra(extra))
 	}
 	return latency, stopLatency
 }
@@ -810,6 +845,13 @@ func missingWords(text string, want [][]string) []string {
 		}
 	}
 	return missing
+}
+
+func describeExtra(e []string) string {
+	if len(e) == 0 {
+		return ""
+	}
+	return " (holds " + strings.Join(e, ", ") + ")"
 }
 
 func describeMissing(m []string) string {

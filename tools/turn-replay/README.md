@@ -10,6 +10,9 @@ and your words, and answers REPLY, WAIT or CONTINUE. Each turn is asked with and
 Turn's score, which is how much intonation adds (`--hints`: `none`, `score`, or `low`, which says
 only "They sound unfinished." below 0.3). `score.py` compares the answers with labels you make
 by hand, by reading each turn and what you said next: had you more to say on that thought?
+Since 2026-11-08 the node writes down your whole turn again at each pause, until the voice
+speaks, and its log marks such a turn "(the whole turn again)": its words take the place of the
+turn's earlier ones in the conversation, as they do for the call's model.
 
 It needs the speech node's log, the agent's log and the calls' transcripts. They're private, so
 keep them and the results out of this repository:

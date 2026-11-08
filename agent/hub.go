@@ -419,7 +419,8 @@ func (a *agent) handle(m map[string]any) {
 	case "turn":
 		text, _ := m["text"].(string)
 		cut, _ := m["interrupted"].(bool)
-		a.toVoice(id, func(*offer) any { return turnMsg{text, cut} })
+		again, _ := m["again"].(bool)
+		a.toVoice(id, func(*offer) any { return turnMsg{text, cut, again} })
 	case "ended":
 		var lasted *float64
 		if l, ok := m["lasted"].(float64); ok {

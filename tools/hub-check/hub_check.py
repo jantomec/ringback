@@ -47,8 +47,9 @@ def check(name: str, passed: bool) -> None:
 class Link:
     """A WebSocket to the hub, as an agent or a speech node opens it; it keeps every message."""
 
-    def __init__(self, kind: str):
+    def __init__(self, kind: str, **hello):
         self.kind = kind
+        self.hello = hello  # more for its hello
         self.got: list[tuple[float, dict]] = []
         self.audio: list[tuple[float, bytes]] = []
         self.ws = None
@@ -60,7 +61,7 @@ class Link:
         self.ws = await self.session.ws_connect(
             f"http://{HUB}/{self.kind}", headers={"Authorization": f"Bearer {TOKENS[self.kind]}"}
         )
-        await self.ws.send_json({"type": "hello", "version": 1, "name": f"check-{self.kind}"})
+        await self.ws.send_json({"type": "hello", "version": 1, "name": f"check-{self.kind}"} | self.hello)
         welcome = await self.ws.receive_json(timeout=5)
         asyncio.create_task(self._read())
         return welcome
@@ -110,7 +111,7 @@ async def main() -> int:
     log = home / "hub.log"
     hub = subprocess.Popen([*os.environ.get("RINGBACK_HUB_ARCH", "").split(), str(binary), "serve"], env=os.environ | {"HOME": str(home)}, stdout=log.open("w"), stderr=subprocess.STDOUT)
     stand_in_phone.HUB = HUB
-    agent, node = Link("agent"), Link("speech")
+    agent, node = Link("agent"), Link("speech", whole_turns=True)
     try:
         await until(lambda: "hub listening" in log.read_text(), 5)
 
@@ -265,6 +266,9 @@ async def main() -> int:
               len(node.audio) >= 25 and sizes == {4 + 640})  # fmt: skip
         speaking = agent.of("speaking")
         check(f"the agent hears the voice is speaking: {len(speaking)}", len(speaking) >= 1)
+        told = node.of("speaking")
+        check(f"so does the node, which writes down whole turns: {told}",
+              len(told) == len(speaking) and {m.get("stream") for m in told} == {hear[0]["stream"]})  # fmt: skip
         idle_in = await until(lambda: agent.of("idle"), 15)
         heard = [m["text"] for m in agent.of("heard")]
         check(f"what you've heard grows to the whole reply: {heard[-1] if heard else None!r}",
@@ -394,6 +398,15 @@ async def main() -> int:
         waited = time.monotonic() - waited_at
         check(f"the model's wait ends after 3 s without you: {waited:.2f} s, {agent.of('quiet')[1:]}",
               2.9 <= waited < 3.6 and agent.of("quiet")[1].get("waited") is True)  # fmt: skip
+
+        # The node writes down the whole turn again: the agent hears it takes the place of the last.
+        await node.ws.send_json({"type": "turn", "stream": stream, "text": "So the plan is good.", "secs": 1.4, "took": 0.09, "again": True})
+        await until(lambda: len(agent.of("turn")) == 7, 3)
+        agains = [m.get("again") for m in agent.of("turn")]
+        check(f"a turn written down again says so, and only it: {agains}", agains == [None] * 6 + [True])
+        mine = [m for m in agent.of("speaking") if m["call_id"] == call_id]
+        check(f"each time the voice started, the node heard so: {len(node.of('speaking'))} of {len(mine)}",
+              len(node.of("speaking")) == len(mine) >= 3)  # fmt: skip
 
         # Hanging up: the agent hears how long you talked.
         talked = time.monotonic() - t0

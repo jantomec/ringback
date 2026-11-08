@@ -105,7 +105,7 @@ func phoneSpeech(w http.ResponseWriter, r *http.Request) {
 		case "speech_stopped":
 			c.speechStopped()
 		case "turn":
-			c.turn(str(message, "text"), number(message["secs"]), number(message["took"]))
+			c.turn(str(message, "text"), number(message["secs"]), number(message["took"]), false)
 		case "spoken":
 			c.phoneSpoken(int(number(message["piece"])), number(message["secs"]), number(message["took"]))
 		case "playing":

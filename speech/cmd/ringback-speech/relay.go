@@ -101,7 +101,7 @@ func (r *relay) fromHub(kind websocket.MessageType, data []byte) {
 		switch {
 		case m.Type == "warm" || m.Type == "hear" || m.Type == "speak":
 			w = r.start(m.Type)
-		case kind == websocket.MessageBinary || m.Type == "hear_end" || m.Type == "speak_cancel":
+		case kind == websocket.MessageBinary || m.Type == "hear_end" || m.Type == "speak_cancel" || m.Type == "speaking":
 			return // no worker holds that stream: nothing to hear, end or cancel
 		default:
 			logf("unknown message from the hub: %.80q", data)

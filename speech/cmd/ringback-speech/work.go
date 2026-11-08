@@ -135,6 +135,8 @@ func handle(n *node, f frame) {
 		n.hear(m.Stream, setting(m.Sensitivity, hearing.DefaultSensitivity), setting(m.Gate, hearing.DefaultGate))
 	case "hear_end":
 		n.endHearing(m.Stream)
+	case "speaking":
+		n.voiceSpeaking(m.Stream)
 	case "speak":
 		n.speak(m.Stream, m.Piece, m.Text)
 	case "speak_cancel":

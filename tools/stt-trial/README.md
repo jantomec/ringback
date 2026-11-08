@@ -218,7 +218,8 @@ were before the model decided when you'd finished, which may make turns longer).
 **So:** a whole turn at once halves the errors cut as a call (44 to 20 on free speech, 41 to 20
 scripted), more than any model in this trial. Up to 45 s it fits in the 0.5 s it has, even with
 the voice speaking; from about a minute, with the voice speaking, it takes longer than that and
-would hold your words up.
+would hold your words up. Since 2026-11-08 the node writes down whole turns, and keeps what a
+turn over a minute heard at its last pause ("Whose turn it is" in `docs/design.md`).
 
 Not checked: real call audio (these are Voice Memos through Opus, without Bluetooth's narrowband
 path, packet loss, or the phone's own encoder settings), any speaker but one, a technical

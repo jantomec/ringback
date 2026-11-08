@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -197,4 +199,58 @@ func TestYouGoOnWhileTheModelWrites(t *testing.T) {
 		}
 		return false
 	})
+}
+
+// A speech node writes down your whole turn again at each pause: the model, which had the start
+// of it, is told the new words take its place; a pause that brings nothing new is a stop with no
+// words.
+func TestWholeTurnHeardAgain(t *testing.T) {
+	hub := newFakeHub(t)
+	a := startAgent(t, hub, "")
+	callID := onCall(t, a, "h1-session",
+		fakeReply{Match: heardAgain, Steps: []fakeStep{say("Merging it now.")}},
+		fakeReply{Match: "So the next thing", Steps: []fakeStep{say("[wait]")}},
+	)
+	from := hub.mark()
+	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "So the next thing I want is"})
+	hub.wait(from, 5*time.Second, isType("said", 2))
+
+	// A cough: the turn written down again, the same.
+	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": " So the next thing  I want is", "again": true})
+	a.waitLog("a stop with no words, left unanswered", 5*time.Second)
+	check(t, "nothing new goes to the model", len(a.turns()) == 2, a.turns())
+
+	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "So the next thing I want is to merge the branch.", "again": true})
+	got := a.waitTurn(3, 5*time.Second)
+	check(t, "the whole turn goes, saying it takes the place of the earlier words",
+		got == "["+heardAgain+"]\nSo the next thing I want is to merge the branch.", got)
+	text, _ := hub.reply(callID, 4, 5*time.Second)
+	check(t, "and the model answers it", text == "Merging it now.", text)
+
+	files, _ := filepath.Glob(filepath.Join(a.project(), ".ringback", "calls", "*.md"))
+	transcript := ""
+	if len(files) == 1 {
+		b, _ := os.ReadFile(files[0])
+		transcript = string(b)
+	}
+	check(t, "the transcript says which words were heard again",
+		strings.Contains(transcript, "**Developer:** So the next thing I want is\n") &&
+			strings.Contains(transcript, "**Developer, the whole turn heard again:** So the next thing I want is to merge the branch.\n"), transcript)
+}
+
+// While the model writes, each pause's whole turn takes the place of the last one's: the model
+// gets the latest once, with no words twice.
+func TestWholeTurnWhileTheModelWrites(t *testing.T) {
+	hub := newFakeHub(t)
+	a := startAgent(t, hub, "")
+	callID := onCall(t, a, "h2-session",
+		fakeReply{Match: heardAgain, Steps: []fakeStep{say("Today's plan is the merge.")}},
+		fakeReply{Match: "Tell me about", Steps: []fakeStep{{Sleep: 600}, say("[wait]")}},
+	)
+	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "Tell me about"})
+	a.waitTurn(2, 5*time.Second)
+	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "Tell me about the plan", "again": true})
+	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "Tell me about the plan for today.", "again": true})
+	got := a.waitTurn(3, 5*time.Second)
+	check(t, "the latest whole turn goes once", got == "["+heardAgain+"]\nTell me about the plan for today.", got)
 }

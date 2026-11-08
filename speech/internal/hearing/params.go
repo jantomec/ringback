@@ -1,11 +1,11 @@
 // Package hearing decides when you start and stop speaking, as Pipecat 1.14.0 does: Silero's
-// voice-activity detection with a volume gate (Pipecat's VADAnalyzer and VADController) and one
-// transcription per stretch of speech (Pipecat's SegmentedSTTService). Three things differ. For
-// short answers, the volume the gate measures (speechVolume), and a stretch written down as
-// nothing is tried once more (Transcribed). And it reports your words at each pause, leaving
-// whether you've finished to the call's model; Smart Turn v3 only scores the turn for the log
-// (turn.go). The models themselves come from outside, through interfaces, so this package is
-// plain Go.
+// voice-activity detection with a volume gate (Pipecat's VADAnalyzer and VADController) and a
+// transcription at each stop (Pipecat's SegmentedSTTService). Four things differ. For short
+// answers, the volume the gate measures (speechVolume), and a turn written down as nothing is
+// tried once more (Transcribed). It reports your words at each pause, leaving whether you've
+// finished to the call's model; Smart Turn v3 only scores the turn for the log (turn.go). And
+// each transcription is of your whole turn so far, not the last stretch (Stream). The models
+// themselves come from outside, through interfaces, so this package is plain Go.
 package hearing
 
 import "math"

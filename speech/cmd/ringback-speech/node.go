@@ -158,13 +158,17 @@ func (n *node) bin(data []byte) {
 // --- Hearing
 
 type hearStream struct {
-	id   uint32
-	in   chan any // []int16 audio, or transcribed
-	done chan struct{}
-	s    *hearing.Stream
-	n    *node
-	stop sync.Once
+	id     uint32
+	in     chan any // []int16 audio, transcribed, or voiceSpeaking
+	done   chan struct{}
+	s      *hearing.Stream
+	n      *node
+	stop   sync.Once
+	latest atomic.Int64 // the transcription asked for last: those before it aren't needed
 }
+
+// voiceSpeaking: the hub says the voice has started speaking, so your next words start a turn.
+type voiceSpeaking struct{}
 
 type transcribed struct {
 	id   int
@@ -227,6 +231,8 @@ func (h *hearStream) run() {
 				idle.Reset(time.Duration(hearing.IdleTimeout * float64(time.Second)))
 			case transcribed:
 				h.s.Transcribed(m.id, m.text, m.took)
+			case voiceSpeaking:
+				h.s.VoiceSpeaking()
 			}
 			if err := h.s.Err(); err != nil {
 				logf("stream %d: a model failed: %v", h.id, err)
@@ -246,10 +252,28 @@ func (h *hearStream) SpeechStopped() {
 	h.n.out(map[string]any{"type": "speech_stopped", "stream": h.id})
 }
 
-func (h *hearStream) Turn(text string, secs, took float64) {
+func (h *hearStream) Turn(text string, secs, took float64, again bool) {
 	p, d := h.s.LastTurn()
-	logf("stream %d: you (%.1f s, heard in %.3f s; Smart Turn %.2f in %.3f s): %q", h.id, secs, took, p, d.Seconds(), text)
-	h.n.out(map[string]any{"type": "turn", "stream": h.id, "text": text, "secs": round3(secs), "took": round3(took)})
+	whole := ""
+	if again {
+		whole = " (the whole turn again)"
+	}
+	logf("stream %d: you (%.1f s, heard in %.3f s; Smart Turn %.2f in %.3f s): %q%s", h.id, secs, took, p, d.Seconds(), text, whole)
+	h.n.out(map[string]any{"type": "turn", "stream": h.id, "text": text, "secs": round3(secs), "took": round3(took), "again": again})
+}
+
+// voiceSpeaking: the hub says the voice has started speaking on a stream.
+func (n *node) voiceSpeaking(id uint32) {
+	n.mu.Lock()
+	h := n.streams[id]
+	n.mu.Unlock()
+	if h == nil {
+		return
+	}
+	select {
+	case h.in <- voiceSpeaking{}:
+	case <-h.done:
+	}
 }
 
 func (h *hearStream) Missed(m hearing.Missed) {
@@ -263,7 +287,11 @@ func (h *hearStream) Missed(m hearing.Missed) {
 
 func (h *hearStream) Transcribe(id int, samples []float32) {
 	asked := time.Now()
+	h.latest.Store(int64(id))
 	h.n.gpu.hearing(func() {
+		if h.latest.Load() != int64(id) {
+			return // a later stop asked for the turn with more of it
+		}
 		text := h.n.m.asr.Transcribe(samples)
 		select {
 		case h.in <- transcribed{id, text, time.Since(asked).Seconds()}:

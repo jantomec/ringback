@@ -247,7 +247,7 @@ func fromNode(_ *link, message map[string]any) {
 	case "speech_stopped":
 		c.speechStopped()
 	case "turn":
-		c.turn(str(message, "text"), number(message["secs"]), number(message["took"]))
+		c.turn(str(message, "text"), number(message["secs"]), number(message["took"]), message["again"] == true)
 	case "spoken":
 		c.spoken(int(number(message["piece"])), number(message["secs"]), number(message["took"]))
 	}

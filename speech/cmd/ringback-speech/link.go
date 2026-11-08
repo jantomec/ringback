@@ -110,8 +110,9 @@ func link(ctx context.Context, c config, r *relay) (welcomed bool, err error) {
 
 	hello, _ := json.Marshal(map[string]any{
 		"type": "hello", "version": protocolVersion, "name": c.name, "hearing": true, "speaking": true,
-		// A voice that speaks a reply in one take wants all of it at once (docs/protocol.md).
-		"whole_replies": c.voice == "qwen3",
+		// A voice that speaks a reply in one take wants all of it at once, and hearing writes down
+		// your whole turn, so it needs to know when the voice speaks (docs/protocol.md).
+		"whole_replies": c.voice == "qwen3", "whole_turns": true,
 	})
 	if err := conn.Write(ctx, websocket.MessageText, hello); err != nil {
 		return false, err

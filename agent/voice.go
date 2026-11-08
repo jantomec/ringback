@@ -25,10 +25,12 @@ package main
 //
 // The model decides when to speak. Your words come at each pause, and it answers them, or writes
 // [wait] if you're going on; if you say nothing more, it's asked again after a few seconds and
-// must answer. If you speak over the voice, it stops and the hub keeps the rest of the reply:
-// the model is told what you heard and what you didn't, and answers you, or writes [continue]
-// and the voice goes back to the start of the sentence it stopped in. A bare "mm-hmm", or a noise
-// with no words, needs no model (see "Interruptions" in docs/design.md).
+// must answer. A speech node writes down your whole turn again at each pause, so its words take
+// the place of the turn's earlier ones, and the model is told so. If you speak over the voice, it
+// stops and the hub keeps the rest of the reply: the model is told what you heard and what you
+// didn't, and answers you, or writes [continue] and the voice goes back to the start of the
+// sentence it stopped in. A bare "mm-hmm", or a noise with no words, needs no model (see
+// "Interruptions" in docs/design.md).
 
 import (
 	"fmt"
@@ -112,6 +114,7 @@ type (
 	turnMsg struct {
 		text        string
 		interrupted bool // you cut the voice off in this turn, or it hadn't finished its first reply
+		again       bool // the whole turn, written down again: it takes the place of the last turn's words
 	}
 	noteMsg struct{ text string }
 	toolMsg struct {
@@ -162,6 +165,12 @@ type voice struct {
 	switching   bool // the model's process closing and Opus's starting
 	handed      bool // Opus has taken over, and its first reply hasn't gone yet
 	unsent      string
+
+	// Your turn, which a speech node writes down whole at each pause until you've heard the voice:
+	// its words as last heard, where in parts they start, and whether the model has had them.
+	turnText string
+	turnFrom int
+	turnSent bool
 
 	said       string // your words in the last turn sent
 	turn       int    // turns sent to the model
@@ -291,7 +300,7 @@ func (v *voice) handle(m any) {
 	case interrupted:
 		v.onInterrupted(m.reply, m.heard, m.paused)
 	case turnMsg:
-		v.onTurn(m.text, m.interrupted)
+		v.onTurn(m.text, m.interrupted, m.again)
 	case noteMsg:
 		v.parts = append(v.parts, part{true, m.text})
 		if news, ok := strings.CutPrefix(m.text, newsPrefix); ok {
@@ -619,7 +628,12 @@ func (v *voice) onInterrupted(reply int, heard string, paused bool) {
 // onTurn: your words, which start the next reply at once. A turn with no words, a stop where
 // nothing was recognised, has the voice carry on if it cut the voice off, once in a row
 // (maxRecoveries); otherwise it goes unanswered, and its reply is just its end.
-func (v *voice) onTurn(text string, interrupted bool) {
+func (v *voice) onTurn(text string, interrupted, again bool) {
+	if again {
+		text = v.heardAgain(text)
+	} else {
+		v.turnText, v.turnFrom, v.turnSent = strings.TrimSpace(text), len(v.parts), false
+	}
 	empty := strings.TrimSpace(text) == ""
 	v.talkedOver = false
 	v.waited = false
@@ -668,6 +682,27 @@ func (v *voice) onTurn(text string, interrupted bool) {
 	v.due = true
 	v.turnAt = time.Now()
 	v.tryAnswer()
+}
+
+// heardAgain takes your whole turn, written down again: it takes the place of what the turn's
+// earlier pauses brought that hasn't gone to the model, and the model is told it replaces what
+// has. With nothing new, it's a stop with no words.
+func (v *voice) heardAgain(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" || strings.Join(strings.Fields(text), " ") == strings.Join(strings.Fields(v.turnText), " ") {
+		return ""
+	}
+	kept := v.parts[:min(v.turnFrom, len(v.parts))]
+	for _, p := range v.parts[len(kept):] {
+		if p.note && p.text != noise && p.text != heardAgain {
+			kept = append(kept, p)
+		}
+	}
+	v.parts, v.turnText = kept, text
+	if v.turnSent {
+		v.parts = append(v.parts, part{true, heardAgain})
+	}
+	return text
 }
 
 // onQuiet: the voice finished a while ago and you haven't spoken since (the hub's quietAfter).
@@ -759,15 +794,18 @@ func (v *voice) answer() {
 	}
 	v.pending, v.due = 0, false
 	var parts, said []string
+	whole := false
 	for _, p := range v.parts {
 		if p.note {
 			parts = append(parts, "["+p.text+"]")
+			whole = whole || p.text == heardAgain
 		} else {
 			parts = append(parts, p.text)
 			said = append(said, p.text)
 		}
 	}
-	v.parts = nil
+	v.parts, v.turnFrom = nil, 0
+	v.turnSent = v.turnSent || len(said) > 0
 	v.said = strings.Join(said, "\n")
 	text := strings.Join(parts, "\n")
 	if text == "" && !handed {
@@ -781,7 +819,11 @@ func (v *voice) answer() {
 		for _, line := range strings.Split(strings.TrimRight(note, "\n"), "\n") {
 			t.add("Note to the voice", strings.Trim(strings.TrimSpace(line), "[]"))
 		}
-		t.add("Developer", v.said)
+		who := "Developer"
+		if whole {
+			who = "Developer, the whole turn heard again"
+		}
+		t.add(who, v.said)
 	}
 	v.calls.mu.Unlock()
 	// Every bit of news so far was in this turn's notes or an earlier one's.

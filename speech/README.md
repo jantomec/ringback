@@ -12,8 +12,11 @@ calls, natively on a Linux machine with an NVIDIA GPU (its config can name the C
   background filter (`internal/hearing/params.go`), the same volume gate (BS.1770 loudness of
   the last 400 ms), the same state machine and model resets, and Smart Turn on the same Whisper
   features, whose score only goes in the log. A turn is every pause of about 0.7 s, and whether
-  you've finished is for the call's model to say. One transcription per stretch of speech, with 1 s
-  before it and 0.5 s of silence after, as Pipecat's segmented STT.
+  you've finished is for the call's model to say. At each stop, Parakeet writes down your whole
+  turn so far, everything since the voice last started speaking, with 1 s before it and 0.5 s of
+  silence after: on your recordings it got 20 words of 519 wrong that way, and 44 stretch by
+  stretch, as Pipecat's segmented STT cuts them (`tools/stt-trial`). A turn over a minute keeps
+  what its last pause heard, and only what came since is written down again.
 - **Speaking**: Qwen3-TTS 1.7B Base through audio.cpp's server, in the voice of a clip of
   Phonon 31M's Hadley (`voices/`): a whole reply in one take, streamed as it's made, its first
   audio about 0.08 s after the hub asks (`check.sh`). With `voice = "kokoro"` in `speech.toml`:
@@ -178,10 +181,10 @@ every word of sentences sherpa-onnx dropped words from gets sounds.
 Two things in hearing differ from Pipecat on purpose, after short answers on calls went
 unheard (`tools/short-answers`, with its results): the background filter compares its gate
 with the loudness of the speech Silero hears, over as much of it as has come, up to 400 ms,
-rather than of the last 400 ms smoothed from window to window; and a stretch of speech that
-Parakeet writes down as nothing is written down once more from 0.1 s before it began, without
-the second kept before it. `listen` hears WAV files as a call does, each as a call of its own,
-and prints what it heard as JSON lines.
+rather than of the last 400 ms smoothed from window to window; and a turn that Parakeet writes
+down as nothing is written down once more from 0.1 s before it began, without the second kept
+before it. `listen` hears WAV files as a call does, each as a call of its own, and prints what
+it heard as JSON lines; it takes each turn as answered, so a file's turns don't run together.
 
 `internal/hearing/parity_test.go` (build tag `parity`, on the speech node) compares the
 voice-activity states, frame by frame, and Smart Turn's verdict with Pipecat's own, from
