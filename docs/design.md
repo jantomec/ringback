@@ -786,8 +786,10 @@ with a certificate, or a private certificate authority installed on each device 
   on the node, it's 8.6% before Opus. Whisper large-v3-turbo was about as accurate but 12 times
   slower, and invented words on short clips. Apple's on-device recognition got 10.3% wrong on that
   comparison and takes no vocabulary, so it's the fallback only. A bigger gain than any model may
-  be how speech is cut: on free speech Parakeet made 27 errors split at pauses of 0.6 s, and 44 cut
-  stretch by stretch as a call does (not tried yet: it needs a whole turn written down at once).
+  be how speech is cut: on free speech Parakeet made 44 errors cut stretch by stretch, as a call
+  does, and 20 with each turn of about 30 s written down at once (`tools/stt-trial`, `turns.py`);
+  a turn of 45 s takes 0.13–0.36 s to write down, with the voice speaking or not, inside the
+  0.5 s it has.
 - **Qwen3-TTS 1.7B Base for the voice, in Phonon's Hadley voice,** a whole reply in one take
   (`tools/tts-trial`). Picked by ear: a blind test of six voices, then long stretches, where
   Hadley sounded best and pieces joined audibly. A take had to keep its words: Ming-3.0-tts-0.5B,

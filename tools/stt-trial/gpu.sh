@@ -1,7 +1,9 @@
 #!/bin/bash
 # Runs one GPU job under the speech node's rules: the GPU serves live calls, so wait until no
 # call is on, take the shared lock for the one job, and stop it at once if a call comes. Then
-# it runs again when the call is over. A call's worker shows up as ringback-speech.
+# it runs again when the call is over. A call's worker shows up as a program named
+# ringback-speech; the voice's server, audio.cpp's, runs from the node's folder too, so only
+# the program's name counts, or a run that starts that server would take itself for a call.
 #
 #   gpu.sh COMMAND...
 LOCK=${GPU_LOCK:-$HOME/ringback-models-test/gpu.lock}
@@ -9,7 +11,7 @@ LOG=${GPU_LOG:-$HOME/ringback-models-test/stt/logs/gpu-runs.log}
 STOPPED=75
 
 call_on() {
-    nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader | grep -q ringback-speech
+    nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader | grep -q '/ringback-speech, '
 }
 
 if [ "$1" = --locked ]; then

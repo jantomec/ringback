@@ -51,6 +51,10 @@ Then on the node, from `harness/stt-trial`, after `. ../../env.sh`:
         --sets opus --ballast 3500
     $STT/envs/harness/bin/python tally.py $STT/data $STT/runs $STT/results
 
+Whole turns at once (below), after `prepare.py` and the `parakeet-v2` run, in about a minute:
+
+    ./gpu.sh $STT/envs/harness/bin/python turns.py $STT/data $STT/runs $STT/runs/turns --voice
+
 `--ballast` holds that much GPU memory in another process for the whole run, to show that a model
 fits beside a text-to-speech model. The run's folder must end in `-ballast`. Each model in
 `MODELS` in `backends.py` runs in one environment:
@@ -181,7 +185,44 @@ the fastest, loads in about 2 s against 3 to 27, and keeps its fillers through O
 Granite and Cohere don't. Qwen3-ASR 1.7B and Granite Speech 5.0 2B are the two to look at again if a better test
 favours them.
 
+**Whole turns at once** (`turns.py`, 2026-11-08). The node writes down each stretch of speech on
+its own, cut at 0.2 s pauses. Written down whole, a turn would be done again at each pause, in the
+0.5 s between Silero's stop and your words going to the model. Each recording, after Opus, cut
+into turns at the pauses between its utterances (up to 1 s before each, 0.2 s after, then 0.5 s
+of silence), each turn in one pass of Parakeet v2. The first two rows are the trial's own runs,
+scored again here, which gives the same numbers as above:
+
+| How it's cut | Turns (all three recordings) | Free speech, errors of 519 | Scripted, of 464 |
+|---|---|---|---|
+| Stretches at 0.2 s pauses, as a call today | 189 stretches | 44 | 41 |
+| Utterances (`opus`) | 99 | 27 | 37 |
+| Turns of about 10 s | 38, median 13.9 s, longest 23.7 s | 27 | 22 |
+| Turns of about 30 s | 17, median 34.6 s, longest 41.2 s | 20 | 20 |
+| Turns of about 60 s | 9, median 62.2 s, longest 66.2 s | 18 | 19 |
+
+Time to write down a turn heard for the first time (every turn on a call is a length not seen
+before; the same audio again took 16 to 111 ms up to 30 s, alone), median and worst of three up to
+60 s. "With the voice" is while Qwen3 speaks without a break through the node's audio.cpp
+server, the worst case, as the voice is mostly cut off while you speak; it made 71 s of audio in
+those 33 s:
+
+| Turn | 2.5 s | 5.5 s | 10.5 s | 20.5 s | 30.5 s | 45.5 s | 60.5 s | 90.5 s | 120.5 s | 180.5 s | 300.5 s |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Alone, ms | 74 (127) | 77 (79) | 80 (87) | 96 (96) | 109 (166) | 127 (211) | 239 (249) | 295 | 370 | 787 | 1421 |
+| With the voice, ms | 137 (147) | 144 (159) | 165 (214) | 211 (220) | 255 (264) | 298 (358) | 510 (542) | 696 | 1030 | 1639 | 3019 |
+
+Your turns on real calls are short: of 90 in the speech node's log since 2026-11-01, from the
+first word to the last, half are 3.0 s or less, 95% under 18.6 s, and the longest 23.3 s (most
+were before the model decided when you'd finished, which may make turns longer).
+
+**So:** a whole turn at once halves the errors cut as a call (44 to 20 on free speech, 41 to 20
+scripted), more than any model in this trial. Up to 45 s it fits in the 0.5 s it has, even with
+the voice speaking; from about a minute, with the voice speaking, it takes longer than that and
+would hold your words up.
+
 Not checked: real call audio (these are Voice Memos through Opus, without Bluetooth's narrowband
 path, packet loss, or the phone's own encoder settings), any speaker but one, a technical
-vocabulary, keyword lists, a whole turn decoded at once, the torch models on a route the Go node
-could use, or two models computing at once. Cohere and Parakeet Ultra weren't timed in fp16.
+vocabulary, keyword lists, the torch models on a route the Go node could use, or two models
+computing at once (except Parakeet beside the voice, timed above). Whole turns: cut at the
+recordings' own pauses, not where a model would have answered; scored without the voice
+speaking; timed in sherpa_run, not the node's Go process, with the same settings. Cohere and Parakeet Ultra weren't timed in fp16.
