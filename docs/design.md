@@ -208,7 +208,8 @@ the words on 41 (`tools/turn-replay`). At each pause the model gets your words s
   reply's words, rather than in structured output, keeps the reply streaming as it's written:
   Claude Code's `--json-schema` sends the reply as a forced tool call at the end, after any other
   tool call, so the voice couldn't start on its first sentence, and runs one more model turn
-  after it (tried with Claude Code 2.1.319). On your 98 turns of 2026-11-06, Opus chose 3 s 15
+  after it (tried with Claude Code 2.1.319). Retest if structured output comes to stream its
+  text as it's written, ahead of other tool calls. On your 98 turns of 2026-11-06, Opus chose 3 s 15
   times, 4 s 22 times, 5 s 3 times, 8 s twice and 30 s once; on the 23 unfinished turns you went
   on from, its wait was never shorter than you took (0.2 to 3.5 s), and the 7 finished turns it
   waited on cost 49 s, 30 of them on one where you'd said you'd call back
@@ -927,6 +928,9 @@ with a certificate, or a private certificate authority installed on each device 
   the call minimised, the app's own settings can be changed, for later calls.
 
 **The voice**
+- **The silence at the start of the voice's replies stays,** not trimmed (your decision,
+  2026-11-08): Kokoro began each sentence with about 0.3 s of it, Qwen3's preset voice about
+  0.08 s, and Hadley's wasn't measured. Reopen if you find the replies slow to start.
 - **The call's model on your subscription through Claude Code,** not the API, for a personal tool; in a
   session that stays open for the call, not a `claude -p` per turn (3.2 s each, 1.7 of it
   start-up).
@@ -1162,7 +1166,11 @@ how things look):
   item opened meanwhile (`tools/app-screens`, with a made-up call); not on a call, nor iOS's
   own pill and coming back from the background;
 - text and links a session sends you: the agent's, the hub's and the mod's tests, and the app's
-  text, link and shelf in `tools/app-screens`; not on the phone, nor through a real session yet;
+  text, link and shelf in `tools/app-screens`; a real Opus session sent a command when asked
+  and a link alone when a call needed one, and none for a link asked for in the terminal (one
+  try each, 2026-11-09); a session sent a note and a link to the phone through the live hub
+  (APNs 200, 2026-11-09 07:39), not yet looked at on the phone; the briefing's link before a
+  call isn't tried;
 - the caller's name as the session's project and title, from where it started (the agent's and
   the mod's tests, and the agent reading the titles of real transcripts); not on the phone yet;
 - at least a minute between calls: a session's call placed within a minute of the end of one
