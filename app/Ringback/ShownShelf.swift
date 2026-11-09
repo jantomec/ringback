@@ -108,25 +108,33 @@ struct ShownGallery: View {
 }
 
 /// One shown item as a small picture: the project (or, in one session's list, what it is) and
-/// when under it, a dot until you open it, and a mark for a PDF, a clip or a model. Tapping it
-/// opens it.
+/// when under it, a dot until you open it, and a mark for a PDF, a clip, a model, text or a
+/// link. Text is drawn, as a small page of its start, or a link's site. Tapping it opens it,
+/// even a link, which opens from there; a link's menu opens or copies it.
 struct ShownTile: View {
     let item: ShownItem
     let state: AppState
     let size: CGFloat
     /// Under it, its project; in one session's list, what it is.
     var named = true
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         Button {
             state.open(item)
         } label: {
             VStack(alignment: .leading, spacing: 3) {
-                ShownThumbnail(item: item)
+                Group {
+                    if item.kind == .text {
+                        TextTile(item: item)
+                    } else {
+                        ShownThumbnail(item: item)
+                    }
+                }
                     .frame(width: size, height: size)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay(alignment: .bottomTrailing) {
-                        if let mark = Self.mark(item.kind) {
+                        if let mark = Self.mark(item) {
                             Image(systemName: mark).font(.caption.weight(.semibold)).foregroundStyle(.white)
                                 .padding(5).background(.black.opacity(0.45), in: Circle()).padding(5)
                         }
@@ -143,6 +151,15 @@ struct ShownTile: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            if let url = item.url {
+                Button("Open Link", systemImage: "safari") {
+                    state.markSeen(item)
+                    openURL(url)
+                }
+                Button("Copy Link", systemImage: "doc.on.doc") { UIPasteboard.general.url = url }
+            }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel("\(item.title), from \(item.project), \(item.at.formatted(date: .omitted, time: .shortened))")
@@ -150,13 +167,46 @@ struct ShownTile: View {
     }
 
     /// The mark on a picture that isn't an image itself.
-    static func mark(_ kind: ShownItem.Kind) -> String? {
-        switch kind {
+    static func mark(_ item: ShownItem) -> String? {
+        switch item.kind {
         case .image: nil
         case .pdf: "doc.fill"
         case .video: "play.fill"
         case .model: "cube.fill"
+        case .text: item.url != nil ? "link" : "text.alignleft"
         }
+    }
+}
+
+/// Text's tile, drawn rather than a picture, so it follows dark mode: its title and the start of
+/// it, or a link's site and title.
+struct TextTile: View {
+    let item: ShownItem
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Rectangle().fill(Color(.secondarySystemBackground))
+            // Within the tile, and clear of its mark in the corner: the start is cut short.
+            VStack(alignment: .leading, spacing: 3) {
+                if let url = item.url {
+                    // A site's name on one line, never broken at a hyphen.
+                    Text(url.host() ?? url.absoluteString).font(.subheadline.bold()).lineLimit(1)
+                        .minimumScaleFactor(0.6).truncationMode(.middle)
+                    Text(item.title).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
+                } else {
+                    Text(item.title).font(.caption.bold()).lineLimit(2)
+                    Text(rest).font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            .padding(EdgeInsets(top: 8, leading: 8, bottom: 30, trailing: 8))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    /// The preview after its title, if the title is its first line.
+    private var rest: String {
+        guard item.caption.isEmpty else { return item.preview }
+        return item.preview.split(separator: "\n", maxSplits: 1).dropFirst().first.map(String.init) ?? ""
     }
 }
 

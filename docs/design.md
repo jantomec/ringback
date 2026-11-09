@@ -559,7 +559,14 @@ or in the terminal.
 
 The mod gives every session a `show` tool, ringback on or off, which takes a file and a
 caption. The session uses it when seeing says more than words, or when you ask, as on a call:
-the voice passes "show me the render" on like anything else. The agent sends the file to the
+the voice passes "show me the render" on like anything else. Its `send_text` tool sends text
+the same way: Markdown and a title, up to 256 KB. Its description tells the session when:
+when you ask for something in writing, such as a link, a command or notes to keep, also on a
+call; and for a link you'll need away from the terminal, such as a claude.ai artifact or a page
+it published, or a pull request, since a call can't read one out. The briefing's prompt tells
+it to send such a link before the call and say so in the briefing, and so does the prompt that
+brings it what the voice passed on; the voice never reads out a link or a command, and has the
+session send it. The agent sends the file to the
 hub with a small picture of it for lists, the hub keeps them for a week and pushes each phone
 a notification, and the app's notification service extension fetches what the notification
 shows. Tapping it opens the file in the app's viewer. The hub never shows it to anyone but a
@@ -585,6 +592,19 @@ since setting it to 0 can clear the notifications delivered (not checked).
   about 30 s to fetch what it shows, too little for a clip on mobile data; the app fetches the
   clip when you open it. Its controls go to the start, back a frame, play or pause, forward a
   frame and to the end, as a model's animation will.
+- **Text** (Markdown): the notification shows the title, then the start of it as plain text,
+  which the agent makes (a list item after a bullet, a link as its words). Text that's only a
+  link, an address alone or `[words](address)`, shows where it goes instead, and tapping its
+  notification opens the link, in Safari or the app that claims it (a pull request in GitHub's):
+  it's what you asked for. Anything else opens in the app, drawn from Foundation's Markdown
+  parser block by block: headings, lists, quotes, tables, and code in a box with a Copy button,
+  scrolling sideways rather than wrapping, so a command stays on one line. Only web and mail
+  links open; any other, such as a file's path, shows as code. Copy and Share give the
+  Markdown; a link alone is a card with Open Link and Copy Link. On the shelf it's a tile the
+  app draws, its title and start, or a link's site, and holding a link's tile opens or copies
+  it. ntfy, Bark and Pushcut, which push text to a phone, also open a link from its
+  notification, and Pushover shows formatting only in its app. Copy on a held notification was
+  left out: copying from outside the app may not work.
 - **3D models** (USD, USDZ, STL, GLB/glTF): the model stays on the computer that runs the
   session, which may hold gigabytes of it, and that computer renders it (`render/README.md`):
   with OpenUSD's own renderer, Hydra Storm, where it's installed, as on a Linux workstation
@@ -1118,6 +1138,8 @@ how things look):
   call (`tools/line-check`: the voice answered 2.6–3.6 s after you stopped, with the model's
   first words taking 2.0–3.1 s that day), and going on after its server is killed or frozen
   partway through a reply (`check.sh`); not on the phone yet;
+- text and links a session sends you: the agent's, the hub's and the mod's tests, and the app's
+  text, link and shelf in `tools/app-screens`; not on the phone, nor through a real session yet;
 - the caller's name as the session's project and title, from where it started (the agent's and
   the mod's tests, and the agent reading the titles of real transcripts); not on the phone yet;
 - at least a minute between calls: a session's call placed within a minute of the end of one
@@ -1241,7 +1263,9 @@ host unable to read their calls.
   place of a fixed 3 s. Built; left: trying it on a call.
 - [ ] **What a session showed you, during a call:** the call screen can't be left, so nothing
   shown can be opened until you hang up.
-- [ ] **Sending text or a link to the phone,** which `show` can't: it takes files.
+- [ ] **Sending text or a link to the phone** (Showing you things): `send_text` sends Markdown,
+  shown in the app, and a link alone opens from its notification; the session sends a link
+  you'll need on a call. Built; left: trying it on the phone.
 - [ ] **The caller's name from where the session started and its title** (The caller's name):
   a call rings as "project · title", from the session's root, and its transcript goes there.
   Built; left: trying it on the phone.

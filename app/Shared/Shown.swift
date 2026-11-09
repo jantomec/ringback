@@ -1,13 +1,14 @@
 import Foundation
 
 /// Something a session showed you ("Showing you things" in docs/design.md): an image, a PDF, a
-/// clip, or a 3D model, which the hub keeps for a week. A PDF, a clip, a model and an image a
+/// clip, a 3D model, or text it sent you (Markdown), which the hub keeps for a week. Text has no
+/// picture: it's listed by its start, as plain text (preview). A PDF, a clip, a model and an image a
 /// notification can't show have a poster, a picture of it; a model has only its poster, since
 /// the model stays on its Mac. This file is in both the app and its notification service
 /// extension, which fetches what a notification shows.
 struct ShownItem: Identifiable, Equatable {
     enum Kind: String {
-        case image, pdf, video, model
+        case image, pdf, video, model, text
     }
 
     let id: String
@@ -25,9 +26,18 @@ struct ShownItem: Identifiable, Equatable {
     /// A model's animation: how many frames, at how many a second; nil for one that has none,
     /// and for the other kinds.
     let animation: (frames: Int, fps: Double)?
+    /// Text's start as plain text, "" for the other kinds.
+    let preview: String
+    /// Where text that's only a web link goes; nil for the rest.
+    let url: URL?
 
-    /// What it shows, in a word or a line: its caption, or else the file's name.
-    var title: String { caption.isEmpty ? name : caption }
+    /// What it shows, in a word or a line: its caption, or else text's first line, or the file's
+    /// name.
+    var title: String {
+        if !caption.isEmpty { return caption }
+        if kind == .text, let line = preview.split(separator: "\n").first { return String(line) }
+        return name
+    }
 
     /// One as the hub lists it (`/shown`); nil if it's missing what every one has.
     init?(_ listed: [String: Any]) {
@@ -44,12 +54,20 @@ struct ShownItem: Identifiable, Equatable {
         caption = listed["caption"] as? String ?? ""
         fileType = (listed["file"] as? [String: Any])?["type"] as? String
         posterType = (listed["poster"] as? [String: Any])?["type"] as? String
+        preview = listed["preview"] as? String ?? ""
+        url = (listed["url"] as? String).flatMap(ShownItem.webURL)
         let model = listed["model"] as? [String: Any]
         if model?["animated"] as? Bool == true, let frames = model?["frames"] as? Int {
             animation = (frames, model?["fps"] as? Double ?? 24)
         } else {
             animation = nil
         }
+    }
+
+    /// A web address as a URL; nil for any other.
+    static func webURL(_ address: String) -> URL? {
+        guard let url = URL(string: address), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+        return url
     }
 
     static func == (a: ShownItem, b: ShownItem) -> Bool {
@@ -115,6 +133,7 @@ enum ShownFiles {
         case "video/mp4": "mp4"
         case "video/quicktime": "mov"
         case "video/x-m4v": "m4v"
+        case "text/markdown": "md"
         default: "bin"
         }
     }

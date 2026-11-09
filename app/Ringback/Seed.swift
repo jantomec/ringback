@@ -123,19 +123,21 @@ enum Seed {
     }
 
     /// What sessions showed you: an image, a PDF, a clip and a model, with their pictures drawn
-    /// here and kept where the app keeps what it fetched, so the viewer finds them. The clip has
-    /// only its picture, so it doesn't play.
+    /// here and kept where the app keeps what it fetched, so the viewer finds them, and text sent
+    /// to you, notes and a link alone. The clip has only its picture, so it doesn't play.
     private static func shown(earlier: (Int) -> Date, at: (Int, Int, Int) -> Date) -> [ShownItem] {
         let folder = ShownView.folder
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let iso = ISO8601DateFormatter()
         func item(_ id: String, _ project: String, _ kind: String, _ name: String, _ caption: String, _ when: Date,
-                  model: [String: Any]? = nil) -> ShownItem? {
+                  model: [String: Any]? = nil, preview: String? = nil, url: String? = nil) -> ShownItem? {
             var listed: [String: Any] = [
                 "id": id, "session_id": Self.ids[project] ?? "0f0e0d0c-\(project)", "project": project, "kind": kind,
                 "name": name, "caption": caption, "at": iso.string(from: when),
             ]
             listed["model"] = model
+            listed["preview"] = preview
+            listed["url"] = url
             return ShownItem(listed)
         }
         let render = picture(hue: 0.6, rings: 5)
@@ -152,7 +154,33 @@ enum Seed {
         let bracket = picture(hue: 0.08, rings: 2)
         try? bracket.pngData()?.write(to: folder.appending(path: "s-model-poster.png"))
         try? bracket.jpegData(compressionQuality: 0.7)?.write(to: folder.appending(path: "s-model-thumb.jpg"))
+        let notes = """
+            ## Trying the fix
+            The parser fix is merged. Two things are left:
+            - run it on the **big file**
+            - check the `--strict` flag, which *should* refuse it
+
+            ```sh
+            uv run --project tools tools/parse-check/check.py --strict data/big-input-file.json
+            ```
+
+            | File | Before | After |
+            |---|---|---|
+            | big.json | 41 s | 12 s |
+            | small.json | 0.4 s | 0.3 s |
+
+            See [the pull request](https://example.com/parser/pull/7) and `src/parse.go:42`.
+
+            > Not tried on Windows yet.
+            """
+        try? notes.write(to: folder.appending(path: "s-notes-file.md"), atomically: true, encoding: .utf8)
+        try? "[Docs preview](https://example.com/docs/preview/42)".write(
+            to: folder.appending(path: "s-link-file.md"), atomically: true, encoding: .utf8)
         return [
+            item("s-notes", "parser", "text", "text.md", "How to try the fix", earlier(0),
+                 preview: "Trying the fix\nThe parser fix is merged. Two things are left:\n• run it on the big file"),
+            item("s-link", "docs-site", "text", "text.md", "The docs preview", earlier(0),
+                 preview: "Docs preview\nexample.com/docs/preview/42", url: "https://example.com/docs/preview/42"),
             item("s-render", "ringback", "image", "render.png", "The render after the lighting fix", earlier(0)),
             item("s-clip", "parser", "video", "run.mov", "The parser on the big file, 12 s", earlier(1)),
             item("s-model", "ringback", "model", "bracket.usdc", "The bracket, version 3", earlier(2),

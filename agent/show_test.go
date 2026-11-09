@@ -144,7 +144,7 @@ func TestShow(t *testing.T) {
 		"a text file":    {map[string]any{"path": filepath.Join(dir, "notes.txt"), "project": "demo"}, "not .txt"},
 		"a missing file": {map[string]any{"path": "gone.png", "cwd": dir, "project": "demo"}, "can't read"},
 		"a folder":       {map[string]any{"path": dir + "/", "project": "demo"}, "not files without an extension"},
-		"no path":        {map[string]any{"project": "demo"}, "needs path and project"},
+		"no path":        {map[string]any{"project": "demo"}, "needs project, and path or text"},
 	} {
 		if status, answer := a.mod("POST", "/sessions/s-show/show", c.body); status != 400 || !strings.Contains(answer["error"].(string), c.want) {
 			t.Errorf("%s: %d %v", what, status, answer)
@@ -217,5 +217,93 @@ echo '{"animated": true, "frames": 48, "fps": 24, "start": 1, "end": 48, "up": "
 	if why, _ := answer["error"].(string); status != 400 || !strings.Contains(why, "can't render 3D models: it has") ||
 		!strings.Contains(why, "render/README.md") {
 		t.Errorf("no renderer: %d %v", status, answer)
+	}
+}
+
+// A session sends you text: it reaches the hub as a Markdown file, with its caption and its start
+// as plain text, and no picture; empty text, too much of it, or text with a file, is said to the
+// session.
+func TestSendText(t *testing.T) {
+	hub := newFakeHub(t)
+	uploads := &shownUploads{}
+	hub.show = uploads.serve
+	a := startAgent(t, hub, "")
+	text := "## The report\n\n[Speech models report](https://claude.ai/artifacts/abc)\n\nRun `make check` first."
+	status, answer := a.mod("POST", "/sessions/s-text/show", map[string]any{"text": "\n" + text + "\n\n", "caption": " The report ", "project": "demo"})
+	if status != 200 || answer["id"] != "shown-1" {
+		t.Fatalf("text: %d %v", status, answer)
+	}
+	upload, meta := uploads.last(t)
+	if meta["kind"] != "text" || meta["name"] != "text.md" || meta["session_id"] != "s-text" || meta["caption"] != "The report" ||
+		meta["preview"] != "The report\nSpeech models report\nRun make check first." {
+		t.Errorf("the text's meta: %v", meta)
+	}
+	if upload["file"] != text+"\n" || upload["file type"] != "text/markdown; charset=utf-8" {
+		t.Errorf("the text itself: %q %s", upload["file"], upload["file type"])
+	}
+	if _, has := upload["poster"]; has {
+		t.Errorf("text has a poster: %q", prefix(upload["poster"], 8))
+	}
+	if _, has := upload["thumb"]; has {
+		t.Errorf("text has a thumbnail: %q", prefix(upload["thumb"], 8))
+	}
+	a.waitLog(`session s-text: sends you text, 'The report`, time.Second)
+
+	before := len(uploads.got)
+	for what, c := range map[string]struct {
+		body map[string]any
+		want string
+	}{
+		"blank text":    {map[string]any{"text": " \n ", "project": "demo"}, "needs the text"},
+		"too much":      {map[string]any{"text": strings.Repeat("a", textMax+1), "project": "demo"}, "up to 256 KB"},
+		"text and file": {map[string]any{"text": "hi", "path": "/tmp/a.png", "project": "demo"}, "path or text"},
+		"neither":       {map[string]any{"caption": "hi", "project": "demo"}, "path or text"},
+		"no project":    {map[string]any{"text": "hi"}, "needs project"},
+	} {
+		if status, answer := a.mod("POST", "/sessions/s-text/show", c.body); status != 400 || !strings.Contains(answer["error"].(string), c.want) {
+			t.Errorf("%s: %d %v", what, status, answer)
+		}
+	}
+	if len(uploads.got) != before {
+		t.Errorf("text that can't be sent reached the hub")
+	}
+
+	// Only a link: it goes with its address, and its preview says where it goes.
+	for text, want := range map[string][2]string{
+		"[Speech models report](https://claude.ai/artifacts/abc)": {"https://claude.ai/artifacts/abc", "Speech models report\nclaude.ai/artifacts/abc"},
+		" https://github.com/o/r/pull/7 ":                         {"https://github.com/o/r/pull/7", "github.com/o/r/pull/7"},
+		"<https://www.example.com/>":                              {"https://www.example.com/", "example.com"},
+		"[The report](https://claude.ai/a/1)":                     {"https://claude.ai/a/1", "claude.ai/a/1"}, // its words are the caption
+	} {
+		a.mod("POST", "/sessions/s-text/show", map[string]any{"text": text, "caption": "The report", "project": "demo"})
+		if _, meta := uploads.last(t); meta["url"] != want[0] || meta["preview"] != want[1] {
+			t.Errorf("only a link, %q: %v %q", text, meta["url"], meta["preview"])
+		}
+	}
+	for _, text := range []string{"See https://claude.ai/a/1", "[local](app/x.swift)", "[a](https://a.b) and [b](https://c.d)", "ftp://a.b/c"} {
+		a.mod("POST", "/sessions/s-text/show", map[string]any{"text": text, "project": "demo"})
+		if _, meta := uploads.last(t); meta["url"] != nil {
+			t.Errorf("not only a web link, %q: %v", text, meta["url"])
+		}
+	}
+}
+
+// A preview is the text without Markdown's marks, in lines, cut at a word.
+func TestPreview(t *testing.T) {
+	for markdown, want := range map[string]string{
+		"# Title\n\nSome **bold** and `code`.":                            "Title\nSome bold and code.",
+		"- one\n- [x] two\n1. three\n> quoted":                            "• one\n• two\n• three\nquoted",
+		"See [the PR](https://github.com/o/r/pull/7) and <https://a.b/c>": "See the PR and https://a.b/c",
+		"```sh\nmake check\n```\n\n---\n\nDone.":                          "make check\nDone.",
+		"![a plot](plot.png)":                                             "a plot",
+		"snake_case and a*b stay":                                         "snake_case and a*b stay",
+	} {
+		if got := preview(markdown, 300); got != want {
+			t.Errorf("%q: %q, want %q", markdown, got, want)
+		}
+	}
+	long := strings.Repeat("word ", 100)
+	if got := preview(long, 300); !strings.HasSuffix(got, "word…") || len([]rune(got)) > 301 {
+		t.Errorf("a long text isn't cut at a word: %q", got[len(got)-20:])
 	}
 }

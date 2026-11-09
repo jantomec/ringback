@@ -1258,7 +1258,7 @@ test('switching ringback off while a question waits shows the dialog', async ($,
 test('the show tool sends a file to the agent, ringback on or off, and says it reached the phone', async ($, on) => {
   const asked = engine(on)
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  expect(asked.tools).toEqual(['show'])
+  expect(asked.tools).toEqual(['show', 'send_text'])
   const shown = await $.tool.call({ tool: 'mcp__ringback__show', path: 'out/render.png', caption: 'The render, v3' } as any)
   const sent = asked.fetches.find(f => f.url.endsWith('/show'))!
   expect(sent.url).toBe('http://voice/sessions/session-1234/show')
@@ -1269,6 +1269,21 @@ test('the show tool sends a file to the agent, ringback on or off, and says it r
     cwd: '/home/someone/Projects/demo',
   })
   expect((shown as any).result).toContain("It's on the developer's iPhone")
+})
+
+test('the send_text tool sends text to the agent, as show sends a file', async ($, on) => {
+  const asked = engine(on)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const text = '[Speech models report](https://claude.ai/artifacts/abc)'
+  const sent = await $.tool.call({ tool: 'mcp__ringback__send_text', text, title: 'The report' } as any)
+  const request = asked.fetches.find(f => f.url.endsWith('/show'))!
+  expect(request.url).toBe('http://voice/sessions/session-1234/show')
+  expect(JSON.parse(request.init.body)).toEqual({ text, caption: 'The report', project: 'demo' })
+  expect((sent as any).result).toContain("It's on the developer's iPhone")
+  asked.fetches.length = 0
+  const blank = (await $.tool.call({ tool: 'mcp__ringback__send_text', text: ' \n' } as any)) as any
+  expect(blank.deny).toContain('Needs the text')
+  expect(asked.fetches).toEqual([])
 })
 
 test("what can't be shown, or reach the phone, the session is told", async ($, on) => {

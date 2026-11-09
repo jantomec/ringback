@@ -3,13 +3,16 @@ import PDFKit
 import SwiftUI
 
 /// What a session showed you ("Showing you things" in docs/design.md), full screen: an image
-/// you can zoom, a PDF, a clip with its playback controls, or a model's live view (ModelView). It opens from
+/// you can zoom, a PDF, a clip with its playback controls, a model's live view (ModelView), or
+/// text it sent you (MarkdownView), or the link it is, if it's only that (LinkCard). It opens from
 /// the notification, and from the details of the session's calls. The file comes from the hub,
 /// which keeps it for a week, and stays on the phone until iOS clears its caches.
 struct ShownView: View {
     let item: ShownItem
     @Environment(\.dismiss) private var dismiss
     @State private var file: URL?
+    /// Text's Markdown, once fetched.
+    @State private var text: String?
     @State private var failed = false
 
     /// Where the files it fetched are kept.
@@ -22,7 +25,16 @@ struct ShownView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-                    if let file {
+                    if let url = item.url {
+                        // A link alone goes as its address; the card copies it.
+                        ToolbarItem(placement: .topBarLeading) { ShareLink(item: url) }
+                    } else if let text {
+                        // Text goes as itself, not as a file.
+                        ToolbarItemGroup(placement: .topBarLeading) {
+                            ShareLink(item: text)
+                            Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = text }
+                        }
+                    } else if let file {
                         ToolbarItem(placement: .topBarLeading) { ShareLink(item: file) }
                     }
                 }
@@ -38,12 +50,16 @@ struct ShownView: View {
     private var content: some View {
         if item.kind == .model {
             ModelView(item: item)
+        } else if item.kind == .text, let url = item.url {
+            LinkCard(url: url, title: item.title)
+        } else if let text {
+            MarkdownView(source: text)
         } else if let file {
             switch item.kind {
             case .image: ZoomableImage(url: file)
             case .pdf: PDFDocumentView(url: file)
             case .video: ClipView(url: file)
-            case .model: EmptyView()
+            case .model, .text: EmptyView()
             }
         } else if failed {
             ContentUnavailableView(
@@ -58,7 +74,11 @@ struct ShownView: View {
     private func load() async {
         guard item.kind != .model else { return }
         do {
-            file = try await ShownFiles.fetch(item.id, part: "file", into: Self.folder)
+            let fetched = try await ShownFiles.fetch(item.id, part: "file", into: Self.folder)
+            if item.kind == .text {
+                text = try String(contentsOf: fetched, encoding: .utf8)
+            }
+            file = fetched
         } catch {
             failed = true
         }
@@ -88,7 +108,7 @@ struct ShownSection: View {
                         state.open(item)
                     } label: {
                         HStack(spacing: 12) {
-                            Image(systemName: Self.symbol(item.kind)).font(.title3).frame(width: 28)
+                            Image(systemName: Self.symbol(item)).font(.title3).frame(width: 28)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(item.title).foregroundStyle(.primary)
                                 Text("\(item.at.dayLabel), \(item.at.formatted(date: .omitted, time: .shortened))")
@@ -107,7 +127,13 @@ struct ShownSection: View {
         case .pdf: "doc.richtext"
         case .video: "film"
         case .model: "cube"
+        case .text: "text.alignleft"
         }
+    }
+
+    /// An item's symbol: its kind's, or a link's.
+    static func symbol(_ item: ShownItem) -> String {
+        item.url != nil ? "link" : symbol(item.kind)
     }
 }
 

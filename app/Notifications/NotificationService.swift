@@ -4,7 +4,7 @@ import UserNotifications
 
 /// What a session shows you ("Showing you things" in docs/design.md) arrives as the hub's
 /// notification, naming it (`shown`) and the part to show with it (`part`: its poster, or an
-/// image itself). This fetches that part and attaches it, then makes the notification a
+/// image itself, or nothing for text). This fetches that part and attaches it, then makes the notification a
 /// message from the session: under its project's name, with its monogram, as its calls ring.
 /// Each step that fails leaves the notification as it came, so it always shows. It has about
 /// 30 s, and little memory: the part is downloaded to a file, never held.
@@ -25,7 +25,8 @@ final class NotificationService: UNNotificationServiceExtension {
         let session = content.userInfo["session_id"] as? String ?? id
         Task {
             let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-            if let file = try? await ShownFiles.fetch(id, part: part, into: folder, timeout: 20),
+            // Text has nothing to attach ("part" is empty): it shows its start.
+            if !part.isEmpty, let file = try? await ShownFiles.fetch(id, part: part, into: folder, timeout: 20),
                 let attachment = try? UNNotificationAttachment(identifier: id, url: file)
             {
                 content.attachments = [attachment]

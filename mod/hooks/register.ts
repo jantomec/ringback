@@ -13,7 +13,10 @@ import type { EngineInterface, HttpResponse, Register } from 'claude-code'
 // What the session is asked to write when a turn ends. The voice, a faster model, talks
 // about it on the call and knows nothing else about the session.
 const BRIEFING = `Ringback is about to call the developer's phone about this session, so write the \
-call briefing now. Use no tools, and reply with the briefing alone.
+call briefing now. If the developer will need a link from your work that you haven't sent them \
+yet, such as to a claude.ai artifact or a page you published, or a pull request, send it to \
+their phone with send_text first: the call can't read it out. Use no other tools, then reply \
+with the briefing alone, and say in it what you sent.
 
 The first line is "Subject: " and 3 to 8 words on what the call is about, shown on the phone \
 as it rings. After a blank line, write for the voice that will talk the developer through it, \
@@ -34,7 +37,9 @@ passed it on:
 ${text}
 
 Your final answer goes back to the call, where the voice tells the developer; if they've hung \
-up, the session calls them again.${transcript ? ` The call's transcript so far: ${transcript}` : ''}`
+up, the session calls them again. The call can't read out a link, a command or anything they \
+need to see written: send it to their phone with send_text, and say in your answer that you \
+did.${transcript ? ` The call's transcript so far: ${transcript}` : ''}`
 
 // What the session reads about how one of its calls went. It reaches the model inside the
 // next prompt's message, so it says who wrote it: unsigned, Haiku took it for the
@@ -74,6 +79,33 @@ as on a call. It shows files only, so save what you want shown first.`,
       },
     },
     required: ['path'],
+  },
+  isDeferred: false,
+}
+
+// The tool that sends you text on your phone, Markdown with links, the same way: it arrives as
+// a notification from this session and opens in the app.
+const SEND_TEXT = {
+  name: 'send_text',
+  description: `Sends the developer formatted text on their iPhone, through ringback: Markdown, with \
+headings, lists, emphasis, code and links. It arrives as a notification from this session that \
+shows its start, and opens in the Ringback app, where a link opens with a tap and code can be \
+copied. Use it when the developer asks for something in writing, such as a link, a command or \
+notes to keep, also when they ask on a ringback call; and to give them a link they'll need away \
+from the terminal, as on a call, which can't read one out: a claude.ai artifact or a page you \
+published, a pull request, a site. Write it for a phone screen: short, a link first if it's \
+about one, as [what it is](https://...). Never send a secret, such as a key or a password: its \
+start shows on the Lock Screen. Files go with show instead.`,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      text: { type: 'string', description: 'The text, in Markdown.' },
+      title: {
+        type: 'string',
+        description: 'A few words on what it is, for the notification, such as "The speech models report".',
+      },
+    },
+    required: ['text'],
   },
   isDeferred: false,
 }
@@ -129,11 +161,13 @@ export const register: Register = on => {
       immediate: true,
     })
     await $.tool.register(SHOW)
+    await $.tool.register(SEND_TEXT)
     await restore($)
     return next(e)
   })
 
   on('tool.call', { tool: 'mcp__ringback__show' }, async ($, e) => show($, e.path, e.caption))
+  on('tool.call', { tool: 'mcp__ringback__send_text' }, async ($, e) => sendText($, e.text, e.title))
 
   on('command.run', { command: 'ringback' }, async $ => {
     await switchTo($, !isOn)
@@ -293,17 +327,25 @@ async function voice($: EngineInterface, path: string, body?: object, method = b
 // Shows you a file: the tool's answer says it's on your phone, or why not.
 async function show($: EngineInterface, path: unknown, caption: unknown) {
   if (typeof path !== 'string' || !path.trim()) return { deny: 'Needs the path of the file to show.' }
-  const cwd = await $.session.cwd()
+  return send($, { path, caption: typeof caption === 'string' ? caption : '', cwd: await $.session.cwd() })
+}
+
+// Sends you text, as show sends a file.
+async function sendText($: EngineInterface, text: unknown, title: unknown) {
+  if (typeof text !== 'string' || !text.trim()) return { deny: 'Needs the text to send.' }
+  return send($, { text, caption: typeof title === 'string' ? title : '' })
+}
+
+// Gives the agent what's for your phone, a file or text; the answer says it's there, or why not.
+async function send($: EngineInterface, what: { path?: string; text?: string; caption: string; cwd?: string }) {
   let response
   try {
     response = await voice($, `/sessions/${await $.session.id()}/show`, {
-      path,
-      caption: typeof caption === 'string' ? caption : '',
+      ...what,
       project: projectOf(await $.session.root()),
-      cwd,
     })
   } catch {
-    return { deny: "The ringback agent on this Mac isn't running, so nothing can be shown." }
+    return { deny: `The ringback agent on this Mac isn't running, so nothing can be ${what.path ? 'shown' : 'sent'}.` }
   }
   let answer: { error?: string; sending?: boolean; phones?: string[] } = {}
   try {
@@ -311,7 +353,9 @@ async function show($: EngineInterface, path: unknown, caption: unknown) {
   } catch {
     // Said below.
   }
-  if (!response.ok) return { deny: `It can't be shown: ${answer.error ?? `the agent answered ${response.status}`}.` }
+  if (!response.ok) {
+    return { deny: `It can't be ${what.path ? 'shown' : 'sent'}: ${answer.error ?? `the agent answered ${response.status}`}.` }
+  }
   if (answer.sending) return { result: "It's on its way to the developer's iPhone: it's large, so it takes a moment." }
   const phones = answer.phones ?? []
   const missed = phones.filter(line => !line.endsWith('APNs 200'))

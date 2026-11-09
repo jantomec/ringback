@@ -44,9 +44,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         return [.banner, .list, .sound]
     }
 
-    /// Tapping what a session showed you opens it.
+    /// Tapping what a session showed you opens it; text that's only a link opens the link, in
+    /// Safari or the app that claims it.
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard let id = response.notification.request.content.userInfo["shown"] as? String else { return }
+        let info = response.notification.request.content.userInfo
+        guard let id = info["shown"] as? String else { return }
+        if info["kind"] as? String == "text", let url = (info["url"] as? String).flatMap(ShownItem.webURL) {
+            await MainActor.run { state.markSeen(id: id) }
+            if await UIApplication.shared.open(url) { return }
+        }
         await state.openShown(id: id)
     }
 

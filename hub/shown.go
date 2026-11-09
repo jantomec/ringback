@@ -1,7 +1,7 @@
 package main
 
 // What a session shows you (docs/design.md, "Showing you things"): an image, a PDF, a short
-// clip, or a still of a 3D model. The session's agent uploads it (POST /show, with its link's
+// clip, a still of a 3D model, or text it sends you (Markdown, with its start as plain text). The session's agent uploads it (POST /show, with its link's
 // key or token): what it is, then the file, and a poster, an image of it, for a PDF, a clip
 // and a model; a model's file stays on its Mac. The hub keeps them for shownKept, and pushes
 // each phone a notification from the session, under its project's name as its calls ring,
@@ -30,6 +30,8 @@ const (
 	shownMax  = 100 << 20
 	posterMax = 10 << 20
 	thumbMax  = 1 << 20
+	// textMax is the most text a session can send.
+	textMax = 1 << 20
 )
 
 // shownKept is how long what's shown is kept. RINGBACK_SHOWN_KEPT sets fewer seconds, for the
@@ -40,16 +42,17 @@ var shownKept = envSeconds("RINGBACK_SHOWN_KEPT", 7*24*3600)
 // and the poster.
 var shownMu sync.Mutex
 
-var shownKinds = map[string]bool{"image": true, "pdf": true, "video": true, "model": true}
+var shownKinds = map[string]bool{"image": true, "pdf": true, "video": true, "model": true, "text": true}
 
 func shownDir() string { return filepath.Join(stateDir, "shown") }
 
 var errNotShown = errors.New("not shown")
 
 // showFile takes what a session shows you from its agent, as multipart: "meta" first
-// ({"session_id", "project", "kind", "name", "caption"}, and a model's "model": its frames),
-// then "file", "poster" and "thumb", each with its Content-Type. A model has no file, and
-// an image may have no poster; each has a thumbnail, for the app's lists. It keeps
+// ({"session_id", "project", "kind", "name", "caption"}, a model's "model": its frames, and
+// text's "preview": its start as plain text, and "url" if it's only a web link), then "file", "poster" and "thumb", each with its
+// Content-Type. A model has no file, and an image may have no poster; each has a thumbnail,
+// for the app's lists, but text, which has no picture at all. It keeps
 // them, notifies every phone, and answers the id and a line per phone.
 func showFile(w http.ResponseWriter, r *http.Request) {
 	agent, _, allowed := partAllowed("agent", r)
@@ -120,14 +123,25 @@ func readShown(reader *multipart.Reader, dir string) (map[string]any, string) {
 				return nil, "meta isn't JSON"
 			}
 			if str(meta, "session_id") == "" || str(meta, "project") == "" || str(meta, "name") == "" || !shownKinds[str(meta, "kind")] {
-				return nil, "meta needs session_id, project, name and kind (image, pdf, video or model)"
+				return nil, "meta needs session_id, project, name and kind (image, pdf, video, model or text)"
 			}
 			meta["caption"] = prefix(strings.TrimSpace(str(meta, "caption")), 300)
+			if meta["kind"] == "text" {
+				meta["preview"] = prefix(strings.TrimSpace(str(meta, "preview")), 400)
+			}
+			// Text that's only a link has its address, which a tap opens: a web one only.
+			if url := str(meta, "url"); meta["kind"] != "text" || len(url) > 2048 ||
+				!(strings.HasPrefix(url, "https://") || strings.HasPrefix(url, "http://")) {
+				delete(meta, "url")
+			}
 		case "file", "poster", "thumb":
 			if meta == nil {
 				return nil, "meta comes first"
 			}
 			name, limit := "file"+extension(str(meta, "name")), int64(shownMax)
+			if meta["kind"] == "text" {
+				limit = textMax
+			}
 			switch part.FormName() {
 			case "poster":
 				name, limit = "poster", posterMax
@@ -146,9 +160,9 @@ func readShown(reader *multipart.Reader, dir string) (map[string]any, string) {
 		return nil, "needs meta"
 	case meta["file"] == nil && meta["kind"] != "model":
 		return nil, "needs the file"
-	case meta["poster"] == nil && meta["kind"] != "image":
+	case meta["poster"] == nil && meta["kind"] != "image" && meta["kind"] != "text":
 		return nil, "needs a poster"
-	case meta["thumb"] == nil:
+	case meta["thumb"] == nil && meta["kind"] != "text":
 		return nil, "needs a thumbnail"
 	}
 	return meta, ""
@@ -183,10 +197,20 @@ func saveLimited(path string, from io.Reader, limit int64) (int64, error) {
 
 // notifyShown sends every phone a notification of what a session shows you: from its project,
 // as its calls ring, with the caption, grouped by session. The app's service extension
-// attaches its poster, or the image itself if it has none (part, mutable-content). APNs keeps
-// it while the file is kept, for a phone that's off meanwhile. One line per phone.
+// attaches its poster, or the image itself if it has none (part, mutable-content); text has
+// neither, and shows its caption and its start, and if it's only a link, its address, which
+// tapping it opens. APNs keeps it while the file is kept, for a
+// phone that's off meanwhile. One line per phone.
 func notifyShown(ctx context.Context, meta map[string]any) []string {
+	return notifyPhones(ctx, "shown "+prefix(str(meta, "id"), 8), shownPayload(meta), now().Add(shownKept))
+}
+
+// shownPayload is the notification of what a session shows you.
+func shownPayload(meta map[string]any) map[string]any {
 	body := str(meta, "caption")
+	if meta["kind"] == "text" {
+		body = strings.TrimSpace(body + "\n" + str(meta, "preview"))
+	}
 	if body == "" {
 		body = str(meta, "name")
 	}
@@ -200,10 +224,16 @@ func notifyShown(ctx context.Context, meta map[string]any) []string {
 		},
 		"shown": str(meta, "id"), "session_id": str(meta, "session_id"), "kind": str(meta, "kind"), "part": "file",
 	}
-	if meta["poster"] != nil {
+	switch {
+	case meta["kind"] == "text":
+		payload["part"] = ""
+		if url := str(meta, "url"); url != "" {
+			payload["url"] = url
+		}
+	case meta["poster"] != nil:
 		payload["part"] = "poster"
 	}
-	return notifyPhones(ctx, "shown "+prefix(str(meta, "id"), 8), payload, now().Add(shownKept))
+	return payload
 }
 
 // listShown is what's kept, newest first, as the app lists it. The caller holds shownMu.

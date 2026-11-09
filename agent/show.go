@@ -2,8 +2,11 @@ package main
 
 // What a session shows you (docs/design.md, "Showing you things"): its mod's show tool gives
 // the agent a file, which it sends to the hub (POST /show, as it links) with what it is and,
-// for what a notification can't show as it is, a poster (posterOf). The hub keeps them and notifies the phone, whose notification shows the image, the
-// clip or the poster; the app opens the file.
+// for what a notification can't show as it is, a poster (posterOf). The hub keeps them and
+// notifies the phone, whose notification shows the image, the clip or the poster; the app
+// opens the file. Its send_text tool gives the agent text, Markdown, which goes as a file of
+// its own with the start of it as plain text (preview), for the notification and the app's
+// lists, and no picture.
 
 import (
 	"context"
@@ -17,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -92,10 +96,18 @@ const (
 	showWait = 25 * time.Second
 )
 
-// showRequest is what a session shows: the file, absolute or in its folder (cwd), and a caption.
+// showRequest is what a session shows: the file, absolute or in its folder (cwd), or text, and a
+// caption.
 type showRequest struct {
-	Session, Project, Cwd, Path, Caption string
+	Session, Project, Cwd, Path, Text, Caption string
 }
+
+// textMax is the most text a session can send, in bytes; previewMost, the most of it as plain
+// text that goes with it, in characters.
+const (
+	textMax     = 256 << 10
+	previewMost = 300
+)
 
 // errShow is a problem with what a session asked to show, which it's told.
 type errShow string
@@ -105,6 +117,9 @@ func (e errShow) Error() string { return string(e) }
 // show sends what a session shows you to the hub. It answers once the hub has it, with its id
 // and a line per phone notified, or after showWait, saying it's still on its way.
 func show(link *hubLink, request showRequest, log func(string)) (map[string]any, error) {
+	if request.Path == "" {
+		return showText(link, request, log)
+	}
 	path := request.Path
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(request.Cwd, path)
@@ -159,6 +174,122 @@ func show(link *hubLink, request showRequest, log func(string)) (map[string]any,
 	}
 }
 
+// showText sends the hub text a session sends you, as a Markdown file with its start as plain
+// text.
+func showText(link *hubLink, request showRequest, log func(string)) (map[string]any, error) {
+	text := strings.TrimSpace(request.Text)
+	switch {
+	case text == "":
+		return nil, errShow("needs the text to send")
+	case len(text) > textMax:
+		return nil, errShow(fmt.Sprintf("the text is %d KB; ringback sends text up to %d KB", len(text)>>10, textMax>>10))
+	case link == nil:
+		return nil, errNotLinked
+	}
+	dir, err := os.MkdirTemp("", "ringback-text-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "text.md")
+	if err := os.WriteFile(path, []byte(text+"\n"), 0o600); err != nil {
+		return nil, err
+	}
+	caption := strings.TrimSpace(request.Caption)
+	meta := map[string]any{
+		"session_id": request.Session, "project": request.Project, "kind": "text", "name": "text.md",
+		"caption": caption, "preview": preview(text, previewMost),
+	}
+	if url, words, ok := onlyLink(text); ok {
+		// Only a link: tapping its notification opens it, and it shows where it goes.
+		meta["url"] = url
+		meta["preview"] = strings.TrimSpace(strings.Join(dropEqual([]string{words, hostPath(url)}, caption, url), "\n"))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), showWait)
+	defer cancel()
+	answer, err := link.upload(ctx, meta, path, "text/markdown; charset=utf-8", int64(len(text)+1))
+	if err != nil {
+		return nil, err
+	}
+	log("session " + prefix(request.Session, 8) + ": sends you text, " + pyrepr(prefix(meta["preview"].(string), 40)))
+	return answer, nil
+}
+
+// linkAlone is text that's a single web link: an address, <address>, or [words](address).
+var linkAlone = regexp.MustCompile(`^(?:<?(https?://[^\s<>]+?)>?|\[([^\]\n]*)\]\((https?://[^\s)]+)\))$`)
+
+// onlyLink says whether text is only a web link, with its address and its words, if it has any.
+func onlyLink(text string) (url, words string, ok bool) {
+	m := linkAlone.FindStringSubmatch(strings.TrimSpace(text))
+	switch {
+	case m == nil:
+		return "", "", false
+	case m[1] != "":
+		return m[1], "", true
+	}
+	return m[3], strings.TrimSpace(m[2]), true
+}
+
+// hostPath is an address as a notification shows it: its host and path, without the scheme.
+func hostPath(url string) string {
+	text := strings.TrimPrefix(strings.TrimPrefix(url, "https://"), "http://")
+	return strings.TrimSuffix(strings.TrimPrefix(text, "www."), "/")
+}
+
+// dropEqual is lines without the empty ones and those equal to one of these.
+func dropEqual(lines []string, these ...string) []string {
+	var kept []string
+	for _, line := range lines {
+		equal := line == ""
+		for _, other := range these {
+			equal = equal || strings.EqualFold(line, other)
+		}
+		if !equal {
+			kept = append(kept, line)
+		}
+	}
+	return kept
+}
+
+// Markdown's marks, which a preview leaves out: a link or image keeps its words, an autolink
+// its address, a heading or quote its text, a list item its text after a bullet, code its code.
+var (
+	mdLink     = regexp.MustCompile(`!?\[([^\]]*)\]\([^)]*\)`)
+	mdAutolink = regexp.MustCompile(`<((?:https?|mailto):[^>\s]+)>`)
+	mdLineMark = regexp.MustCompile(`(?m)^[ \t]*(?:#{1,6}[ \t]+|>[ \t]?)`)
+	mdItem     = regexp.MustCompile(`(?m)^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?`)
+	mdFence    = regexp.MustCompile("(?m)^[ \t]*(```|~~~).*$")
+	mdRule     = regexp.MustCompile(`(?m)^[ \t]*(?:[-*_][ \t]*){3,}$`)
+	mdEmphasis = regexp.MustCompile("\\*\\*|__|~~|`")
+)
+
+// preview is the start of Markdown as plain text: its lines without their marks, no blank ones,
+// cut at a word within most characters.
+func preview(markdown string, most int) string {
+	text := mdFence.ReplaceAllString(markdown, "")
+	text = mdRule.ReplaceAllString(text, "")
+	text = mdLink.ReplaceAllString(text, "$1")
+	text = mdAutolink.ReplaceAllString(text, "$1")
+	text = mdLineMark.ReplaceAllString(text, "")
+	text = mdItem.ReplaceAllString(text, "• ")
+	text = mdEmphasis.ReplaceAllString(text, "")
+	var lines []string
+	for _, line := range strings.Split(text, "\n") {
+		if line = strings.Join(strings.Fields(line), " "); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	text = strings.Join(lines, "\n")
+	if runes := []rune(text); len(runes) > most {
+		cut := string(runes[:most])
+		if at := strings.LastIndexAny(cut, " \n"); at > most/2 {
+			cut = cut[:at]
+		}
+		text = strings.TrimRight(cut, " \n.,;:") + "…"
+	}
+	return text
+}
+
 // upload sends a file the hub shows the phone, with what it is (meta), a poster if it needs
 // one, and a thumbnail, and answers what the hub said.
 func (h *hubLink) upload(ctx context.Context, meta map[string]any, path, contentType string, size int64) (map[string]any, error) {
@@ -167,15 +298,19 @@ func (h *hubLink) upload(ctx context.Context, meta map[string]any, path, content
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
-	poster, err := posterOf(ctx, path, meta["kind"].(string), size, dir)
-	if err != nil {
-		return nil, errShow(err.Error())
-	}
-	// A small picture of each, for the app's lists: of its poster, or of the image itself.
-	thumb := filepath.Join(dir, "thumb.jpg")
-	from := or(poster, path)
-	if out, err := exec.CommandContext(ctx, "sips", "-Z", "480", "-s", "format", "jpeg", from, "--out", thumb).CombinedOutput(); err != nil {
-		return nil, errShow(fmt.Sprintf("can't make a small picture of %s: %s", filepath.Base(path), strings.TrimSpace(string(out))))
+	poster, thumb := "", ""
+	if meta["kind"] != "text" {
+		poster, err = posterOf(ctx, path, meta["kind"].(string), size, dir)
+		if err != nil {
+			return nil, errShow(err.Error())
+		}
+		// A small picture of each, for the app's lists: of its poster, or of the image itself.
+		// Text has none: the app lists it by its preview.
+		thumb = filepath.Join(dir, "thumb.jpg")
+		from := or(poster, path)
+		if out, err := exec.CommandContext(ctx, "sips", "-Z", "480", "-s", "format", "jpeg", from, "--out", thumb).CombinedOutput(); err != nil {
+			return nil, errShow(fmt.Sprintf("can't make a small picture of %s: %s", filepath.Base(path), strings.TrimSpace(string(out))))
+		}
 	}
 	model := ""
 	if meta["kind"] == "model" {
@@ -241,7 +376,9 @@ func writeShown(form *multipart.Writer, meta map[string]any, path, contentType, 
 		}
 		files = append(files, [3]string{"poster", poster, posterType})
 	}
-	files = append(files, [3]string{"thumb", thumb, "image/jpeg"})
+	if thumb != "" {
+		files = append(files, [3]string{"thumb", thumb, "image/jpeg"})
+	}
 	for _, f := range files {
 		header := textproto.MIMEHeader{}
 		header.Set("Content-Disposition", fmt.Sprintf(`form-data; name=%q; filename=%q`, f[0], filepath.Base(f[1])))

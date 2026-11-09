@@ -21,7 +21,8 @@ test saves, for each appearance:
 - `shown-all`, what sessions showed you, by day, from Recents' Shown shelf; `shown-image`,
   an image, then `shown-image-zoomed`, pinched to zoom (it checks the zoom changes, a zoomed
   image pans, and a double tap zooms it back out); `shown-pdf`; `shown-model`, a model's live
-  view, which finds no computer to render it here;
+  view, which finds no computer to render it here; `shown-text`, text a session sent, with a
+  list, code and a table; `shown-link`, a link alone;
 - `sessions`, cards with two sessions in one project, both kinds of waiting call, and a count
   of what each showed you that you haven't opened; `session-shown`, what a card opens: what
   its session showed; `session-menu`, a card held, and `session-details`, from its Details;
@@ -66,6 +67,10 @@ with its badge in `recents` and `sessions`, and taking calls in `banner`.
 Result on 2026-10-30, after Contacts became Sessions, with cards: one run, 2 min 20 s, every
 screen shown in light and dark, the cards, a card held with its Call and Details, and the
 session's details from it included (Open Settings again opened Settings' first page).
+
+2026-11-09, with text and a link a session sent (two runs, about 3 min each): every screen was
+shown in both appearances. The first showed a link tile breaking its site's name at a hyphen
+and a text tile's lines under its mark; both fixed for the second.
 
 ## The breathing light
 

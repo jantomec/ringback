@@ -45,9 +45,9 @@ const longestWait = 25 * time.Second
 //   - `POST .../{ask}` records an answer, as the voice does (for tools);
 //   - `DELETE .../{ask}` withdraws it: the session no longer waits for an answer;
 //   - `POST /sessions/{id}/show` shows you a file (show.go): `{"path", "caption", "project",
-//     "cwd"}`. The answer has the hub's `id` for it once the hub has it, or `"sending": true`
-//     if it's still on its way after 25 s; 400 if it can't be shown, 502 if the hub can't be
-//     reached or refuses it.
+//     "cwd"}`, or text, Markdown: `{"text", "caption", "project"}`. The answer has the hub's
+//     `id` for it once the hub has it, or `"sending": true` if it's still on its way after 25 s;
+//     400 if it can't be shown, 502 if the hub can't be reached or refuses it.
 func sessionSide(c *Calls) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /calls", func(w http.ResponseWriter, r *http.Request) {
@@ -95,15 +95,16 @@ func sessionSide(c *Calls) http.Handler {
 		reply(w, 200, map[string]any{"live": c.news(r.PathValue("id"), body["text"].(string))})
 	})
 	mux.HandleFunc("POST /sessions/{id}/show", func(w http.ResponseWriter, r *http.Request) {
-		body, ok := bodyOf(r, "path", "project")
-		if !ok {
-			reply(w, 400, map[string]any{"error": "needs path and project"})
+		body, ok := bodyOf(r, "project")
+		path, text := pyString(body["path"]), pyString(body["text"])
+		if !ok || (path == "") == (text == "") {
+			reply(w, 400, map[string]any{"error": "needs project, and path or text"})
 			return
 		}
 		link, _ := c.hub.(*hubLink)
 		answer, err := show(link, showRequest{
 			Session: r.PathValue("id"), Project: callerName(body["project"].(string), c.titles.of(r.PathValue("id"))),
-			Cwd: pyString(body["cwd"]), Path: body["path"].(string), Caption: pyString(body["caption"]),
+			Cwd: pyString(body["cwd"]), Path: path, Text: text, Caption: pyString(body["caption"]),
 		}, c.log)
 		var problem errShow
 		switch {

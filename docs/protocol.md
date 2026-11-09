@@ -30,7 +30,7 @@ at most 5 s, or 15 s for `/offer`, `/answered`, `/claude-app`, `/reask` and `/ca
 | `/claude-app` | sends a waiting call's question to the session's own dialog, which Remote Control shows in the Claude app |
 | `/cancel` | `{"call_id"}`: cancels a waiting call, so it never rings; 200, or 403 `{"error": "not waiting"}` (it rang, or was cancelled already). The hub drops it from the waiting calls at once and tells its agent (`cancel`), or, not linked, answers its next `place` for it `{"ok": true, "cancelled": true, "by": "phone"}` for 3 days |
 | `/reask` | you took calls: the held ones among them ask again now |
-| `/shown` | what sessions showed you, newest first, kept a week: each with its `id`, `session_id`, `project`, `kind` (`image`, `pdf`, `video` or `model`), `name`, `caption`, `at`, a model's `model` (its facts: `animated`, `frames`, `fps`, `up`…), and its `file`'s, `poster`'s and `thumb`'s `size` and `type` (a model has no file) |
+| `/shown` | what sessions showed you, newest first, kept a week: each with its `id`, `session_id`, `project`, `kind` (`image`, `pdf`, `video`, `model` or `text`), `name`, `caption`, `at`, text's `preview`, a model's `model` (its facts: `animated`, `frames`, `fps`, `up`…), and its `file`'s, `poster`'s and `thumb`'s `size` and `type` (a model has no file) |
 | `/shown/file` | `{"id", "part": "file" \| "poster" \| "thumb"}` with the token and key: that file, as it came, with its `Content-Type`; 404 if it isn't kept. Up to 5 min |
 | `/view` | a model's live view: `{"shown_id", "sdp", "width", "height"}` with the token and key, the phone's WebRTC offer with a video transceiver that receives only and two data channels, `control` (reliable) and `camera` (unordered, never resent). The hub asks its agents (`view`) and answers `{"sdp", "view_id"}`, or as the agents refused: 404 (no computer has it), 409 (its computer can't render 3D models, and why), 410 (it's gone from there). Up to 45 s. The phone sends where it looks from (`{"camera": {"yaw", "pitch", "distance", "target"}}`) on `camera` as it moves and on `control` where it lets go, and `{"frame": n}` and `{"play": bool}` on `control`; the renderer's `ready` and state come back on `control` (`render/README.md`), and `{"status": "ended", "why"}` when it ends |
 | `/ping` | `GET`: whether the hub can be reached, checked while the phone rings |
@@ -142,18 +142,20 @@ the phone with the reply's `status` and `error`.
 
 Not over the link: the agent posts it to `/show` over HTTP or HTTPS, with its key or token as
 `Authorization: Bearer …`, as multipart form data. First `meta`, JSON: `session_id`,
-`project`, `kind` (`image`, `pdf`, `video` or `model`), `name` (the file's) and `caption`,
-and a model's `model`, the facts its renderer printed (`render/README.md`); then `file`, the
-file itself, `poster`, a picture of it, and `thumb`, a small JPEG for the app's lists, each with
-its `Content-Type`. A PDF, a clip and a model need a poster, every one a thumbnail, and a model
-has no file: it stays on its computer. Files up to 100 MB, posters up to 10 MB, thumbnails up
-to 1 MB. Reply: `{"ok": true, "id", "phones": [...]}`, a line per phone notified;
+`project`, `kind` (`image`, `pdf`, `video`, `model` or `text`), `name` (the file's) and
+`caption`, a model's `model`, the facts its renderer printed (`render/README.md`), and text's
+`preview`, its start as plain text (up to 400 characters); then `file`, the file itself,
+`poster`, a picture of it, and `thumb`, a small JPEG for the app's lists, each with its
+`Content-Type`. A PDF, a clip and a model need a poster, every one but text a thumbnail, and a
+model has no file: it stays on its computer. Text is a Markdown file (`text/markdown`), with no
+picture. Files up to 100 MB, text up to 1 MB, posters up to 10 MB, thumbnails up to 1 MB. Reply: `{"ok": true, "id", "phones": [...]}`, a line per phone notified;
 or 400 with `error`, 401 if the key or token is wrong.
 
 The hub pushes each paired phone an alert with `"mutable-content": 1`, the project as its
-title and the caption as its body, `thread-id` the session, and `"shown": id`, `"session_id"`,
-`"kind"` and `"part"`: `poster`, or `file` for an image without one, which the app's
-notification service extension fetches from `/shown/file` and attaches.
+title and the caption as its body (text's: its caption, then its preview), `thread-id` the
+session, and `"shown": id`, `"session_id"`, `"kind"` and `"part"`: `poster`, or `file` for an
+image without one, which the app's notification service extension fetches from `/shown/file`
+and attaches; `""` for text, which has nothing to attach.
 
 ### A model's live view
 
@@ -232,7 +234,7 @@ JSON bodies; `agent/api.go` has the details.
 | `POST /sessions/{id}/permissions`, `POST /sessions/{id}/questions` | asks your permission for a tool call, or asks you questions with their options. It's put to the call you're on with the session (`"call": "live"`), to one placed to ask it (`"placed"`), or held outside your work hours (`"held"`, with `held_until`), and answered with its `id`; 502 if no call can be placed |
 | `GET /sessions/{id}/{permissions\|questions}/{ask}?wait=S` | waits up to S seconds (at most 25) for the answer: a permission's `verdict` (`allow`, `deny`, `none`, `terminal`, `cancelled` or `pending`), or the questions' `status` (`answered`, `none`, `terminal`, `cancelled` or `pending`) and `answers`, with what you `said`, and `"held": true` while its call is held. `none`: you hung up without answering. `terminal`: you sent the held call's question to the Claude app, so the session asks in its own dialog. `cancelled`: you cancelled the waiting call, so the session asks there too |
 | `DELETE /sessions/{id}/{permissions\|questions}/{ask}` | withdraws it: the session no longer waits for an answer |
-| `POST /sessions/{id}/show` | shows you a file, from the mod's `show` tool: `path` (absolute, or in `cwd`), `caption`, `project` and `cwd`. The agent makes its poster (a model's with its renderer) and thumbnail and sends them to the hub (`/show`). The answer is the hub's, with its `id` and `phones`, or `"sending": true` if it's still on its way after 25 s; 400 with `error` if it can't be shown (its kind, size, or it can't be read), 502 if the hub can't be reached or refuses it |
+| `POST /sessions/{id}/show` | shows you a file, from the mod's `show` tool: `path` (absolute, or in `cwd`), `caption`, `project` and `cwd`; or sends you text, from its `send_text` tool: `text` (Markdown, up to 256 KB), `caption` and `project`, which goes as a file of its own with its `preview` and no picture. The agent makes its poster (a model's with its renderer) and thumbnail and sends them to the hub (`/show`). The answer is the hub's, with its `id` and `phones`, or `"sending": true` if it's still on its way after 25 s; 400 with `error` if it can't be shown (its kind, size, or it can't be read), 502 if the hub can't be reached or refuses it |
 
 `POST /sessions/{id}/messages` and `POST /sessions/{id}/{permissions|questions}/{ask}` leave a
 message or record an answer as the voice would, for tools.

@@ -286,6 +286,13 @@ final class AppState {
 
     func hasSeen(_ item: ShownItem) -> Bool { seenShown.contains(item.id) }
 
+    /// Counts it as seen without opening it, as a link opened from its notification or its menu.
+    func markSeen(_ item: ShownItem) { markSeen(id: item.id) }
+
+    func markSeen(id: String) {
+        if !seenShown.contains(id) { remember(seen: seenShown.union([id])) }
+    }
+
     private func remember(seen: Set<String>) {
         seenShown = seen
         UserDefaults.standard.set(Array(seen), forKey: Self.seenShownKey)

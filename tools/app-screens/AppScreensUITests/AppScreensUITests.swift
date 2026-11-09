@@ -87,6 +87,16 @@ final class AppScreensUITests: XCTestCase {
         sleep(2)
         shot("shown-model")
         app.buttons["Done"].tap()
+        // Text sent to you: notes, with code and a table, and a link alone.
+        tile("How to try the fix", in: app).tap()
+        note("text", app.staticTexts["Trying the fix"].waitForExistence(timeout: 5))
+        sleep(1)
+        shot("shown-text")
+        app.buttons["Done"].tap()
+        tile("The docs preview", in: app).tap()
+        note("a link", app.buttons["Open Link"].waitForExistence(timeout: 5))
+        shot("shown-link")
+        app.buttons["Done"].tap()
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
         app.buttons["Sessions"].firstMatch.tap()

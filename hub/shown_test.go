@@ -178,3 +178,82 @@ func runEndpoint(endpoints map[string]endpoint, body string) (int, string) {
 	}
 	return answer(endpoints, httptest.NewRequest(http.MethodPost, path, strings.NewReader(body)))
 }
+
+// Text a session sends you is kept with no picture, listed with its start, and fetched as it
+// came; its notification shows its caption and its start, and has nothing to attach.
+func TestShowText(t *testing.T) {
+	os.Remove(devicesPath)
+	os.RemoveAll(shownDir())
+	defer os.Remove(devicesPath)
+	defer os.Remove(pairingPath)
+	defer os.RemoveAll(shownDir())
+	key, err := pairWith(t, makeCode(t), "shown-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markdown := "[Speech models report](https://claude.ai/artifacts/abc)\n"
+	text := upload{shownMeta("text", "text.md"), [][3]string{{"file", "text/markdown; charset=utf-8", markdown}}}
+	text.meta["preview"] = "  Speech models report  "
+	status, answer := text.post(t, "agent-secret-5678")
+	id := str(answer, "id")
+	if status != http.StatusOK || id == "" {
+		t.Fatalf("text: %d %v", status, answer)
+	}
+	tooMuch := upload{shownMeta("text", "text.md"), [][3]string{{"file", "text/markdown", strings.Repeat("a", textMax+1)}}}
+	if status, answer := tooMuch.post(t, "agent-secret-5678"); status != http.StatusBadRequest {
+		t.Errorf("text over %d bytes: %d %v", textMax, status, answer)
+	}
+
+	_, listed := runEndpoint(map[string]endpoint{"/shown": shownList}, `{"token": "shown-token", "key": "`+key+`"}`)
+	var shown struct{ Shown []map[string]any }
+	json.Unmarshal([]byte(listed), &shown)
+	if len(shown.Shown) != 1 || shown.Shown[0]["kind"] != "text" || shown.Shown[0]["preview"] != "Speech models report" {
+		t.Fatalf("the list: %s", listed)
+	}
+	w := fetchShown(t, `{"token": "shown-token", "key": "`+key+`", "id": "`+id+`", "part": "file"}`)
+	if w.Code != http.StatusOK || w.Body.String() != markdown || w.Header().Get("Content-Type") != "text/markdown; charset=utf-8" {
+		t.Errorf("the text: %d %q %s", w.Code, w.Body.String(), w.Header().Get("Content-Type"))
+	}
+
+	payload := shownPayload(shown.Shown[0])
+	alert := payload["aps"].(map[string]any)["alert"].(map[string]string)
+	if alert["title"] != "demo" || alert["body"] != "The render, v3\nSpeech models report" || payload["part"] != "" || payload["kind"] != "text" {
+		t.Errorf("its notification: %v", payload)
+	}
+	if _, has := payload["url"]; has {
+		t.Errorf("text that isn't only a link has an address: %v", payload)
+	}
+	link := upload{shownMeta("text", "text.md"), [][3]string{{"file", "text/markdown", "https://github.com/o/r/pull/7\n"}}}
+	link.meta["url"] = "https://github.com/o/r/pull/7"
+	notWeb := upload{shownMeta("text", "text.md"), [][3]string{{"file", "text/markdown", "x"}}}
+	notWeb.meta["url"] = "javascript:alert(1)"
+	for _, u := range []upload{link, notWeb} {
+		if status, answer := u.post(t, "agent-secret-5678"); status != http.StatusOK {
+			t.Fatalf("a link: %d %v", status, answer)
+		}
+	}
+	_, listed = runEndpoint(map[string]endpoint{"/shown": shownList}, `{"token": "shown-token", "key": "`+key+`"}`)
+	json.Unmarshal([]byte(listed), &shown)
+	urls := map[string]bool{}
+	for _, item := range shown.Shown {
+		if url := str(item, "url"); url != "" {
+			urls[url] = true
+			if shownPayload(item)["url"] != url {
+				t.Errorf("a link's notification has no address: %v", shownPayload(item))
+			}
+		}
+	}
+	if len(urls) != 1 || !urls["https://github.com/o/r/pull/7"] {
+		t.Errorf("only a web address is kept: %v", urls)
+	}
+	var first map[string]any
+	for _, item := range shown.Shown {
+		if item["preview"] == "Speech models report" {
+			first = item
+		}
+	}
+	delete(first, "caption")
+	if body := shownPayload(first)["aps"].(map[string]any)["alert"].(map[string]string)["body"]; body != "Speech models report" {
+		t.Errorf("without a caption, its notification shows its start: %q", body)
+	}
+}
