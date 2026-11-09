@@ -118,6 +118,33 @@ final class AppScreensUITests: XCTestCase {
         shot("session-details")
         app.terminate()
 
+        // During a call: its screen, minimised to the pill, an item opened meanwhile, the call
+        // brought back over it, and swiped down again.
+        let onCall = launch("oncall")
+        let minimise = onCall.buttons["Minimise"]
+        note("call screen", minimise.waitForExistence(timeout: 10))
+        shot("call")
+        minimise.tap()
+        // The app's pill and, over it, an open item's: the one on top is the one to tap.
+        let pills = onCall.buttons.matching(identifier: "Return to the call")
+        let pill = pills.firstMatch
+        note("minimised, the pill", pill.waitForExistence(timeout: 5))
+        sleep(1)
+        shot("call-minimised")
+        tile("The render after the lighting fix", in: onCall).tap()
+        note("an item during the call", onCall.descendants(matching: .any)["shown-image"].waitForExistence(timeout: 5)
+            && pill.exists)
+        shot("call-shown")
+        (pills.allElementsBoundByIndex.last { $0.isHittable } ?? pill).tap()
+        note("the call over it", minimise.waitForExistence(timeout: 5))
+        shot("call-over-shown")
+        onCall.swipeDown(velocity: .fast)
+        note("swiped down, the item again", pill.waitForExistence(timeout: 5)
+            && onCall.descendants(matching: .any)["shown-image"].exists)
+        onCall.buttons["Done"].tap()
+        note("closed, the pill stays", pill.waitForExistence(timeout: 5))
+        onCall.terminate()
+
         let problem = launch("problem")
         note("connection banner", problem.buttons["Try Again"].waitForExistence(timeout: 10))
         shot("banner")

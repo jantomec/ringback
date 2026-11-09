@@ -178,7 +178,7 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 - [ ] Ending a call by voice: built, to try on a call
 - [ ] At least 60 s between calls: built, to try on the phone
 - [ ] The model choosing how long to wait for you, 2 to 60 s: built, to try on a call
-- [ ] Opening what a session showed you during a call
+- [ ] Using the app during a call, to open what a session showed you: built, to try on a call
 - [ ] Sending text or a link to the phone: built, to try on the phone
 - [ ] The caller's name from where the session started and its title: built, to try on the phone
 - [ ] Better speech models: Parakeet stays, writing down whole turns; the voice is now Qwen3; both to try on a call

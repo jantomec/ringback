@@ -23,6 +23,10 @@ test saves, for each appearance:
   image pans, and a double tap zooms it back out); `shown-pdf`; `shown-model`, a model's live
   view, which finds no computer to render it here; `shown-text`, text a session sent, with a
   list, code and a table; `shown-link`, a link alone;
+- with a made-up call (`-RingbackSeed oncall`): `call`, the call screen; `call-minimised`,
+  Recents with the call's pill and the call rows dimmed; `call-shown`, an image opened during
+  the call, with the pill; `call-over-shown`, the pill tapped, the call screen over it; then a
+  swipe down and Done, with the pill staying;
 - `sessions`, cards with two sessions in one project, both kinds of waiting call, and a count
   of what each showed you that you haven't opened; `session-shown`, what a card opens: what
   its session showed; `session-menu`, a card held, and `session-details`, from its Details;
@@ -71,6 +75,11 @@ session's details from it included (Open Settings again opened Settings' first p
 2026-11-09, with text and a link a session sent (two runs, about 3 min each): every screen was
 shown in both appearances. The first showed a link tile breaking its site's name at a hyphen
 and a text tile's lines under its mark; both fixed for the second.
+
+2026-11-09, with the app during a call (three runs, about 3 min each): every screen was shown
+in both appearances once the test tapped the pill on top (the first run found two, the app's
+behind the image's); the second showed the pill over the image's Share button, so it has a row
+of its own since.
 
 ## The breathing light
 

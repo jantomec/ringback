@@ -6,11 +6,14 @@ import SwiftUI
 /// phone; when the phone is unlocked, answering brings the app to the front and this is it.
 /// It follows the style of iOS's own call screen (iOS 27): timer above the name, round glass
 /// buttons with labels, and End in the middle of the bottom row. We only need three buttons,
-/// so they share one row.
+/// so they share one row. Its ⌄ at the top left, or a swipe down, minimises it, so you can use
+/// the app during the call (CallOnTop).
 struct InCallView: View {
     let state: AppState
     let calls: CallService
     @State private var route = AudioRoute.current
+    /// How far you've pulled it down.
+    @State private var pulled: CGFloat = 0
 
     /// Measured from a screenshot of iOS's call screen.
     private static let column: CGFloat = 117
@@ -71,10 +74,41 @@ struct InCallView: View {
                 .foregroundStyle(.white)
             }
         }
+        .overlay(alignment: .topLeading) {
+            Button(action: minimise) {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .glassEffect(.regular.interactive(), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Minimise")
+            .accessibilityHint("Shows the app; the call goes on")
+            .padding(.leading, 16)
+            .padding(.top, 8)
+        }
+        .offset(y: pulled)
+        // Pulled down far enough, or flicked, it minimises; otherwise it springs back.
+        .gesture(
+            DragGesture(minimumDistance: 20)
+                .onChanged { pulled = max(0, $0.translation.height) }
+                .onEnded { drag in
+                    if drag.translation.height > 120 || drag.predictedEndTranslation.height > 320 {
+                        minimise()
+                    } else {
+                        withAnimation(.spring) { pulled = 0 }
+                    }
+                })
+        .accessibilityAction(.escape, minimise)
         .preferredColorScheme(.dark)
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { _ in
             route = .current
         }
+    }
+
+    private func minimise() {
+        state.callMinimised = true
     }
 
     private func slot(@ViewBuilder _ content: () -> some View) -> some View {

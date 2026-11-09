@@ -185,7 +185,18 @@ final class AppState {
     var showsSettings = false
     /// Why a pairing link didn't pair, for an alert.
     var pairingProblem: String?
-    var activeCall: ActiveCall?
+    var activeCall: ActiveCall? {
+        // A new call shows its call screen.
+        didSet { if activeCall?.uuid != oldValue?.uuid { callMinimised = false } }
+    }
+    /// You've minimised the call screen to use the app during the call: a green pill at the top
+    /// brings it back (CallOnTop).
+    var callMinimised = false
+    /// What you opened while the call screen showed: it opens once the call screen is gone.
+    var pendingShown: ShownItem?
+    /// When you last opened something shown, so coming back to the app to see it doesn't bring
+    /// the call screen up over it.
+    private(set) var shownOpenedAt = Date.distantPast
     /// Why a call you made ended by itself, a call back or a waiting call you called, shown
     /// once the in-call screen is gone; or why a waiting call's question didn't go to the
     /// Claude app, the hold switch couldn't be set, or what a session showed you can't open.
@@ -278,10 +289,32 @@ final class AppState {
         ShownView.clearOld()
     }
 
-    /// Opens what a session showed you, and remembers you have.
+    /// Opens what a session showed you, and remembers you have. With the call screen up, it
+    /// minimises first, and the item opens once it's gone.
     func open(_ item: ShownItem) {
-        openShown = item
+        shownOpenedAt = .now
+        if activeCall != nil && !callMinimised {
+            pendingShown = item
+            callMinimised = true
+        } else {
+            openShown = item
+        }
         if !seenShown.contains(item.id) { remember(seen: seenShown.union([item.id])) }
+    }
+
+    /// The call screen has gone: what you opened meanwhile opens now.
+    func callScreenGone() {
+        guard let item = pendingShown else { return }
+        pendingShown = nil
+        openShown = item
+    }
+
+    /// You came back to the app from elsewhere during a call, as from iOS's green pill, which
+    /// the app can't tell from its icon: the call screen comes back, unless you came to see
+    /// something shown.
+    func cameBack() {
+        guard activeCall != nil, Date.now.timeIntervalSince(shownOpenedAt) > 2 else { return }
+        callMinimised = false
     }
 
     func hasSeen(_ item: ShownItem) -> Bool { seenShown.contains(item.id) }

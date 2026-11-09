@@ -4,7 +4,7 @@ import SwiftUI
 /// The app, like the iPhone's Phone app: Recents, the call history, and Sessions, the sessions
 /// you can call, as tabs. Its settings are in the Settings app (AppSettings), but for those that
 /// can't be, on a sheet from the gear (SettingsSheet). The in-call screen covers both while you're
-/// on a call.
+/// on a call, until you minimise it to use the app, with a pill to go back (CallOnTop).
 struct RootView: View {
     let state: AppState
     let push: PushService
@@ -12,6 +12,8 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var showsCallBackProblem = false
     @State private var page = Page.recents
+    /// The app went to the background: coming back during a call shows the call screen.
+    @State private var wasAway = false
 
     enum Page: Hashable {
         case recents, sessions
@@ -35,9 +37,9 @@ struct RootView: View {
         .safeAreaInset(edge: .bottom) { BottomBar(page: $page, state: state) }
         // Only checks you started, never the automatic one on opening.
         .sensoryFeedback(.success, trigger: state.confirmations)
-        .fullScreenCover(isPresented: .constant(state.activeCall != nil), onDismiss: showCallBackProblem) {
-            InCallView(state: state, calls: calls)
-        }
+        .modifier(CallOnTop(state: state, calls: calls, isTop: state.openShown == nil) {
+            if state.activeCall == nil { showCallBackProblem() }
+        })
         // Why a call you made ended by itself, or couldn't start: once the in-call screen is gone.
         .onChange(of: state.callBackProblem) { if state.activeCall == nil { showCallBackProblem() } }
         .alert(state.callBackProblem ?? "", isPresented: $showsCallBackProblem) {
@@ -46,7 +48,7 @@ struct RootView: View {
         // The hub's portal pairs this phone with a link to the app (ringback://pair).
         .onOpenURL { url in Task { await push.open(url) } }
         .fullScreenCover(item: Binding(get: { state.openShown }, set: { state.openShown = $0 })) { item in
-            ShownView(item: item)
+            ShownView(item: item, state: state, calls: calls)
         }
         .sheet(isPresented: Binding(get: { state.justPaired }, set: { state.justPaired = $0 })) {
             PairedView { state.justPaired = false }
@@ -58,6 +60,14 @@ struct RootView: View {
             Button("OK") { state.pairingProblem = nil }
         } message: {
             Text(state.pairingProblem ?? "")
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Back from the background, not from Control Center or a notification pulled down.
+            if phase == .background { wasAway = true }
+            if phase == .active && wasAway {
+                wasAway = false
+                state.cameBack()
+            }
         }
         .onChange(of: scenePhase, initial: true) { _, phase in
             guard phase == .active else { return }

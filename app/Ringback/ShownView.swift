@@ -9,6 +9,9 @@ import SwiftUI
 /// which keeps it for a week, and stays on the phone until iOS clears its caches.
 struct ShownView: View {
     let item: ShownItem
+    /// For a call during which it's open: its pill, and its screen over this (CallOnTop).
+    let state: AppState
+    let calls: CallService
     @Environment(\.dismiss) private var dismiss
     @State private var file: URL?
     /// Text's Markdown, once fetched.
@@ -43,6 +46,7 @@ struct ShownView: View {
                         .multilineTextAlignment(.center).padding(.horizontal).padding(.bottom, 4)
                 }
         }
+        .modifier(CallOnTop(state: state, calls: calls))
         .task { await load() }
     }
 

@@ -631,6 +631,25 @@ the sender, with its monogram as the app draws it (tried on the phone), which ne
 Communication Notifications capability on the app, not its extension. Files are at most
 100 MB.
 
+## Using the app during a call
+
+The call screen's ⌄ at its top left, or a swipe down, minimises it, as Signal, Telegram and
+WhatsApp do, and the app is yours meanwhile: what sessions showed you, Recents and Sessions. A
+green pill at the top left with the call's time stays on every screen, over an image or text
+you've opened too, and brings the call screen back. It has a row of its own above the screen,
+since iOS 26's navigation bars float over the space a safe-area inset keeps, and would hide
+under it. Opening something shown, from the shelf or its notification, minimises the call
+screen first. Calling anyone else meanwhile (a call back, a waiting call now, a session's green
+phone) is dimmed; the hold switch works, as it only affects later calls.
+
+Leaving the app works as with any call: iOS shows its own green pill at the top left, in other
+apps and on the Home Screen, and tapping it brings Ringback to the front (Apple's iPhone guide:
+"To return to the call, tap the green call indicator"). iOS doesn't tell an app why it came to
+the front, so its pill and Ringback's icon can't be told apart: coming back from the background
+during a call shows the call screen either way, unless you came back to see something shown.
+Whether iOS also draws its pill inside Ringback on a notch iPhone, beside Ringback's own, isn't
+documented (not checked).
+
 ## Staying up
 
 - **The agent** writes what it keeps to `voice-state.json` beside its socket
@@ -904,7 +923,8 @@ with a certificate, or a private certificate authority installed on each device 
   entirely, but slowed every interruption by about 0.1 s, raised Parakeet's errors from 5.9% to
   7.0%, and could mute you for a whole call. With AirPods, other people arrive quiet enough
   for a gate.
-- **Settings between calls,** not during: the in-call screen covers the app.
+- **No settings on the call screen,** which has only Audio, End and Mute, as iOS's has; with
+  the call minimised, the app's own settings can be changed, for later calls.
 
 **The voice**
 - **The call's model on your subscription through Claude Code,** not the API, for a personal tool; in a
@@ -1138,6 +1158,9 @@ how things look):
   call (`tools/line-check`: the voice answered 2.6–3.6 s after you stopped, with the model's
   first words taking 2.0–3.1 s that day), and going on after its server is killed or frozen
   partway through a reply (`check.sh`); not on the phone yet;
+- the app during a call: the call screen minimised and brought back, over the app and over an
+  item opened meanwhile (`tools/app-screens`, with a made-up call); not on a call, nor iOS's
+  own pill and coming back from the background;
 - text and links a session sends you: the agent's, the hub's and the mod's tests, and the app's
   text, link and shelf in `tools/app-screens`; not on the phone, nor through a real session yet;
 - the caller's name as the session's project and title, from where it started (the agent's and
@@ -1261,8 +1284,9 @@ host unable to read their calls.
   it on the phone.
 - [ ] **The model choosing how long to wait** (Whose turn it is): `[wait N]`, from 2 to 60 s, in
   place of a fixed 3 s. Built; left: trying it on a call.
-- [ ] **What a session showed you, during a call:** the call screen can't be left, so nothing
-  shown can be opened until you hang up.
+- [ ] **Using the app during a call** (Using the app during a call): the call screen minimises
+  to a green pill at the top left, which brings it back, so what a session showed you opens
+  during the call. Built; left: trying it on a call.
 - [ ] **Sending text or a link to the phone** (Showing you things): `send_text` sends Markdown,
   shown in the app, and a link alone opens from its notification; the session sends a link
   you'll need on a call. Built; left: trying it on the phone.

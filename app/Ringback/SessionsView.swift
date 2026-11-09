@@ -27,11 +27,13 @@ struct SessionsView: View {
                         SessionCard(
                             contact: contact, waiting: state.waiting.first { $0.session == contact.session },
                             unseen: state.shown.filter { $0.session == contact.session && !state.hasSeen($0) }.count,
-                            open: { opened = .shown(contact.session) }, call: { calls.callContact(contact) }
+                            open: { opened = .shown(contact.session) }, call: { calls.callContact(contact) },
+                            canCall: !calls.onCall
                         )
                         .contentShape(.contextMenuPreview, .rect(cornerRadius: SessionCard.corner))
                         .contextMenu {
                             Button("Call", systemImage: "phone.fill") { calls.callContact(contact) }
+                                .disabled(calls.onCall)
                             Button("Details", systemImage: "info.circle") { opened = .details(contact.session) }
                         }
                     }
@@ -62,7 +64,7 @@ struct SessionsView: View {
             .navigationDestination(item: $opened) { opened in
                 switch opened {
                 case .shown(let session):
-                    ShownGallery(state: state, session: session, call: state.contacts.first { $0.session == session }.map { contact in
+                    ShownGallery(state: state, session: session, call: calls.onCall ? nil : state.contacts.first { $0.session == session }.map { contact in
                         { calls.callContact(contact) }
                     })
                 case .details(let session):
@@ -83,6 +85,8 @@ private struct SessionCard: View {
     let unseen: Int
     let open: () -> Void
     let call: () -> Void
+    /// Not while you're on a call.
+    var canCall = true
 
     var body: some View {
         HStack(spacing: 14) {
@@ -97,6 +101,8 @@ private struct SessionCard: View {
                     .frame(width: 46, height: 46)
                     .background(.green.gradient, in: .circle)
             }
+            .disabled(!canCall)
+            .opacity(canCall ? 1 : 0.4)
             .buttonStyle(CardStyle())
             .accessibilityLabel("Call \(contact.project)")
         }
@@ -219,7 +225,7 @@ struct SessionDetailsView: View {
                 Section {
                     DetailsHeader(name: contact.project, subtitle: nil)
                     ActionButtons {
-                        ActionButton(title: "call", systemImage: "phone.fill") { calls.callContact(contact) }
+                        ActionButton(title: "call", systemImage: "phone.fill", enabled: !calls.onCall) { calls.callContact(contact) }
                     }
                 }
                 .listRowBackground(Color.clear)

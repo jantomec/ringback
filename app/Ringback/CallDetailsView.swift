@@ -13,7 +13,7 @@ struct CallDetailsView: View {
                 Section {
                     DetailsHeader(name: call.callerName, subtitle: nil)
                     ActionButtons {
-                        ActionButton(title: "call", systemImage: "phone.fill", enabled: canCall(call)) { calls.call(call) }
+                        ActionButton(title: "call", systemImage: "phone.fill", enabled: canCall(call) && !calls.onCall) { calls.call(call) }
                     }
                 }
                 .listRowBackground(Color.clear)
@@ -95,7 +95,7 @@ struct WaitingDetailsView: View {
                 Section {
                     DetailsHeader(name: call.callerName, subtitle: nil)
                     ActionButtons {
-                        ActionButton(title: "call now", systemImage: "phone.fill") { calls.callNow(call) }
+                        ActionButton(title: "call now", systemImage: "phone.fill", enabled: !calls.onCall) { calls.callNow(call) }
                         if call.question {
                             ActionButton(title: isSending ? "sending…" : "Claude App", systemImage: "arrow.up.forward.app") {
                                 isSending = true

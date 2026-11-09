@@ -143,6 +143,9 @@ final class CallService: NSObject, CXProviderDelegate {
         }
     }
 
+    /// You're on a call, so no other can start: their buttons are dimmed.
+    var onCall: Bool { state.activeCall != nil }
+
     /// Calls a call in the history, as the Phone app does: answered or not, it calls its
     /// session back, through the hub, to the agent that has the call. A call without an address
     /// for its audio calls its session from the Sessions tab, if it's there.

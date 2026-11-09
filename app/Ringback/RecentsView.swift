@@ -85,6 +85,7 @@ private struct CallRow: View {
             if canCall {
                 Button { calls.call(call) } label: { content }
                     .buttonStyle(RowStyle())
+                    .disabled(calls.onCall)
                     .accessibilityHint("Calls \(call.callerName)")
             } else {
                 content
@@ -127,6 +128,7 @@ private struct WaitingRow: View {
                 RowContent(name: call.callerName, nameColor: .orange, outgoing: false, detail: detail, when: "")
             }
             .buttonStyle(RowStyle())
+            .disabled(calls.onCall)
             .accessibilityHint("Calls it now")
             InfoButton(action: showDetails)
         }
@@ -227,12 +229,23 @@ struct InfoButton: View {
 /// A row you tap: it greys while pressed, edge to edge, as a list row does.
 struct RowStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background {
-                if configuration.isPressed {
-                    Color(.systemGray5).padding(.vertical, -10).padding(.leading, -20).padding(.trailing, -60)
+        Row(configuration: configuration)
+    }
+
+    /// Dimmed while it can't call, as during a call.
+    private struct Row: View {
+        let configuration: Configuration
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .opacity(isEnabled ? 1 : 0.45)
+                .background {
+                    if configuration.isPressed {
+                        Color(.systemGray5).padding(.vertical, -10).padding(.leading, -20).padding(.trailing, -60)
+                    }
                 }
-            }
+        }
     }
 }
 

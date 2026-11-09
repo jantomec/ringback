@@ -4,8 +4,9 @@ import UIKit
 
 /// Sample calls, waiting calls, sessions and what they showed you, for screenshots in a simulator
 /// (tools/app-screens), with no hub and no system prompts: launched with
-/// `-RingbackSeed calls`, `-RingbackSeed problem` for the connection banner, or
-/// `-RingbackSeed setup` for a phone that isn't set up. Only in debug builds; a release build
+/// `-RingbackSeed calls`, `-RingbackSeed problem` for the connection banner,
+/// `-RingbackSeed setup` for a phone that isn't set up, or `-RingbackSeed oncall` for the app
+/// during a call (a made-up one, with no audio behind it). Only in debug builds; a release build
 /// has none of it.
 enum Seed {
     static let mode = UserDefaults.standard.string(forKey: "RingbackSeed")
@@ -111,6 +112,11 @@ enum Seed {
             // Just paired from the portal's link: the sheet that says so.
             state.connection = .connected(at: now)
             state.justPaired = true
+        case "oncall":
+            state.connection = .connected(at: now)
+            state.activeCall = ActiveCall(
+                uuid: UUID(), id: "seed-call", callerName: "ringback · Sessions tab",
+                subject: "Sessions tab built and tried offline", answeredAt: now - 192, audio: .connected)
         case "setup":
             state.connection = .notSetUp
             state.seed([])
