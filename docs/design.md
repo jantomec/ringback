@@ -672,10 +672,11 @@ documented (not checked).
   offers a briefing again every 30 s for up to 30 min, a newer one taking its place, and the
   line under the prompt says "☎ waiting for the ringback agent…"; what the session asks is
   tried again every 5 s within its 15 min.
-- **As services:** each part sets itself up as one with `install`: the hub and the agent as
-  launchd agents (at login), the speech node as a systemd user unit (at boot, with lingering
-  on), each started again whenever it stops. `install` refuses a config without the address
-  or the token, and a copy of the part already started by hand.
+- **As services:** each part sets itself up as one with `install`: on a Mac, the hub and the
+  agent as launchd agents (at login); on Linux, the hub and the speech node as systemd user
+  units (at boot, with lingering on); each started again whenever it stops. `install`
+  refuses a config without the address or the token, and a copy of the part already started
+  by hand.
 
 ## Weak signal
 
@@ -851,10 +852,10 @@ with a certificate, or a private certificate authority installed on each device 
 
 **The shape of the system**
 - **One hub, a speech node, an agent on each Mac.** The phone reaches one machine, never the
-  Macs, which only dial out; the models run only where there's a GPU, and nothing heavy runs
-  on the always-on machine. Turned down: the voice on every Mac (it needs Apple silicon and a
-  phone that reaches each Mac), the voice on the always-on machine (it has no GPU), and a hub
-  on every Mac (calls from two Macs couldn't queue).
+  Macs, which only dial out; the models run only where there's a GPU: on a machine of their
+  own, or on the hub's when that's a Linux machine with an NVIDIA card, which can be both.
+  Turned down: the voice on every Mac (it needs Apple silicon and a phone that reaches each
+  Mac) and a hub on every Mac (calls from two Macs couldn't queue).
 - **Go for the hub, the agent and the speech node:** small, compiled, and needing nothing
   installed. A Python environment for the voice took 1.7 GB of disk, and a small Python service
   about 50 MB of memory, against the hub's few MB; C would need its own HTTP, JSON and key
@@ -1043,9 +1044,9 @@ with a certificate, or a private certificate authority installed on each device 
   (not checked).
 - **Several speech nodes aren't balanced:** a call goes to any one of them, and for a call
   that rings, all of them load their models.
-- **After a reboot,** the hub and the agent start only once you log in (launchd agents), and
-  with FileVault and no automatic login, not before someone does; nothing has been tried
-  through a reboot yet.
+- **After a reboot,** on a Mac the hub and the agent start only once you log in (launchd
+  agents), and with FileVault and no automatic login, not before someone does; nothing has
+  been tried through a reboot yet, on a Mac or on Linux.
 - **Development builds** use Apple's sandbox push environment, and their provisioning profiles
   expire; Xcode needs device support for the phone's iOS version.
 
@@ -1198,7 +1199,10 @@ how things look):
   (for yours, the same words as before);
 - the hub on Linux: `hub/build.sh` building it there with libopus linked in, its checks and
   smoke test passing, and `install` making a systemd user service that came back 12 s after a
-  kill (on the speech node's machine, then taken away);
+  kill (on the speech node's machine, then taken away). Since 2026-11-19 the hub runs so,
+  on one Linux machine with the speech node (a 6 GB card; `speech/check.sh` passed there with
+  4.7 GB of it in use, the models loaded), and the agent and the node link to it; no call has
+  been tried through it yet;
 - a model's live view, through the real hub, agent and Apple's renderer on one Mac, with a
   stand-in phone decoding the video (`tools/view-check`): the first frame 0.15 s after the
   phone opens it, a turn of the camera changing the picture 0.05 s after it's sent, the

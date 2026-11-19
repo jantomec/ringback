@@ -110,8 +110,8 @@ You need:
 
 - an always-on Mac for the hub, Intel or Apple silicon (it needs nothing installed but your
   VPN), or a Linux machine;
-- for the speech node, a Linux machine with an NVIDIA GPU: about 3 GB of GPU memory and 3 GB
-  of RAM during calls, next to nothing between them, and 4 GB on disk. It's optional: without one,
+- for the speech node, a Linux machine with an NVIDIA GPU: about 5 GB of GPU memory and
+  5.5 GB of RAM during calls, next to nothing between them, and 8.2 GB on disk. It's optional: without one,
   the iPhone hears and speaks calls itself, and gets more of your words wrong;
 - Claude Code on each Mac that runs sessions, on a Claude subscription that includes Opus;
 - a Mac with Xcode, and Go, CMake, XcodeGen and pkg-config from Homebrew, to build the app, the

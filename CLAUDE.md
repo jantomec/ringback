@@ -11,8 +11,9 @@ parts talk to each other.
 - `app/`: the iPhone app (SwiftUI, generated with XcodeGen), with its Control Center control
   and Lock Screen widget (`app/Controls`); its settings are in the Settings app
   (`app/Settings.bundle`).
-- `hub/` (Go): one always-on Mac. Push (APNs), work hours, the hold and the calls that wait,
-  the sessions you can call, each call's audio (WebRTC, Opus) and timing, the portal.
+- `hub/` (Go): one always-on machine, a Mac or a Linux server. Push (APNs), work hours, the
+  hold and the calls that wait, the sessions you can call, each call's audio (WebRTC, Opus)
+  and timing, the portal.
 - `speech/` (Go, sherpa-onnx on CUDA): the optional speech node on a Linux machine with an
   NVIDIA GPU. Hears (Silero, Parakeet v2) and speaks (Qwen3-TTS in Phonon's Hadley voice, a
   whole reply in one take, through audio.cpp's server; or Kokoro `af_heart`).

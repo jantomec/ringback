@@ -6,7 +6,7 @@ the app on your phone:
 
 | Part | Runs on | Does |
 |---|---|---|
-| **hub** | one always-on Mac, Intel or Apple silicon | rings the phone (APNs), keeps the calls that wait, and carries each call's audio |
+| **hub** | one always-on Mac, Intel or Apple silicon, or a Linux machine | rings the phone (APNs), keeps the calls that wait, and carries each call's audio |
 | **speech node** (optional) | a Linux machine with an NVIDIA GPU | hears you (Silero, Parakeet) and speaks (Qwen3-TTS), for the hub; without one, the phone can hear and speak calls itself |
 | **agent** | each Mac that runs Claude Code sessions | the sessions' side: their briefings and questions, and the call's model through Claude Code |
 | **mod** | each Claude Code session | adds `/ringback`, and hands the agent the session's briefings |
