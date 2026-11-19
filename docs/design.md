@@ -1305,3 +1305,18 @@ host unable to read their calls.
   (`tools/stt-trial`, `tools/tts-trial`). Parakeet v2 stays, and the voice is now Qwen3-TTS in
   Hadley's voice, a whole reply in one take, and your whole turn is written down at once. Left:
   trying both on a call, and a test on your own technical words.
+- [ ] **The speech node's installer can't fetch ONNX Runtime's headers.** `speech/install.sh`
+  stops at `onnxruntime-linux-x64-1.28.2.tgz`: github.com/microsoft/onnxruntime answered 404,
+  the repository and its releases (2026-11-19, from three networks), so a new speech node can't
+  be installed from nothing. Microsoft took the repository and several related ones off GitHub
+  around 2026-11-17 without saying why; other projects report the same. The libraries aren't
+  affected: they come in sherpa-onnx's archive. Decided (2026-11-19): wait for the repository,
+  and until then copy the `onnxruntime` folder from a node that has it, as the second node got
+  it; with the pinned files there, the installer skips the part (the folder's sums were
+  checked on the second node, the installer wasn't run again). If the repository stays away,
+  two other sources were compared, neither tried as an install: Microsoft's own
+  `Microsoft.ML.OnnxRuntime` 1.28.0 on api.nuget.org (139 MB; Microsoft never put 1.28.2 on
+  NuGet or PyPI), whose licence and headers are the pinned files once its CRLF line ends are
+  made LF, all but the two in `include/core/providers`, which the node doesn't read; and the
+  same version's `onnxruntime-linux-x64-glibc2_17-MinSizeRel-1.28.2.zip` from
+  `csukuangfj/onnxruntime-libs`, with which the node built the same binary.
