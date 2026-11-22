@@ -578,10 +578,15 @@ agent tells the mod to let the session's dialog show, Remote Control shows it in
 app, and the held call is forgotten and never rings. A permission's prompt shows in the
 terminal anyway, and through Remote Control in the Claude app too.
 
-**Remote Control.** Switching ringback on also runs `/remote-control`, and the rest takes it
-as on: no mod API says whether it is, and the variable Claude Code gives hooks while it is
-doesn't reach a mod (`tools/env-check`). Switched off since, a question sent to the Claude app
-waits in the terminal's dialog.
+**Remote Control.** A question sent to the Claude app gets there through Remote Control, which
+Claude Code starts with every session when "Enable Remote Control for all sessions" is on in
+`/config` (`remoteControlAtStartup` in your user settings). Ringback doesn't start it itself:
+switching ringback on used to run `/remote-control`, which now and then stopped a few seconds
+later to ask something in the terminal, after you'd left, and the session waited on that
+question, so it never called. `/ringback` reads the setting, and says when it's off that such
+a question will wait in the terminal. Whether Remote Control is on in a session isn't known: no
+mod API says so, and the variable Claude Code gives hooks while it is doesn't reach a mod
+(`tools/env-check`).
 
 ## The model for conversation
 
@@ -1110,8 +1115,10 @@ with a certificate, or a private certificate authority installed on each device 
   run; the docs don't say it. Where Claude Code's built-in guard mod loads (managed settings,
   or a Team or Enterprise login), an installed mod's classic-event hooks don't run, so
   permissions wouldn't reach the phone.
-- **Remote Control is taken as on** in every session with ringback on; switched off since, or
-  without a claude.ai subscription, a question sent to the Claude app waits in the terminal.
+- **Remote Control is taken as on** when your settings start it with every session; in a
+  session started before the setting, switched off since, or without a claude.ai subscription,
+  a question sent to the Claude app waits in the terminal. A project's own settings can turn it
+  off, which `/ringback` doesn't read.
 - **The Sessions tab lags a little:** a session switched off can show for up to about a
   minute, and calling it then is refused.
 - **The connection check relies on background pushes,** which iOS delivers at most a few an

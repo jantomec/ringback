@@ -6,8 +6,8 @@
 // prompt, or a question the session asks you, is put to you on a call first (see "What a
 // session asks" in docs/design.md). It stays on through a reload of the mod, and when you resume the
 // session after Claude Code restarts. While the agent is down, as when it restarts,
-// it tries again instead of giving up. Switched on, it turns on Remote Control too, so a
-// question held outside your work hours can go to the Claude app.
+// it tries again instead of giving up. It doesn't start Remote Control, which can stop to ask
+// something after you've left, but says when Claude Code doesn't start it with your sessions.
 import type { EngineInterface, HttpResponse, Register } from 'claude-code'
 
 // What the session is asked to write when a turn ends. The voice, a faster model, talks
@@ -171,8 +171,9 @@ export const register: Register = on => {
 
   on('command.run', { command: 'ringback' }, async $ => {
     await switchTo($, !isOn)
-    if (isOn) remoteControl($)
-    return { text: isOn ? 'Ringback is on: this session calls your phone when it finishes.' : 'Ringback is off.' }
+    if (!isOn) return { text: 'Ringback is off.' }
+    const text = 'Ringback is on: this session calls your phone when it finishes.'
+    return { text: (await remoteControlStarts($)) ? text : `${text} ${NO_REMOTE_CONTROL}` }
   })
 
   // While it's on, the dim line under the prompt says so.
@@ -251,18 +252,25 @@ function tail(): string {
   return isCalling ? '☎ calling your phone…' : '☎ ringback on'
 }
 
-// Turns on Remote Control, so a question held outside your work hours can go to the Claude app
-// from the phone: `/remote-control`, as if you typed it, run once the session is idle. Already
-// on, Claude Code shows its Remote Control menu instead, with Continue chosen, so Enter or Esc
-// leaves it on (tried 2026-10-30). Without a claude.ai subscription it says it can't. It's run
-// from a timer: Claude Code refuses a command run from `/ringback`'s own hook, which it would
-// wait on.
-function remoteControl($: EngineInterface): void {
-  $.clock.after(0, () =>
-    $.command
-      .run({ command: 'remote-control' })
-      .catch(e => $.ui.log(`couldn't turn on Remote Control: ${e}`, { to: 'debug' })),
-  )
+// Remote Control lets a question held outside your work hours go to the Claude app from the
+// phone. Ringback doesn't start it: `/remote-control` can stop to ask something in the terminal
+// a few seconds later, after you've left, and the session waits on that question, calls and
+// all. Claude Code starts it with every session when "Enable Remote Control for all sessions"
+// is on in /config (`remoteControlAtStartup` in your settings), so /ringback says when it isn't.
+const NO_REMOTE_CONTROL =
+  'Remote Control doesn\'t start with your sessions, so a question you send to the Claude app from the phone ' +
+  'waits here instead. To have it, turn on "Enable Remote Control for all sessions" in /config.'
+
+// Whether Claude Code starts Remote Control with every session, by your settings; true if they
+// can't be read, so nothing is said that may be wrong.
+async function remoteControlStarts($: EngineInterface): Promise<boolean> {
+  try {
+    const dir = (await $.env.get('CLAUDE_CONFIG_DIR')) || `${await $.env.get('HOME')}/.claude`
+    const { stdout } = await $.process.run(['/bin/cat', `${dir}/settings.json`])
+    return JSON.parse(stdout)?.remoteControlAtStartup === true
+  } catch {
+    return true
+  }
 }
 
 // Switches ringback on or off, and remembers it: for a reload of the mod, and by the session's
@@ -307,7 +315,6 @@ async function restore($: EngineInterface): Promise<void> {
     }
     if (typeof (await $.store.get(remembered(await $.session.id()))) !== 'number') return
     await switchTo($, true)
-    remoteControl($)
     $.ui.log('Ringback is still on: this session calls your phone when it finishes.')
   } catch (e) {
     $.ui.log(`couldn't tell whether ringback was on: ${e}`, { to: 'debug' })

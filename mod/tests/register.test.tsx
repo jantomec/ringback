@@ -27,8 +27,8 @@ type Voice = {
   isDown?: boolean
   // What the mod's store holds at the start.
   stored?: Record<string, unknown>
-  // Running `/remote-control` fails, as in a Claude Code without it.
-  isRemoteRefused?: boolean
+  // What your Claude Code settings hold, as the mod reads them: by default, nothing.
+  settings?: object
   // What the agent answers a file to show: by default, it's on the one phone.
   shown?: { status: number; body: object }
 }
@@ -55,6 +55,7 @@ function engine(on: On, voice: Voice = {}) {
   on('store.keys', () => ({ value: [...asked.stored.keys()] }))
   on('ui.toast', (_, e) => (asked.toasts.push(e.text), { value: undefined }))
   on('process.run', async (_, e) => {
+    if (e.argv[0] === '/bin/cat') return { value: { exitCode: 0, stdout: JSON.stringify(voice.settings ?? {}), stderr: '' } } as any
     asked.slept.push(e.argv.join(' '))
     await voice.clock?.sleep(Number(e.argv[1]) * 1000)
     return { value: { exitCode: 0, stdout: '', stderr: '' } } as any
@@ -84,7 +85,6 @@ function engine(on: On, voice: Voice = {}) {
   })
   on('command.run', { command: 'remote-control' }, (_, e) => {
     asked.commands.push(e.command)
-    if (voice.isRemoteRefused) throw new Error('unknown command')
     return { text: '' }
   })
   on('prompt.submit', (_, e) => (asked.prompts.push(e.text), { text: e.text }))
@@ -200,7 +200,7 @@ test('off, a finished turn does nothing', async ($, on) => {
 })
 
 test('on, a finished turn asks for a briefing, and the briefing places a call', async ($, on) => {
-  const asked = engine(on)
+  const asked = engine(on, { settings: { remoteControlAtStartup: true } })
   const ran = await start($)
   expect(ran.text).toBe('Ringback is on: this session calls your phone when it finishes.')
 
@@ -517,7 +517,7 @@ test('a session resumed within 30 days has ringback on again; older ones are for
   expect(await line()).toBe('? for shortcuts · ☎ ringback on')
   expect(asked.logs).toEqual(['Ringback is still on: this session calls your phone when it finishes.'])
   await clock.advance(1)
-  expect(asked.commands).toEqual(['remote-control'])
+  expect(asked.commands).toEqual([])
   // Its 30 days start again; the old session is forgotten, the other kept.
   expect(Object.fromEntries(asked.stored)).toEqual({ 'on:session-1234': now, 'on:session-other': now - DAY })
   await $.turn.complete(turn('Done.'))
@@ -1187,34 +1187,34 @@ test('a permission on that call is left to its prompt, which shows anyway', abov
   expect(asked.logs.at(-1)).toBe("You sent it to the Claude app from the phone, so it's asked here.")
 })
 
-// Remote Control: switched on, ringback turns it on, so the app can send a held question to
-// the Claude app.
+// Remote Control: ringback doesn't start it, as `/remote-control` can stop to ask something
+// after you've left; switched on, it says so when Claude Code doesn't start it with sessions.
 
-test('switched on, ringback turns on Remote Control too', async ($, on) => {
+test("switched on, ringback doesn't start Remote Control, and says when sessions don't", async ($, on) => {
   const clock = mock.clock(on)
   const asked = engine(on)
   const line = promptLine($, on)
-  await start($)
+  const ran = await start($)
   await clock.advance(1)
-  expect(asked.commands).toEqual(['remote-control'])
-  // Off, nothing more; on again, once more.
-  await $.command.run({ command: 'ringback', args: '' })
-  await $.command.run({ command: 'ringback', args: '' })
-  await clock.advance(1)
-  expect(asked.commands).toEqual(['remote-control', 'remote-control'])
+  expect(asked.commands).toEqual([])
+  expect(ran.text).toBe(
+    'Ringback is on: this session calls your phone when it finishes. Remote Control doesn\'t start with your ' +
+      'sessions, so a question you send to the Claude app from the phone waits here instead. To have it, turn on ' +
+      '"Enable Remote Control for all sessions" in /config.',
+  )
   expect(await line()).toBe('? for shortcuts · ☎ ringback on')
-})
-
-test('without Remote Control, ringback is on all the same', async ($, on) => {
-  const clock = mock.clock(on)
-  const asked = engine(on, { isRemoteRefused: true })
-  await start($)
-  await clock.advance(1)
-  expect(asked.commands).toEqual(['remote-control'])
-  expect(asked.debug.filter(l => l.startsWith("couldn't turn on Remote Control: ")).length).toBe(1)
   await $.turn.complete(turn('Done.'))
   await settle()
   expect(asked.prompts.length).toBe(1)
+})
+
+test('with Remote Control starting with sessions, ringback just says it is on', async ($, on) => {
+  const clock = mock.clock(on)
+  const asked = engine(on, { settings: { remoteControlAtStartup: true } })
+  const ran = await start($)
+  await clock.advance(1)
+  expect(asked.commands).toEqual([])
+  expect(ran.text).toBe('Ringback is on: this session calls your phone when it finishes.')
 })
 
 test('off, a question shows the dialog untouched', async ($, on) => {
