@@ -187,7 +187,7 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 - [ ] A call you decline puts calls on hold, and waits until you call it: built, to try on the phone
 - [ ] "Claude can't call you" on both tabs: built, to see on the phone
 - [ ] The voice calls back rather than wait on the line: built, to try on a call
-- [ ] The voice's style from real phone calls: being researched
+- [ ] The voice's style from real phone calls: telling in parts built, to try on calls; the wait between parts to shorten
 - [ ] The agent troubleshooting its link with a session: to design
 
 <details>

@@ -308,6 +308,19 @@ numbers, nothing read out that's meant to be seen (tables, lists, code), detail 
 rather than recited, and your words read in context, since speech recognition gets
 similar-sounding words wrong, technical ones especially.
 
+**Telling in parts.** With several things to tell, the voice says how many, gives the first,
+and goes on to the next once you've responded, where a "mm-hmm" or "okay" is enough; it ends
+each turn on its point or on one question. That's how people pass on a lot over the phone:
+in installments, each acknowledged before the next (Clark and Brennan, "Grounding in
+communication", 1991). A turn stays at about 40 words at most: the listening studies favour
+short replies, and only Clark and Brennan back saying more per turn when changing speaker is
+costly, as here. With a briefing of three updates and a question, the voice before told all
+of it in a 47-word opening, waited in silence after "Mm-hmm.", and repeated its question after
+"Okay."; now it opened with "Three things are done. First, the parser fix is merged into main,
+and the nightly build passes." (17 words), and each "mm-hmm" or "okay" brought the next
+(`TestRealInstallments` in `agent/real_test.go`, Opus 5.5, once each). Each part costs a
+turn's wait, about 2.5–3.5 s after you've spoken; making that cheaper is next.
+
 ### Ending the call
 
 The voice hangs up too, through the model, so its goodbye is its own words, not a script:
@@ -1391,9 +1404,9 @@ host unable to read their calls.
 - [ ] **The voice calls back rather than wait on the line** (Ending the call): once only the
   session's answer is left, it says it'll call back when the session has answered, and hangs
   up. Built; left: trying it on a call.
-- [ ] **The voice's style from real phone calls:** a message in parts, each answered before
-  the next, with replies of the length that keeps you in step without waits, and the model
-  getting ready for your likely answer. Being researched.
+- [ ] **The voice's style from real phone calls** (Telling in parts): a message in parts,
+  each answered before the next. Built; left: trying it on calls, and making the wait between
+  parts shorter, as by having the next part ready for your "mm-hmm".
 - [ ] **The agent troubleshooting its link with a session:** when the session shows in the app
   but the agent's messages don't reach it, or its answers don't come back, the agent finds
   where they stop. To design.

@@ -146,3 +146,36 @@ func TestRealStaysOn(t *testing.T) {
 	t.Log(a.waitLog("→ session, held until heard:", 5*time.Second))
 	check(t, "it doesn't end the call", !a.logged_("ends the call"), "\n"+strings.Join(a.log(), "\n"))
 }
+
+// A briefing with several things to tell: the real model's opening, and its turns after a
+// "mm-hmm" and an "okay", for comparing ways of telling them ("Telling in parts" in
+// docs/design.md). It checks only that each turn says something. Three turns of the default
+// model.
+// RINGBACK_REAL_CLAUDE=1 go test -run RealInstallments -v
+func TestRealInstallments(t *testing.T) {
+	if os.Getenv("RINGBACK_REAL_CLAUDE") == "" {
+		t.Skip("RINGBACK_REAL_CLAUDE=1 runs it, with three turns of the default model")
+	}
+	old := claudeCommand
+	claudeCommand = "claude"
+	t.Cleanup(func() { claudeCommand = old })
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	os.Unsetenv("CLAUDE_CONFIG_DIR")
+	hub := newFakeHub(t)
+	a := startAgent(t, hub, "")
+	a.collect("real-parts")
+	callID, _ := a.placeCall("real-parts", "Three things done, one choice",
+		"Three things since the last call. The parser fix is merged into main, and the nightly build passes. "+
+			"The docs site was rebuilt, and three broken links on the install page were fixed. The release notes "+
+			"draft is written. One thing needs the developer: whether the release goes out today or on Monday.")
+	opening := a.answer(callID)
+	t.Logf("opening (%d words): %s", len(strings.Fields(opening)), opening)
+	a.played(callID, opening)
+	for i, said := range []string{"Mm-hmm.", "Okay."} {
+		hub.send(map[string]any{"type": "turn", "call_id": callID, "text": said})
+		reply, _ := hub.reply(callID, i+2, 60*time.Second)
+		t.Logf("after %q (%d words): %s", said, len(strings.Fields(reply)), reply)
+		check(t, "it says something after "+said, strings.TrimSpace(reply) != "")
+		a.played(callID, reply)
+	}
+}
