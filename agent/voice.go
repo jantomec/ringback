@@ -21,6 +21,9 @@ package main
 // Opus resumes its session, with the whole call so far, and speaks next. And end_call ends the
 // call once you've heard the voice to the end: the hub lets its audio play out, then hangs up.
 // If you speak first, the call goes on, and the model is told.
+// If you hang up before hearing it answer your last words, or say it would pass something on,
+// it has one more turn once the call has ended, told so, and what it passes goes at once
+// (lastTurn).
 //
 // A note from the session waits until the hub says the voice is idle (it has finished
 // speaking and you aren't), then starts a reply.
@@ -102,6 +105,7 @@ type held struct {
 	words *int // of the reply before the model gave it; nil if it said nothing first
 	kind  string
 	text  string
+	said  string      // your words it answers, as heard
 	give  func() bool // false if the session no longer waits for it
 }
 
@@ -153,7 +157,7 @@ type (
 		err  error
 		took time.Duration
 	}
-	endMsg struct{}
+	endMsg struct{ hungUp bool } // the call has ended on the phone's side, rather than a new offer replacing it
 )
 
 type voice struct {
@@ -175,6 +179,7 @@ type voice struct {
 	spoke       bool // the voice has started speaking
 	idle        bool // the hub says it has finished speaking and you aren't
 	ended       bool
+	hungUp      bool // the call ended on the phone's side
 
 	replies     int    // replies started, numbered from 1
 	pending     int    // the reply your turn started, until it's sent to the model
@@ -201,6 +206,7 @@ type voice struct {
 	turnSent bool
 
 	said       string // your words in the last turn sent
+	unanswered string // your words sent that no reply has answered or passed on yet
 	turn       int    // turns sent to the model
 	held       []*held
 	unsaid     string  // reply text after a tool call, which isn't spoken
@@ -349,7 +355,7 @@ func (v *voice) handle(m any) {
 		v.handed, v.due = true, true
 		v.tryAnswer()
 	case endMsg:
-		v.ended = true
+		v.ended, v.hungUp = true, m.hungUp
 	}
 }
 
@@ -419,6 +425,10 @@ func (v *voice) replyDone() {
 		v.addTranscript("Voice", fmt.Sprintf("(waits %s)", seconds(v.waitFor)))
 	}
 	v.out(said)
+	if !wait {
+		// It answered your words, or carried on: whether you hear it is the hub's to say.
+		v.unanswered = ""
+	}
 	if v.stopped != nil && v.stopped.asked && nothing && !wait {
 		v.carryOn()
 	}
@@ -651,6 +661,9 @@ func (v *voice) onInterrupted(reply int, heard string, paused bool) {
 			tail = tail[len(tail)-60:]
 		}
 		v.log("interrupted; you'd heard " + pyrepr(string(tail)))
+	default:
+		// The hub cut off a reply this isn't writing or speaking, so nothing stops.
+		v.log(fmt.Sprintf("interrupted reply %d, which isn't the one it has (%d)", reply, v.current))
 	}
 }
 
@@ -794,9 +807,20 @@ func (v *voice) answer() {
 		note += v.stoppedNote()
 	} else {
 		note += v.cutOffNote()
-		// What the last reply announced goes to the session if you heard it announced.
+		// What the last reply announced goes to the session if you heard it announced. Not cut
+		// off isn't heard to the end: you may have gone on before it began, and the hub not
+		// stopped it, so what you've heard is what the hub last said.
 		heard := v.heardWords
+		if heard == nil && v.hearing {
+			n := words(v.heard)
+			heard = &n
+		}
 		note += v.pass(func(h *held) bool { return heard == nil || v.needed(h) <= *heard }, "you cut the voice off first")
+		if v.hangingUp {
+			// You'd heard it end the call: nothing more is said, and your words wait for the
+			// call to end (afterHangUp).
+			return
+		}
 	}
 	if v.handingOver {
 		// Opus starts even if you speak meanwhile, and then this turn's notes go to it with
@@ -836,6 +860,14 @@ func (v *voice) answer() {
 	v.parts, v.turnFrom = nil, 0
 	v.turnSent = v.turnSent || len(said) > 0
 	v.said = strings.Join(said, "\n")
+	if len(said) > 0 {
+		// Heard again whole, your words take the place of those since you last heard the voice.
+		if whole || v.unanswered == "" {
+			v.unanswered = v.said
+		} else {
+			v.unanswered += "\n" + v.said
+		}
+	}
 	text := strings.Join(parts, "\n")
 	if text == "" && !handed {
 		text = "[Carry on.]"
@@ -1084,7 +1116,7 @@ func (v *voice) waiting() string {
 func (v *voice) hold(kind, text string, give func() bool) {
 	// The words of the reply so far are what you must hear before it goes; nil if the model said
 	// nothing first.
-	h := &held{turn: v.turn, kind: kind, text: text, give: give}
+	h := &held{turn: v.turn, kind: kind, text: text, said: v.unanswered, give: give}
 	if n := words(skip(v.reply, utf8.RuneCountInString(v.ack))); n > 0 {
 		h.words = &n
 	}
@@ -1157,6 +1189,7 @@ func (v *voice) pass(goes func(*held) bool, dropped string) string {
 				v.log("not given, the session no longer waits for it: " + text)
 			} else if message {
 				v.log("passed to the session: " + text)
+				v.unanswered = ""
 			} else {
 				v.log("answered the session: " + text)
 			}
@@ -1257,7 +1290,9 @@ func (v *voice) cutOffNote() string {
 }
 
 // close: the call ended, or a new offer replaced this one. Opus isn't needed any more, nor
-// hanging up, but what you'd heard announced still goes.
+// hanging up, but what you'd heard announced still goes. If you hung up before hearing the
+// model answer your last words, or say it would pass something on, it has one more turn
+// (afterHangUp).
 func (v *voice) close() {
 	kept := v.held[:0]
 	for _, h := range v.held {
@@ -1273,13 +1308,255 @@ func (v *voice) close() {
 			v.reply, v.ack = s.text, s.ack
 		}
 	}
+	var unheard []*held
+	for _, h := range v.held {
+		if h.kind == "message" && v.needed(h) > heard {
+			unheard = append(unheard, h)
+		}
+	}
 	v.pass(func(h *held) bool { return v.needed(h) <= heard }, "you hung up first")
 	v.writeReply()
 	v.reply = ""
-	if v.ownTalker && v.talker != nil {
+	var last *lastTurn
+	if v.hungUp {
+		last = v.afterHangUp(unheard)
+	}
+	if last != nil {
+		v.calls.closing.Add(1)
+		go last.run()
+	}
+	if (last == nil || !last.owned) && v.ownTalker && v.talker != nil {
 		v.talker.Close()
 	}
 	v.talker = nil
+}
+
+// lastWords are your words the model hadn't answered when the call ended: those it had, and
+// those still to go to it (unsent). whole: the unsent are your turn heard again whole, which
+// takes the place of the former.
+func (v *voice) lastWords() (said string, unsent []string, whole bool) {
+	for _, p := range v.parts {
+		if p.note {
+			whole = whole || p.text == heardAgain
+		} else if text := strings.TrimSpace(p.text); text != "" {
+			unsent = append(unsent, text)
+		}
+	}
+	all := unsent
+	if !whole && v.unanswered != "" {
+		all = append([]string{v.unanswered}, unsent...)
+	}
+	return strings.Join(all, "\n"), unsent, whole
+}
+
+// afterHangUp is the model's turn once you've hung up before hearing its answer to your last
+// words, or before hearing it say it would pass on what it held, unheard. Nil if there's
+// nothing to pass on, as after a bare goodbye, or nothing can reach the session.
+func (v *voice) afterHangUp(unheard []*held) *lastTurn {
+	said, unsent, whole := v.lastWords()
+	if len(unheard) == 0 && (said == "" || justGoodbye(said)) {
+		return nil
+	}
+	v.calls.mu.Lock()
+	listening := v.link.listening
+	v.calls.mu.Unlock()
+	if !listening {
+		return nil
+	}
+	l := &lastTurn{calls: v.calls, link: v.link, log: v.log, words: said, at: time.Now()}
+	note := hungUpLead
+	for _, h := range unheard {
+		note += " " + strings.ReplaceAll(hungUpHeld, "{message}", h.text)
+		if l.words == "" {
+			l.words = h.said
+		}
+	}
+	if said != "" {
+		note += " " + hungUpWords
+	}
+	l.message = "[" + note + " " + hungUpAsk + "]"
+	// Your words that hadn't gone to it yet go with it, as they would have.
+	if len(unsent) > 0 {
+		if whole {
+			l.message += "\n[" + heardAgain + "]"
+		}
+		l.message += "\n" + strings.Join(unsent, "\n")
+	}
+	// The model: the voice's own, or the call's, which the call then leaves to this turn to
+	// close. Not while Opus takes over: then your words go as they were heard.
+	switch {
+	case v.talker == nil || v.switching:
+	case v.ownTalker:
+		l.talker, l.owned = v.talker, true
+	default:
+		v.calls.mu.Lock()
+		if call, ok := v.calls.calls.get(v.callID); ok && call.Talker == v.talker {
+			call.Talker = nil
+			l.talker, l.owned = v.talker, true
+		}
+		v.calls.mu.Unlock()
+	}
+	if l.talker != nil {
+		// What it's writing now is stopped, and this turn goes once it has ended.
+		l.pending = v.unfinished
+		if v.unfinished > 0 && !v.cut {
+			v.talker.Interrupt()
+		}
+		v.talker.TakeTools(l.tool)
+	}
+	if said != "" {
+		v.log("you hung up before hearing its answer to your last words: it has one more turn")
+	} else {
+		v.log("you hung up before hearing it say it would pass on what it held: it has one more turn")
+	}
+	return l
+}
+
+// lastTurnMost is how long the model has for its turn after you've hung up, before your words
+// go as they were heard.
+var lastTurnMost = 20 * time.Second
+
+// lastTurn is the model's turn once you've hung up before hearing it answer your last words, or
+// say it would pass something on (see "Ending the call" in docs/design.md). It's told so, and
+// what it passes goes at once, with your words as heard; if it hasn't finished within
+// lastTurnMost, your words go anyway. It runs once the voice has ended, so as not to hold up
+// the hub's link, with only what it was given: the call's model, which it closes, and the
+// call's link.
+type lastTurn struct {
+	calls   *Calls
+	link    *Link // its fields guarded by calls.mu
+	log     func(string)
+	talker  *Talker   // nil if there's none to ask
+	owned   bool      // the talker is closed here
+	pending int       // turns the model is still writing: this one goes once they've ended
+	message string    // the turn
+	words   string    // yours, as heard
+	at      time.Time // when you hung up
+
+	mu     sync.Mutex
+	passed bool
+	over   bool // it has ended: nothing more goes
+}
+
+func (l *lastTurn) run() {
+	defer l.calls.closing.Done()
+	why := l.turn()
+	l.mu.Lock()
+	passed := l.passed
+	l.over = true
+	l.mu.Unlock()
+	switch {
+	case passed:
+	case why == "":
+		l.log("after you hung up, it passed nothing on")
+		l.add("Voice", "(after you hung up, passes nothing on)")
+	case l.words == "":
+		l.log("after you hung up, " + why + ", and there are no words of yours to pass on")
+	default:
+		l.log("after you hung up, " + why + ": your words go to the session as heard")
+		l.add("Voice", "(after you hung up, "+why+": your last words go to the session as heard)")
+		l.calls.mu.Lock()
+		l.link.send(strings.ReplaceAll(wordsOnHangUp, "{words}", l.words))
+		l.calls.mu.Unlock()
+	}
+	if l.owned {
+		l.talker.Close()
+	}
+}
+
+// turn has the model take its turn once what it was writing has ended: "" once it has, or why
+// it didn't.
+func (l *lastTurn) turn() string {
+	if l.talker == nil {
+		return "with no model to ask"
+	}
+	deadline := time.After(lastTurnMost)
+	pending, sent := l.pending, false
+	for {
+		if pending == 0 {
+			l.mu.Lock()
+			passed := l.passed
+			l.mu.Unlock()
+			if sent || passed {
+				// Passed already, by the turn it was writing.
+				return ""
+			}
+			if _, err := l.talker.Send(l.message); err != nil {
+				return "it couldn't be asked"
+			}
+			l.log(fmt.Sprintf("%s asked %.2f s after you hung up, told you had", l.talker.Name(), time.Since(l.at).Seconds()))
+			sent, pending = true, 1
+		}
+		select {
+		case e := <-l.talker.Events:
+			if e == nil {
+				return "its Claude Code session ended"
+			}
+			if e["type"] == "result" {
+				pending--
+			}
+		case <-deadline:
+			return "it didn't answer in time"
+		}
+	}
+}
+
+// tool answers the model's tool calls once you've hung up: what it passes goes at once, with
+// your words as heard; nothing else is done.
+func (l *lastTurn) tool(name string, input map[string]any) string {
+	message, _ := input["message"].(string)
+	message = strings.TrimSpace(message)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	switch {
+	case l.over || name != "pass_to_session":
+		return nothingAfterHangUp
+	case message == "":
+		return "Nothing passed: pass_to_session needs a message."
+	}
+	l.passed = true
+	text := message
+	if l.words != "" {
+		text = strings.NewReplacer("{message}", message, "{words}", l.words).Replace(passedOnHangUp)
+	}
+	l.log(fmt.Sprintf("after you hung up, passed to the session %.2f s later: %s", time.Since(l.at).Seconds(), pyrepr(message)))
+	l.add("Voice", "(after you hung up, passes it on)")
+	l.calls.mu.Lock()
+	l.link.send(text)
+	l.calls.mu.Unlock()
+	return passedAfterHangUp
+}
+
+func (l *lastTurn) add(who, text string) {
+	l.calls.mu.Lock()
+	defer l.calls.mu.Unlock()
+	if l.link.transcript != nil {
+		l.link.transcript.add(who, text)
+	}
+}
+
+// goodbye matches what only says goodbye or thanks, and filler a hesitation, a piece of your
+// words at a time.
+var (
+	goodbye = regexp.MustCompile(`^(bye|bye[- ]bye|bye now|bye for now|good ?bye|thanks|thank you|thanks a lot|thank you very much|cheers|see you|see you later|see ya|talk soon|talk to you (soon|later)|later|that's (it|all)|that's all for now)$`)
+	filler  = regexp.MustCompile(`^(um+|uh+)$`)
+)
+
+// justGoodbye says whether your words are only a goodbye, which needs nothing passed on. An
+// "okay" or a "yes" may answer what the voice asked, so it isn't.
+func justGoodbye(text string) bool {
+	pieces := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool { return strings.ContainsRune(".,!?…", r) })
+	bye := false
+	for _, piece := range pieces {
+		piece = strings.TrimSpace(piece)
+		switch {
+		case goodbye.MatchString(piece):
+			bye = true
+		case !filler.MatchString(piece):
+			return false
+		}
+	}
+	return bye
 }
 
 // end ends the voice and waits until it has passed on what you'd heard.
@@ -1303,7 +1580,7 @@ func (v *voice) unheardNews() []string {
 }
 
 func (v *voice) end() {
-	v.inbox.put(endMsg{})
+	v.inbox.put(endMsg{hungUp: true})
 	<-v.done
 }
 

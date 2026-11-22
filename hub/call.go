@@ -698,7 +698,7 @@ func (c *Call) speechStarted() {
 	if c.paused {
 		if c.awaiting {
 			// You've gone on while the model decides: its answer to what you said so far is dropped.
-			c.cut, c.awaiting = c.lastReply+1, false
+			c.cut, c.awaiting = c.nextReply(), false
 			_ = c.agent.send(map[string]any{"type": "interrupted", "call_id": c.id, "reply": c.cut, "heard": ""})
 		}
 		return
@@ -718,7 +718,7 @@ func (c *Call) speechStarted() {
 		c.cut = c.replyNo
 		_ = c.node.send(map[string]any{"type": "speak_cancel", "stream": c.stream})
 	case c.awaiting:
-		c.cut = c.lastReply + 1
+		c.cut = c.nextReply()
 	default:
 		c.replying = false
 		return
@@ -731,6 +731,12 @@ func (c *Call) speechStarted() {
 	c.generation++
 	_ = c.agent.send(map[string]any{"type": "interrupted", "call_id": c.id, "reply": c.cut, "heard": heard})
 	c.say(fmt.Sprintf("interrupted reply %d; you'd heard %q", c.cut, lastRunes(heard, 60)))
+}
+
+// nextReply is the number of the agent's reply to your turn, which hasn't come yet: the one after
+// the last it sent or the hub cut off, as a reply cut off before it came used its number too.
+func (c *Call) nextReply() int {
+	return max(c.lastReply, c.cut) + 1
 }
 
 // resume: the model carries on with reply n, which you stopped. The voice goes back to the

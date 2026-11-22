@@ -327,6 +327,20 @@ voice's audio play out, waits a second more for the phone's own buffer, then tel
 on the call's data channel, and the phone ends the call through CallKit, as the other side
 hanging up. Without that message, the phone would only find its audio lost.
 
+**If you hang up first,** before hearing the voice answer what you said last, or say it would
+pass something on, the model gets one more turn once the call has ended, told that you hung up,
+and what it passes then goes to the session at once, with your words as they were heard. A turn
+it was still writing is stopped first: with Haiku the stop took 0.01 s, and your request reached
+the session 3.6 and 3.9 s after you hung up, in two runs (`TestRealHangUp` in
+`agent/real_test.go`). If it hasn't finished within 20 s, your words go anyway, as heard. A
+goodbye and nothing else ("Thanks, bye.") passes nothing, without asking the model; words with
+an "okay" or a "yes" go to the model, as they may answer what the voice asked. An answer to a
+permission or a question isn't given once you've hung up: the terminal asks, as before. The
+transcript says what happened.
+Before, only what you'd heard announced went, and the model was stopped mid-turn: on a call, a
+request said 2 s before hanging up ("ask the session about …, call me back with the answer")
+reached the session as nothing but the call's outcome.
+
 ### The caller's name
 
 A call rings with the session's project, the folder it started in, and its title in Claude
@@ -1047,6 +1061,9 @@ with a certificate, or a private certificate authority installed on each device 
 - **After a reboot,** on a Mac the hub and the agent start only once you log in (launchd
   agents), and with FileVault and no automatic login, not before someone does; nothing has
   been tried through a reboot yet, on a Mac or on Linux.
+- **Words said as you hang up** go through one more turn of the model on the Mac, of up to
+  20 s: an agent restarted meanwhile loses them, and the model may pass on something you'd only
+  asked the voice, which then calls you back about it.
 - **Development builds** use Apple's sandbox push environment, and their provisioning profiles
   expire; Xcode needs device support for the phone's iOS version.
 
@@ -1219,7 +1236,12 @@ how things look):
 - Interruption Sensitivity and Ignore Background Noise, with real noise or someone talking
   near you;
 - calls, asks and messages surviving a restart of the agent or the hub;
-- a stop with no words making the voice carry on.
+- a stop with no words making the voice carry on;
+- your last words reaching the session when you hang up before the voice has answered them, or
+  before you've heard it say it would pass something on (the agent's tests, and
+  `TestRealHangUp` with the real Haiku, stopped mid-turn: it passed your request on itself
+  3.6–3.9 s after the hang-up), and the call not ending on a goodbye you went on before hearing (the
+  hub's and the agent's tests); not on a call yet.
 
 ## Next
 
@@ -1324,19 +1346,14 @@ host unable to read their calls.
   made LF, all but the two in `include/core/providers`, which the node doesn't read; and the
   same version's `onnxruntime-linux-x64-glibc2_17-MinSizeRel-1.28.2.zip` from
   `csukuangfj/onnxruntime-libs`, with which the node built the same binary.
-- [ ] **Words said just before a call ends are lost** (found 2026-11-22, not fixed). If you
-  hang up while the model is still working on your last turn (on the call that showed it, 2 s
-  after "ask the session about …, call me back"), `voice.close()` (`agent/voice.go`) passes
-  only what the model had already handed over and you'd heard announced, then stops the model
-  mid-turn: your request reaches the session as nothing but the call's outcome note. Messages
-  held until heard are dropped the same way, so hanging up in the 3–4 s before "I'll pass that
-  on" loses one too; a turn took 3 to 19 s to reach the session (median 8 s, 32 passes).
-  Neither the mishearing on that call nor "call me back" caused it. The fix: when a call ends
-  with your last turn unanswered, or a held message unheard, give the model one short turn in
-  the background, told that you hung up; a pass it makes goes at once, with your words as
-  heard; if it doesn't answer in time, your words go anyway; a bare goodbye passes nothing.
-  It must not block the hub's read loop (`ended()` runs on it), and the transcript should say
-  what happened. Tests: a hang-up 2 s after a request, and one before the announcement was
-  heard (both fail today), and a hang-up after a goodbye (passes, and must stay so). Seen
-  beside it, not diagnosed: the voice spoke once after hanging up (`answer()` may take "not
-  cut off" for "heard it all", which could pass a message you never heard).
+- [ ] **Words said just before a call ends reach the session** (Ending the call, "If you hang up
+  first"). Found on a call of 2026-11-22: hung up 2 s after "ask the session about …, call me
+  back", the request reached the session as nothing but the call's outcome, as the agent
+  stopped the model mid-turn and passed only what you'd heard announced. Now the model gets one
+  more turn, told you hung up, and what it passes goes at once, with your words as heard; your
+  words go anyway after 20 s; a bare goodbye passes nothing. Seen beside it, the voice spoke
+  once after hanging up: you went on before hearing its goodbye, and the hub, cutting the reply
+  still to come, named the one it had cut before, which never came, so the goodbye played; the
+  agent then took "not cut off" for "heard it all", hung up, and answered you. The hub now names
+  the next reply after both (`nextReply` in `hub/call.go`), and the agent counts only what you
+  heard. Built; left: trying it on a call.

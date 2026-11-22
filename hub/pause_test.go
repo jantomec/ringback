@@ -79,3 +79,48 @@ func TestSentenceStart(t *testing.T) {
 		}
 	}
 }
+
+// interruptedReply is the reply named in the next `interrupted` the agent got.
+func interruptedReply(t *testing.T, got chan map[string]any) int {
+	t.Helper()
+	for {
+		select {
+		case m := <-got:
+			if m["type"] == "interrupted" {
+				n, _ := m["reply"].(float64)
+				return int(n)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("the agent wasn't told of an interruption")
+			return 0
+		}
+	}
+}
+
+// Going on twice while the model decides, as on a call of 2026-11-22: the first cut a reply that
+// never came, so the agent's next reply has the number after it, and the second must cut that
+// one. It named the cut reply again, so the next reply was spoken and hung up the call.
+func TestGoingOnAgainCutsTheNextReply(t *testing.T) {
+	for _, paused := range []bool{true, false} {
+		agent, got := recorder(t, false)
+		c := &Call{id: "again", short: "again", agent: agent, lastReply: 2}
+		if paused {
+			c.replying, c.replyNo, c.paused = true, 2, true
+		}
+		c.turn("Oh okay.", 0.4, 0.1, false)
+		c.speechStarted()
+		if n := interruptedReply(t, got); n != 3 {
+			t.Fatalf("paused %v: going on cut reply %d, want 3", paused, n)
+		}
+		c.speechStopped()
+		c.turn("All right, that's it.", 1.9, 0.1, true)
+		c.speechStarted()
+		if n := interruptedReply(t, got); n != 4 {
+			t.Fatalf("paused %v: going on again cut reply %d, want 4, the agent's next", paused, n)
+		}
+		c.write(4, "Talk soon!")
+		if c.replying && c.replyNo == 4 {
+			t.Fatalf("paused %v: the reply cut off is spoken", paused)
+		}
+	}
+}

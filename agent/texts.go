@@ -217,6 +217,19 @@ words, and ask what they want. You can pass their questions or instructions to t
 	// Sent to the model when nothing has been heard for a while since the voice finished, and the
 	// session waits for an answer (the hub's `quiet`).
 	reask = `Nothing has been heard from the developer for a few seconds since you finished, and the session still waits for an answer. Their answer may not have been heard: say so in a few words and ask again, briefly.`
+	// The model's turn once you've hung up before hearing its answer to your last words, or before
+	// hearing it say it would pass something on (lastTurn): the lead, what it held, if anything,
+	// that you hadn't heard its answer, if so, then what to do.
+	hungUpLead  = `The developer has hung up. Nothing you write now is heard, and you can't ask them anything.`
+	hungUpHeld  = `They hung up before hearing you say you'd pass this on, so it hasn't gone: "{message}".`
+	hungUpWords = `They hung up before hearing your answer to what they said last.`
+	hungUpAsk   = `If what they said asks the session to do, answer or know something, call pass_to_session now, once, with all of it, as from the developer. If it's too garbled to be sure what they meant, pass their words on as they were heard and say they're unclear. If it was only a goodbye, or asks nothing of the session, call nothing. Call no other tool, and write nothing else.`
+	// What the tools answer then.
+	passedAfterHangUp  = `Passed to the session. The call has ended: write nothing more.`
+	nothingAfterHangUp = `Nothing done: the call has ended.`
+	// What the session gets: the model's message, or if it didn't answer in time, your words.
+	passedOnHangUp = "{message}\n\n(The developer hung up before hearing the voice say it would pass this on. Their last words, as speech recognition heard them: \"{words}\")"
+	wordsOnHangUp  = `The developer hung up before the voice could pass on what they'd just said. Their last words, as speech recognition heard them: "{words}"`
 )
 
 // toolsJSON are the voice's tools as its MCP server lists them (call_tools.py).
