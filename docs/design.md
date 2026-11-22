@@ -1324,3 +1324,19 @@ host unable to read their calls.
   made LF, all but the two in `include/core/providers`, which the node doesn't read; and the
   same version's `onnxruntime-linux-x64-glibc2_17-MinSizeRel-1.28.2.zip` from
   `csukuangfj/onnxruntime-libs`, with which the node built the same binary.
+- [ ] **Words said just before a call ends are lost** (found 2026-11-22, not fixed). If you
+  hang up while the model is still working on your last turn (on the call that showed it, 2 s
+  after "ask the session about …, call me back"), `voice.close()` (`agent/voice.go`) passes
+  only what the model had already handed over and you'd heard announced, then stops the model
+  mid-turn: your request reaches the session as nothing but the call's outcome note. Messages
+  held until heard are dropped the same way, so hanging up in the 3–4 s before "I'll pass that
+  on" loses one too; a turn took 3 to 19 s to reach the session (median 8 s, 32 passes).
+  Neither the mishearing on that call nor "call me back" caused it. The fix: when a call ends
+  with your last turn unanswered, or a held message unheard, give the model one short turn in
+  the background, told that you hung up; a pass it makes goes at once, with your words as
+  heard; if it doesn't answer in time, your words go anyway; a bare goodbye passes nothing.
+  It must not block the hub's read loop (`ended()` runs on it), and the transcript should say
+  what happened. Tests: a hang-up 2 s after a request, and one before the announcement was
+  heard (both fail today), and a hang-up after a goodbye (passes, and must stay so). Seen
+  beside it, not diagnosed: the voice spoke once after hanging up (`answer()` may take "not
+  cut off" for "heard it all", which could pass a message you never heard).

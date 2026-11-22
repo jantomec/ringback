@@ -183,6 +183,7 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 - [ ] The caller's name from where the session started and its title: built, to try on the phone
 - [ ] Better speech models: Parakeet stays, writing down whole turns; the voice is now Qwen3; both to try on a call
 - [ ] The speech node's installer can't fetch ONNX Runtime's headers: Microsoft's repository answers 404; until it's back, copy the folder from another node
+- [ ] Words said just before a call ends are lost: the last turn, unanswered when you hang up, never reaches the session
 
 <details>
 <summary><b>Repository and development</b></summary>
