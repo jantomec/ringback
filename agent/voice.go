@@ -57,6 +57,15 @@ var (
 	strayMarker = regexp.MustCompile(`(?i)\[(wait|continue)(?:\s+\d+(?:\.\d+)?\s*(?:s|secs?|seconds?)?)?\]\s*`)
 )
 
+// A reply told in parts has partMark between them; once a part has played, the next goes
+// after partPause of silence, or your "mm-hmm" (see "Telling in parts" in docs/design.md).
+var partMarks = regexp.MustCompile(`(?i)\s*\[pause\]\s*`)
+
+const (
+	partMark  = "[pause]"
+	partPause = time.Second
+)
+
 // The model's wait for you to go on lasts as many seconds as it says, within waitLeast and
 // waitMost (as the rules tell it); a [wait] with no number, waitBare.
 const (
@@ -220,6 +229,12 @@ type voice struct {
 	written    bool    // the last reply is in the call's transcript
 	cut        bool    // you interrupted the last reply while it was arriving
 	cutOff     *string // what you'd heard of the reply you interrupted
+
+	// A reply told in parts: whether its first part has ended, so what the model writes goes
+	// to later, and once it's written, the parts still to say.
+	parted bool
+	later  string
+	next   []string
 
 	stopped *stoppedReply // the reply you spoke over, until the model decides
 	mark    string        // "wait" or "continue" if the reply being written is only that
@@ -418,6 +433,10 @@ func (v *voice) replyDone() {
 	}
 	wait := v.mark == "wait" && !v.forced
 	said := map[string]any{"type": "said", "call_id": v.callID, "reply": v.current}
+	if len(v.next) > 0 {
+		said["pause"] = partPause.Seconds()
+		v.log(fmt.Sprintf("tells it in %d parts", len(v.next)+1))
+	}
 	if wait {
 		said["waiting"], said["wait"] = true, v.waitFor.Seconds()
 		v.waited = true
@@ -433,6 +452,43 @@ func (v *voice) replyDone() {
 		v.carryOn()
 	}
 	v.forced = false
+	if nothing && len(v.next) > 0 && v.stopped == nil {
+		// Its first part said nothing: the next is the first.
+		v.sayNext("the first was empty")
+	}
+}
+
+// sayNext says the next part of a reply told in parts, as a reply of the voice's own: the model
+// wrote it already, so it goes at once, and the model hears of it only if you then say more
+// than "mm-hmm".
+func (v *voice) sayNext(why string) {
+	part := v.next[0]
+	v.next = v.next[1:]
+	v.replies++
+	v.current, v.reply, v.unspoken, v.written, v.cut, v.quiet, v.mark = v.replies, "", "", false, false, false, ""
+	v.ack, v.opener, v.heardWords, v.cutOff = "", nil, nil, nil
+	v.hearing, v.heard, v.idle, v.waited = true, "", false, false
+	if text := v.sentence(part); text != "" {
+		v.out(map[string]any{"type": "say", "call_id": v.callID, "reply": v.current, "text": text})
+	}
+	v.writeReply()
+	said := map[string]any{"type": "said", "call_id": v.callID, "reply": v.current}
+	if len(v.next) > 0 {
+		said["pause"] = partPause.Seconds()
+	}
+	v.out(said)
+	v.log("says its next part, " + why)
+}
+
+// dropParts drops the parts of a reply told in parts that haven't been said: you spoke first.
+func (v *voice) dropParts() {
+	if len(v.next) == 0 {
+		return
+	}
+	rest := strings.Join(v.next, " ")
+	v.next = nil
+	v.log("drops the parts it hadn't said: " + pyrepr(prefix(rest, 80)))
+	v.addTranscript("Not said, you spoke first", rest)
 }
 
 // carryOn has the voice go on with the reply you stopped, from the start of the sentence it
@@ -456,6 +512,7 @@ func (v *voice) carryOn() {
 // The model was told so with your words.
 func (v *voice) answersYou() {
 	v.stopped = nil
+	v.dropParts()
 	var older, now []*held
 	for _, h := range v.held {
 		if h.turn == v.turn {
@@ -496,7 +553,16 @@ func (v *voice) speak(text string) {
 // have ended: "2." of "2.5"), and none that names a tool. The hub speaks only whole sentences
 // anyway, so holding back the one being written costs no time.
 func (v *voice) speakable(text string) string {
+	if v.parted {
+		v.later += text
+		return ""
+	}
 	v.unspoken += text
+	if i := strings.Index(strings.ToLower(v.unspoken), partMark); i >= 0 {
+		// The first part ends here: it's said as a take of its own, and the rest waits for you.
+		v.later, v.unspoken, v.parted, v.breakNow = v.unspoken[i+len(partMark):], strings.TrimRight(v.unspoken[:i], " \t\n"), true, true
+		return v.flush()
+	}
 	spoken := ""
 	for {
 		n := matchEndOfSentence(v.unspoken)
@@ -518,7 +584,7 @@ func (v *voice) flush() string {
 
 // sentence is a sentence of the reply as it's spoken: nothing if it names a tool.
 func (v *voice) sentence(s string) string {
-	s = strayMarker.ReplaceAllString(s, "")
+	s = partMarks.ReplaceAllString(strayMarker.ReplaceAllString(s, ""), " ")
 	if toolNamed.MatchString(s) {
 		v.log("not spoken, names a tool: " + pyrepr(strings.TrimSpace(s)))
 		return ""
@@ -545,6 +611,14 @@ func (v *voice) nextText(e event) string {
 			v.mark, v.waitFor, v.unspoken = strings.ToLower(m[1]), waitFor(m[2]), ""
 		}
 		text := v.flush()
+		if v.parted {
+			for _, part := range partMarks.Split(v.later, -1) {
+				if part = strings.TrimSpace(strayMarker.ReplaceAllString(part, "")); part != "" {
+					v.next = append(v.next, part)
+				}
+			}
+			v.parted, v.later = false, ""
+		}
 		if v.unsaid != "" {
 			v.log("not spoken, after passing a message: " + pyrepr(strings.TrimSpace(v.unsaid)))
 			v.unsaid = ""
@@ -560,6 +634,12 @@ func (v *voice) nextText(e event) string {
 		kind := block["type"]
 		said := ""
 		if kind == "tool_use" {
+			if v.parted {
+				// Parts don't mix with tools: what it held is said now, with the rest.
+				v.unspoken = strings.TrimRight(v.unspoken, " \t\n") + " " + strings.TrimLeft(v.later, " \t\n")
+				v.parted, v.later = false, ""
+				v.log("tells it whole, as it calls a tool")
+			}
 			// What it wrote before the tool is all it says first.
 			said = v.flush()
 			v.breakNow = true
@@ -696,6 +776,18 @@ func (v *voice) onTurn(text string, interrupted, again bool) {
 		v.carryOn()
 		return
 	}
+	if len(v.next) > 0 && v.stopped == nil && len(v.parts) == 0 && v.unfinished == 0 &&
+		((empty && !again) || (justListening(text) && !strings.Contains(v.reply, "?"))) {
+		// Between the parts of a reply told in parts, a "mm-hmm", or a noise, means go on: the
+		// next part goes at once, and the model needn't think about it.
+		why := "after a noise"
+		if !empty {
+			v.addTranscript("Developer", text)
+			why = "after " + pyrepr(text)
+		}
+		v.sayNext(why)
+		return
+	}
 	if empty && (v.stopped != nil || !interrupted || v.recoveries >= maxRecoveries) {
 		v.log("a stop with no words, left unanswered")
 		if v.pending == 0 {
@@ -752,6 +844,10 @@ func (v *voice) heardAgain(text string) string {
 // unheard, the voice asks again, once for each. Or the model chose to wait, and you didn't go on
 // in the time it gave you (the hub times it): it answers what you said.
 func (v *voice) onQuiet(waited bool) {
+	if waited && len(v.next) > 0 && v.unfinished == 0 && v.stopped == nil && len(v.parts) == 0 {
+		v.sayNext("after a second of silence")
+		return
+	}
 	if waited {
 		if v.waited && v.unfinished == 0 {
 			v.waited, v.forced, v.due = false, true, true
@@ -795,7 +891,7 @@ func (v *voice) tryAnswer() {
 	if !v.opened || v.ended || v.unfinished > 0 || v.switching || v.hangingUp || v.talker == nil {
 		return
 	}
-	if v.due || (v.idle && !v.waited && (len(v.parts) > 0 || v.handingOver)) {
+	if v.due || (v.idle && !v.waited && len(v.next) == 0 && (len(v.parts) > 0 || v.handingOver)) {
 		v.answer()
 	}
 }
@@ -820,6 +916,17 @@ func (v *voice) answer() {
 			// You'd heard it end the call: nothing more is said, and your words wait for the
 			// call to end (afterHangUp).
 			return
+		}
+	}
+	if len(v.next) > 0 {
+		// You spoke while it told you something in parts: the model hears what you hadn't heard.
+		// Over a part, the parts follow if it carries on; between parts, they're dropped.
+		rest := strings.Join(v.next, " ")
+		if v.stopped != nil {
+			note += "[" + strings.ReplaceAll(partsStopped, "{rest}", rest) + "]\n"
+		} else {
+			note += "[" + strings.ReplaceAll(partsDropped, "{rest}", rest) + "]\n"
+			v.dropParts()
 		}
 	}
 	if v.handingOver {
@@ -898,7 +1005,7 @@ func (v *voice) answer() {
 // given the session's news by then, you've heard that news. A reply you cut off doesn't
 // count, nor one with nothing said.
 func (v *voice) heardNews() {
-	if v.newsGiven == 0 || v.current < v.newsReply || v.writing || v.cut || words(v.reply) == 0 ||
+	if v.newsGiven == 0 || v.current < v.newsReply || v.writing || v.cut || len(v.next) > 0 || words(v.reply) == 0 ||
 		words(v.heard) < words(v.reply) {
 		return
 	}
@@ -910,6 +1017,7 @@ func (v *voice) heardNews() {
 // send sends a turn to the model, as reply number reply.
 func (v *voice) send(message string, reply int) {
 	v.reply, v.unspoken, v.written, v.cut, v.quiet, v.mark, v.waitFor = "", "", false, false, false, "", 0
+	v.parted, v.later = false, ""
 	v.ack, v.opener = "", nil
 	v.turn++
 	// From your first words on, the model's tool calls are yours to pass on (see model.go).

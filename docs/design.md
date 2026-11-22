@@ -308,18 +308,30 @@ numbers, nothing read out that's meant to be seen (tables, lists, code), detail 
 rather than recited, and your words read in context, since speech recognition gets
 similar-sounding words wrong, technical ones especially.
 
-**Telling in parts.** With several things to tell, the voice says how many, gives the first,
-and goes on to the next once you've responded, where a "mm-hmm" or "okay" is enough; it ends
-each turn on its point or on one question. That's how people pass on a lot over the phone:
-in installments, each acknowledged before the next (Clark and Brennan, "Grounding in
-communication", 1991). A turn stays at about 40 words at most: the listening studies favour
-short replies, and only Clark and Brennan back saying more per turn when changing speaker is
-costly, as here. With a briefing of three updates and a question, the voice before told all
-of it in a 47-word opening, waited in silence after "Mm-hmm.", and repeated its question after
-"Okay."; now it opened with "Three things are done. First, the parser fix is merged into main,
-and the nightly build passes." (17 words), and each "mm-hmm" or "okay" brought the next
-(`TestRealInstallments` in `agent/real_test.go`, Opus 5.5, once each). Each part costs a
-turn's wait, about 2.5–3.5 s after you've spoken; making that cheaper is next.
+**Telling in parts.** With several things to tell, the voice gives one at a time, and goes
+on to the next once you've responded, where a "mm-hmm" or "okay" is enough; the first part
+says how many there are, each ends on its point, and only the last on a question. That's how
+people pass on a lot over the phone: in installments, each acknowledged before the next
+(Clark and Brennan, "Grounding in communication", 1991). A part stays at about 40 words at
+most: the listening studies favour short replies, and only Clark and Brennan back saying more
+per turn when changing speaker is costly, as here.
+
+The model writes all the parts in one reply, with `[pause]` between them, so the next part is
+ready before you respond, as a person has their next sentence ready. The first is said as soon
+as it's written; once it has played, the next goes as soon as you say "mm-hmm", "okay" or the
+like, or make a noise with no words, or after a second of silence, with no turn of the
+model's: so about 0.7 s after your "mm-hmm" ends, rather than the 2.5–3.5 s a turn takes. If
+you say anything else, the parts not yet said are dropped, and your words go to the model with
+them, so it knows what you haven't heard; if you speak over a part, the model is told the
+parts after it too, which follow if it carries on. A reply that also calls a tool is said
+whole, so what it holds goes once you've heard it said, as before. With a briefing of three
+updates and a question, the voice before told all of it in a 47-word opening, waited in
+silence after "Mm-hmm.", and repeated its question after "Okay."; told to go one at a time it
+opened with 17 words, and each "mm-hmm" or "okay" brought the next, at a turn's wait each; in
+parts, it opened with "Three things since we last talked. First, the parser fix is merged into
+main, and the nightly build passes." and the next parts came with no turn at all
+(`TestRealInstallments` in `agent/real_test.go`, Opus 5.5, once each). The second's pause was
+timed by the hub at 1.00 s after the part had played (`tools/hub-check`).
 
 ### Ending the call
 
@@ -337,7 +349,8 @@ The voice hangs up too, through the model, so its goodbye is its own words, not 
   the model said "Sure, I'll ask the session about the next release and call you back when it
   answers. Bye for now!", and with "I'll wait on the line" it stayed on (`TestRealCallsBack`
   and `TestRealStaysOn` in `agent/real_test.go`, Opus 5.5, once each). The session's answer
-  then comes as its next call, which waits out the minute between calls.
+  then comes as its next call, which rings at once: it doesn't wait out the minute between
+  calls.
 
 The model calls `end_call` last, after its goodbye. Like the other tools, it's held until
 you've heard the reply to its end, and dropped if you speak first: then the call goes on, and
@@ -473,7 +486,10 @@ meanwhile waits in turn until then, with the time ("Rings at 14:05" in the app),
 asks the first in turn again when the rest is over. It matters more now that the voice hangs
 up once only the session's work is left, which can be done within the minute. A call you make
 yourself doesn't wait, and starts the rest again when it ends; one you didn't answer doesn't
-start it, as nothing rings until it does again anyway. The rest is kept in the hub's memory
+start it, as nothing rings until it does again anyway. Nor does the session's answer to what
+the voice passed on, which it said it would call back with: once something is passed on and
+its answer hasn't come back to the call, the session's next call within the hour brings it, and
+rings as soon as the line is free, ahead of the calls waiting out the rest. The rest is kept in the hub's memory
 only, so a hub restarted meanwhile forgets it.
 
 **A call you don't answer** rings again 5 min, 20 min, 1 h, 2½ h and 6 h after it
@@ -1280,8 +1296,12 @@ how things look):
   yet;
 - the banners in Sessions as well as Recents (`tools/app-screens`);
 - the voice saying it'll call back once the session has answered, and hanging up, rather than
-  waiting on the line (`TestRealCallsBack` and `TestRealStaysOn`, Opus 5.5, once each); not on
-  a call yet.
+  waiting on the line (`TestRealCallsBack` and `TestRealStaysOn`, Opus 5.5, once each), and the
+  session's answer then ringing without waiting out the minute between calls (the hub's and
+  the agent's tests); not on a call yet;
+- the voice telling several things in parts, the next said at your "mm-hmm" or after a second
+  of silence, without a turn of the model's (the agent's tests, `tools/hub-check` for the
+  pause, and `TestRealInstallments` with Opus 5.5, once); not on a call yet.
 
 ## Next
 
@@ -1403,10 +1423,11 @@ host unable to read their calls.
   seeing it on the phone.
 - [ ] **The voice calls back rather than wait on the line** (Ending the call): once only the
   session's answer is left, it says it'll call back when the session has answered, and hangs
-  up. Built; left: trying it on a call.
+  up; that call doesn't wait out the minute between calls. Built; left: trying it on a call.
 - [ ] **The voice's style from real phone calls** (Telling in parts): a message in parts,
-  each answered before the next. Built; left: trying it on calls, and making the wait between
-  parts shorter, as by having the next part ready for your "mm-hmm".
+  each answered before the next, with the next ready for your "mm-hmm". Built; left: trying
+  it on calls. Not tried: a short "Mm." while the model writes, and replies made ready for a
+  yes or a no to the voice's question, which would cost a model turn and a take each.
 - [ ] **The agent troubleshooting its link with a session:** when the session shows in the app
   but the agent's messages don't reach it, or its answers don't come back, the agent finds
   where they stop. To design.

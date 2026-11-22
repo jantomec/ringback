@@ -150,7 +150,11 @@ func fromAgent(l *link, message map[string]any) {
 					wait = time.Duration(seconds * float64(time.Second))
 				}
 			}
-			c.written(n, wait)
+			var pause time.Duration
+			if seconds, ok := message["pause"].(float64); ok && seconds > 0 {
+				pause = time.Duration(seconds * float64(time.Second))
+			}
+			c.written(n, wait, pause)
 		case "resume":
 			c.resume(n)
 		case "hang_up":

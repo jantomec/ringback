@@ -426,6 +426,18 @@ async def main() -> int:
         check(f"each time the voice started, the node heard so: {len(node.of('speaking'))} of {len(mine)}",
               len(node.of("speaking")) == len(mine) >= 3)  # fmt: skip
 
+        # A reply in parts: once a part has played, and you've stayed silent for the pause the
+        # agent gave, it hears so, and says the next part itself.
+        idles = len(agent.of("idle"))
+        await agent.ws.send_json({"type": "say", "call_id": call_id, "reply": 9, "text": "Two things. First, it builds."})
+        await agent.ws.send_json({"type": "said", "call_id": call_id, "reply": 9, "pause": 1.0})
+        await until(lambda: len(agent.of("idle")) > idles, 10)
+        idle_at = [t for t, m in agent.got if m["type"] == "idle"][-1]
+        await until(lambda: len(agent.of("quiet")) == 3, 3)
+        paused = [t - idle_at for t, m in agent.got if m["type"] == "quiet"][-1]
+        check(f"after a part, the agent hears you stayed silent {paused:.2f} s after it played: {agent.of('quiet')[2:]}",
+              0.9 <= paused < 1.6 and agent.of("quiet")[2].get("waited") is True)  # fmt: skip
+
         # Hanging up: the agent hears how long you talked.
         talked = time.monotonic() - t0
         await phone.hang_up()

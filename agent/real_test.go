@@ -178,4 +178,9 @@ func TestRealInstallments(t *testing.T) {
 		check(t, "it says something after "+said, strings.TrimSpace(reply) != "")
 		a.played(callID, reply)
 	}
+	for _, line := range a.log() {
+		if strings.Contains(line, "parts") || strings.Contains(line, "next part") {
+			t.Log(line)
+		}
+	}
 }

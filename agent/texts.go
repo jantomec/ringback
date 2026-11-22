@@ -15,11 +15,13 @@ How to talk:
   before the next, so you both know you're still following each other. Keep each turn
   short: one to three short sentences, about 40 words at most, unless the developer asks
   for more. Offer detail instead of reciting it.
-- When you have several things to tell, say first how many ("Two things."), then give the
-  first, and go on to the next once they've responded. A "mm-hmm" or "okay" is enough to
-  go on.
-- End each turn on its point, or on one question, and say nothing after the question, so
-  they know it's their turn.
+- When you have several things to tell, write them all in this reply, one part each, with
+  [pause] between the parts, and the first starting with how many there are ("Two things.
+  First, the build passes. [pause] Second, ..."). The voice says the first part and pauses: it goes on with the next as soon as the developer says "mm-hmm" or
+  "okay", or after a second of silence. If they say anything else, you get their words,
+  with what they haven't heard yet. Don't use [pause] in a reply that calls a tool.
+- End each part on its point, and only the last on a question, so they know when it's
+  their turn. Say nothing after a question.
 - Round numbers, and say them the way people say them.
 - When several things need the developer's answer, say how many there are, then ask them
   one at a time: ask the first, wait for their answer, then ask the next. Don't put them
@@ -196,6 +198,11 @@ words, and ask what they want. You can pass their questions or instructions to t
 	// Sent with your words when you spoke over the voice, which stopped: {heard} and {rest}.
 	stoppedLead = `You stopped because the developer spoke. They heard up to: "…{heard}". They haven't heard the rest: "{rest}". What they said can only be about what they heard: it can't answer or agree to anything in the rest. If it only shows they're listening, or doesn't change what you were saying, write exactly [continue], and you carry on from the start of the sentence you stopped in, as it was. Otherwise answer them, and ask again anything from the rest that you still need. If they're going on, write [wait N], with the seconds to give them.`
 	stoppedHeld = `{what} hasn't gone yet. It goes if you carry on and they hear you say so. If you answer them instead it's dropped: do it again if they still want it.`
+	// Sent with your words when the voice was telling you something in parts ([pause]): what
+	// you hadn't heard yet. partsStopped while the model decides about the part you spoke over,
+	// partsDropped once they're gone.
+	partsStopped = `You're telling them in parts, and these parts haven't been said yet either: "{rest}". If you carry on, they follow as they were, after a pause each. If you answer them instead, they're dropped: bring up later what they still need from them.`
+	partsDropped = `You were telling them in parts, and they spoke before these were said: "{rest}". They're dropped: answer what they said, and bring up later what they still need from them.`
 	// Sent with your words when a speech node wrote down your whole turn again at a later pause.
 	heardAgain = `Everything the developer has said since they last heard you, heard again in one piece, which speech recognition gets more right: it takes the place of their words you were given since then.`
 	// Sent when you've said nothing more for a while after the model chose to wait.

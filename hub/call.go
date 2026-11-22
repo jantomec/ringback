@@ -107,6 +107,9 @@ type Call struct {
 	lastReply       int  // the highest number of a reply the agent has sent
 	cut             int  // replies up to this number were cut off: what more comes of them is dropped
 	awaiting        bool // your turn went to the agent, and nothing of its reply has come yet
+	// The reply is a part of several the agent has ready: once it has played, if you stay
+	// silent this long, the agent is told (waited), and says the next.
+	pause           time.Duration
 	cutThisTurn     bool // the voice was cut off since your last turn
 	paused          bool // you spoke over the voice: it's stopped, and the rest of its reply is kept
 	pausedAt        time.Time
@@ -485,6 +488,11 @@ func (c *Call) checkIdle() {
 	_ = c.agent.send(map[string]any{"type": "idle", "call_id": c.id})
 	c.quietSince++
 	go c.quiet(c.quietSince)
+	if c.pause > 0 {
+		// A part has played: the next goes after this much silence (or your "mm-hmm").
+		go c.waited(c.quietSince, c.pause)
+		c.pause = 0
+	}
 }
 
 // quiet tells the agent, once, that the voice has been idle for quietAfter and you haven't
@@ -531,7 +539,7 @@ func (c *Call) write(n int, text string) {
 			c.say(fmt.Sprintf("reply %d answers you, so the rest of reply %d is dropped", n, c.replyNo))
 		}
 		c.replying, c.replyNo, c.text, c.handed, c.replyEnded, c.due = true, n, "", 0, false, false
-		c.pieces, c.heardSent, c.played = nil, "", nil
+		c.pieces, c.heardSent, c.played, c.pause = nil, "", nil, 0
 		c.generation++
 	}
 	c.text += text
@@ -552,8 +560,9 @@ func (c *Call) breakReply(n int) {
 }
 
 // written: reply n is complete. wait: it said nothing, as the model waits this long for you to
-// go on (0 if it doesn't).
-func (c *Call) written(n int, wait time.Duration) {
+// go on (0 if it doesn't). pause: it's a part, and the agent has the next ready: once it has
+// played, the agent hears if you've stayed silent this long (0 if it isn't).
+func (c *Call) written(n int, wait, pause time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.ended || n <= c.cut {
@@ -570,7 +579,7 @@ func (c *Call) written(n int, wait time.Duration) {
 		}
 		return
 	}
-	c.replyEnded = true
+	c.replyEnded, c.pause = true, pause
 	c.handOver()
 	c.checkIdle()
 }
@@ -723,7 +732,7 @@ func (c *Call) speechStarted() {
 		c.replying = false
 		return
 	}
-	c.replying, c.awaiting, c.queue, c.pieces, c.text, c.heardSent, c.played = false, false, nil, nil, "", "", nil
+	c.replying, c.awaiting, c.queue, c.pieces, c.text, c.heardSent, c.played, c.pause = false, false, nil, nil, "", "", nil, 0
 	c.cutThisTurn = true
 	if c.phone {
 		c.playing = false // it stops at speak_cancel, and says nothing more of those pieces
