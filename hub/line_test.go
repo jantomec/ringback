@@ -380,3 +380,30 @@ func TestLineCallBackThroughAHold(t *testing.T) {
 		t.Errorf("taking calls again, it rings or waits otherwise: %v %q", held, why)
 	}
 }
+
+// A call that brings a session's answer to what the voice passed on, which it said it would
+// call back with, doesn't wait for the line's rest after the call, nor behind a call that does;
+// any other call waits.
+func TestLineAnswerSkipsTheRest(t *testing.T) {
+	resetLine(t)
+	saved := now()
+	defer setClock(saved)
+	lineMu.Lock()
+	callGap = time.Minute
+	lineMu.Unlock()
+	afterRest = func(func()) {}
+
+	placeAs(t, callA, "session-a")
+	phoneSays(callA, "answered")
+	phoneSays(callA, "ended")
+	if why, _ := placeAs(t, callB, "session-b"); why != inTurn {
+		t.Errorf("another session's call waits for the rest: %q", why)
+	}
+	stateMu.Lock()
+	answer, err := placeCall("line-mac", map[string]any{"project": "demo", "call_id": callC, "subject": "The answer",
+		"session_id": "session-a", "answer": true})
+	stateMu.Unlock()
+	if err != nil || answer["held"] == true {
+		t.Errorf("the session's answer rings at once: %v %v", answer, err)
+	}
+}

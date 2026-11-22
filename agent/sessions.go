@@ -175,13 +175,20 @@ func (l *Link) send(text string) {
 	if l.transcript != nil {
 		l.transcript.add("Passed to the session", text)
 	}
+	// Until its answer comes back to the call, the session owes it: its next call brings it.
+	l.calls.owed[l.session] = time.Now().Add(owedFor)
 }
+
+// owedFor is how long a session's next call counts as bringing its answer to what the voice
+// passed on, which it did say it would call back with.
+const owedFor = time.Hour
 
 // newsPrefix starts the note that tells the voice the session's news, so the voice can tell
 // whether you heard it (see heardNews).
 const newsPrefix = "The session: "
 
 func (l *Link) news(text string) {
+	delete(l.calls.owed, l.session)
 	if l.transcript != nil {
 		l.transcript.add("The session's answer", text)
 	}
@@ -549,7 +556,10 @@ type Call struct {
 	// no time.
 	HeldUntil string
 	// It rang and you didn't answer: held to ring again, it can be called back.
-	Rang    bool               `json:",omitempty"`
+	Rang bool `json:",omitempty"`
+	// It brings the session's answer to what a call's voice passed on, which the voice said it
+	// would call back with: it doesn't wait for the line's rest after the call (owed).
+	Answers bool               `json:",omitempty"`
 	holding context.CancelFunc // asks the hub again
 	// Signalled while held, to ask the hub again at once: a question joined the call.
 	reask chan struct{}
@@ -617,10 +627,13 @@ type Calls struct {
 	asks    ordered[*Ask]        // what sessions ask you, by its id
 	// What each session asked on calls you didn't answer, by id, until you answer one of its
 	// calls or it's withdrawn or answered elsewhere.
-	pool    map[string]*ordered[*Ask]
-	past    ordered[pastCall]  // forgotten calls, and when, for a day
-	seen    ordered[time.Time] // when each session's mod last collected
-	started time.Time          // when the agent started, as the sessions' mods find it again
+	pool map[string]*ordered[*Ask]
+	past ordered[pastCall]  // forgotten calls, and when, for a day
+	seen ordered[time.Time] // when each session's mod last collected
+	// The sessions that owe you an answer to what a call's voice passed on, until when: their
+	// next call brings it (Call.Answers).
+	owed    map[string]time.Time
+	started time.Time // when the agent started, as the sessions' mods find it again
 	// Since when each session listens (Unix seconds), and its project and folder, as its mod
 	// says them when it collects: the app's Sessions tab.
 	since   map[string]float64
@@ -640,6 +653,7 @@ func newCalls(hub placer, log func(string), state string) *Calls {
 	return &Calls{
 		hub: hub, log: log, state: state, waiting: map[string][]Message{}, pool: map[string]*ordered[*Ask]{},
 		since: map[string]float64{}, named: map[string][2]string{}, changed: make(chan struct{}, 1), started: time.Now(),
+		owed: map[string]time.Time{},
 	}
 }
 
@@ -651,9 +665,12 @@ func (c *Calls) logCall(call *Call, line string) { c.log("call " + prefix(call.I
 // hub knows from the start whether it has a question.
 func (c *Calls) place(session, project, cwd, subject, briefing string, ask *Ask) (*Call, error) {
 	c.mu.Lock()
+	answers := time.Now().Before(c.owed[session])
+	delete(c.owed, session)
 	for _, held := range c.calls.list() {
 		if held.Session == session && held.HeldUntil != "" {
 			held.Project, held.Cwd, held.Subject, held.Briefing = project, cwd, subject, briefing
+			held.Answers = held.Answers || answers
 			held.At = unixNow()
 			held.Link.rebriefed()
 			c.logCall(held, fmt.Sprintf("still held %s, with a new briefing: %s", until(held.HeldUntil), subject))
@@ -664,7 +681,7 @@ func (c *Calls) place(session, project, cwd, subject, briefing string, ask *Ask)
 	}
 	call := &Call{
 		ID: token(), Session: session, Project: project, Cwd: cwd, Subject: subject, Briefing: briefing,
-		Placed: time.Now(), At: unixNow(), Asked: []string{}, reask: make(chan struct{}, 1),
+		Placed: time.Now(), At: unixNow(), Asked: []string{}, reask: make(chan struct{}, 1), Answers: answers,
 	}
 	call.Link = c.newLink(call)
 	if ask != nil {
@@ -725,6 +742,9 @@ func (c *Calls) askHub(call *Call, question bool) (string, error) {
 	message := map[string]any{
 		"type": "place", "call_id": call.ID, "project": callerName(call.Project, c.titles.of(call.Session)), "subject": call.Subject,
 		"session_id": call.Session, "question": question,
+	}
+	if call.Answers {
+		message["answer"] = true
 	}
 	c.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -76,3 +76,38 @@ func TestDeclinedCallWaits(t *testing.T) {
 	reply := hub.request(map[string]any{"type": "offer", "call_id": callID, "kind": "back"})
 	check(t, "and it can be called back", reply["ok"] == true, reply)
 }
+
+// The voice passes something on and the call ends before the session answers: the session's
+// next call brings that answer, so the hub is told, and it doesn't wait for the line's rest.
+// Only that one call; and not if the answer came back on the call.
+func TestOwedAnswerSkipsTheRest(t *testing.T) {
+	hub := newFakeHub(t)
+	a := startAgent(t, hub, "")
+	callID := onCall(t, a, "o1-session",
+		fakeReply{Match: "push it", Steps: []fakeStep{say("I'll have it push, and call you back."), tool("pass_to_session", map[string]any{"message": "Push it."})}},
+	)
+	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "Yes, push it."})
+	text, _ := hub.reply(callID, 2, 5*time.Second)
+	a.played(callID, text)
+	a.waitMessage("o1-session", "message", 3*time.Second)
+	hub.send(map[string]any{"type": "ended", "call_id": callID, "lasted": 20.0})
+	a.waitMessage("o1-session", "outcome", 3*time.Second)
+
+	placed := func(session string) map[string]any {
+		from := hub.mark()
+		status, _ := a.mod("POST", "/calls", map[string]any{"session_id": session, "project": "demo", "cwd": a.project(),
+			"subject": "Pushed", "briefing": "It's pushed."})
+		if status != 200 {
+			t.Fatalf("placing: %d", status)
+		}
+		m, _ := hub.wait(from, 3*time.Second, is("place"))
+		return m
+	}
+	first := placed("o1-session")
+	check(t, "the session's answer is a call that brings it", first != nil && first["answer"] == true, first)
+	hub.send(map[string]any{"type": "missed", "call_id": first["call_id"], "reason": "declined", "tries": 1})
+	a.waitMessage("o1-session", "outcome", 3*time.Second)
+	a.collect("o2-session")
+	other := placed("o2-session")
+	check(t, "another session's call doesn't", other != nil && other["answer"] == nil, other)
+}

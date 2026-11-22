@@ -12,7 +12,10 @@ package main
 //
 // Once a call you were on ends, the line rests for callGap before a session's next call rings,
 // so you can think about the last one first: a call placed meanwhile waits in turn until the
-// rest is over, and the first in turn is asked again then. Calls you make yourself don't wait.
+// rest is over, and the first in turn is asked again then. Calls you make yourself don't wait,
+// nor does a call that brings a session's answer to what a call's voice passed on, which the
+// voice said it would call back with: it rings while the line is free, ahead of the calls in
+// turn, though not before a missed call's next try.
 
 import (
 	"fmt"
@@ -78,9 +81,10 @@ func resting(t time.Time) string {
 // lineWaits is why a call that would ring waits for the line, and until when ("" if it rings
 // now): a missed call before its next try, or after its last; and any call while another rings
 // or is on, while a missed call waits to ring again, while calls placed before it wait their
-// turn, or, until a time, while the line rests after a call. entry is the call's own on the
-// waiting calls, if it's there. The caller holds stateMu.
-func lineWaits(callID string, entry map[string]string, waiting map[string]map[string]string) (string, string) {
+// turn, or, until a time, while the line rests after a call; neither of the last two if it
+// brings an answer.
+// entry is the call's own on the waiting calls, if it's there. The caller holds stateMu.
+func lineWaits(callID string, entry map[string]string, waiting map[string]map[string]string, answer bool) (string, string) {
 	t := now()
 	switch entry["reason"] {
 	case callBack, declined:
@@ -107,11 +111,11 @@ func lineWaits(callID string, entry map[string]string, waiting map[string]map[st
 			if !ownMissed || other["reason"] == callBack {
 				return inTurn, ""
 			}
-		case other["reason"] == inTurn && !ownMissed && before(id, other, callID, entry):
+		case other["reason"] == inTurn && !ownMissed && !answer && before(id, other, callID, entry):
 			return inTurn, ""
 		}
 	}
-	if until := resting(t); until != "" {
+	if until := resting(t); until != "" && !answer {
 		return inTurn, until
 	}
 	return "", ""

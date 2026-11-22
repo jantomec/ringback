@@ -295,7 +295,8 @@ func placeCall(mac string, body map[string]any) (map[string]any, error) {
 	question, _ := body["question"].(bool)
 	waiting := freshWaiting()
 	entry := waiting[callID]
-	if why, until := lineWaits(callID, entry, waiting); why != "" {
+	answer, _ := body["answer"].(bool)
+	if why, until := lineWaits(callID, entry, waiting, answer); why != "" {
 		if _, err := holdCall(callID, project, subject, voice, until, question, session, why); err != nil {
 			return nil, err
 		}
