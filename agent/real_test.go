@@ -48,13 +48,14 @@ func TestRealHaiku(t *testing.T) {
 	t.Logf("outcome: %v", outcome["text"])
 }
 
-// You hang up half a second after asking for something, with the real Haiku still on its
+// You hang up half a second after asking for something, with the real model still on its
 // answer: it's stopped, told you hung up, and passes your words on itself, rather than your
-// words going as heard once its time is up. Three turns of Haiku.
+// words going as heard once its time is up. Three turns of Claude Code's default model (it
+// runs with no settings, so no --model): Opus 5.5 on 2026-11-22.
 // RINGBACK_REAL_CLAUDE=1 go test -run RealHangUp -v
 func TestRealHangUp(t *testing.T) {
 	if os.Getenv("RINGBACK_REAL_CLAUDE") == "" {
-		t.Skip("RINGBACK_REAL_CLAUDE=1 runs it, with three turns of Haiku")
+		t.Skip("RINGBACK_REAL_CLAUDE=1 runs it, with three turns of the default model")
 	}
 	old := claudeCommand
 	claudeCommand = "claude"
@@ -83,4 +84,65 @@ func TestRealHangUp(t *testing.T) {
 	if len(messages) == 1 {
 		check(t, "about the release plan", strings.Contains(strings.ToLower(messages[0]["text"].(string)), "release"), messages[0])
 	}
+}
+
+// You ask for something only the session can answer, and nothing else needs you: the real
+// model says it'll call you back once the session has answered, passes it on and ends the
+// call, rather than keeping you on the line. Two turns of the default model.
+// RINGBACK_REAL_CLAUDE=1 go test -run RealCallsBack -v
+func TestRealCallsBack(t *testing.T) {
+	if os.Getenv("RINGBACK_REAL_CLAUDE") == "" {
+		t.Skip("RINGBACK_REAL_CLAUDE=1 runs it, with two turns of the default model")
+	}
+	old := claudeCommand
+	claudeCommand = "claude"
+	t.Cleanup(func() { claudeCommand = old })
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	os.Unsetenv("CLAUDE_CONFIG_DIR")
+	hub := newFakeHub(t)
+	a := startAgent(t, hub, "")
+	a.collect("real-callback")
+	callID, _ := a.placeCall("real-callback", "Parser fix merged",
+		"The parser fix is merged, and the nightly build passes. Nothing waits for the developer.")
+	opening := a.answer(callID)
+	t.Logf("opening: %s", opening)
+	a.played(callID, opening)
+	from := hub.mark()
+	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "Ask the session when the next release is planned."})
+	reply, ok := hub.reply(callID, 2, 60*time.Second)
+	t.Logf("reply: %s", reply)
+	check(t, "it answered", ok && strings.TrimSpace(reply) != "")
+	t.Log(a.waitLog("→ session, held until heard:", 5*time.Second))
+	check(t, "it ends the call", a.logged_("ends the call, held until heard"), "\n"+strings.Join(a.log(), "\n"))
+	check(t, "saying it'll call back", strings.Contains(strings.ToLower(reply), "call"), reply)
+	hub.send(map[string]any{"type": "speaking", "call_id": callID})
+	hub.send(map[string]any{"type": "heard", "call_id": callID, "text": reply})
+	passed := a.waitMessage("real-callback", "message", 5*time.Second)
+	t.Logf("passed: %v", passed["text"])
+	hungUp, _ := hub.wait(from, 5*time.Second, is("hang_up"))
+	check(t, "and once you've heard it, the hub is told to hang up", hungUp != nil)
+}
+
+// The same, but you ask to wait on the line: it passes it on and stays on. Two turns of the
+// default model. RINGBACK_REAL_CLAUDE=1 go test -run RealStaysOn -v
+func TestRealStaysOn(t *testing.T) {
+	if os.Getenv("RINGBACK_REAL_CLAUDE") == "" {
+		t.Skip("RINGBACK_REAL_CLAUDE=1 runs it, with two turns of the default model")
+	}
+	old := claudeCommand
+	claudeCommand = "claude"
+	t.Cleanup(func() { claudeCommand = old })
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	os.Unsetenv("CLAUDE_CONFIG_DIR")
+	hub := newFakeHub(t)
+	a := startAgent(t, hub, "")
+	a.collect("real-stayson")
+	callID, _ := a.placeCall("real-stayson", "Parser fix merged",
+		"The parser fix is merged, and the nightly build passes. Nothing waits for the developer.")
+	a.played(callID, a.answer(callID))
+	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "Ask the session when the next release is planned. I'll wait on the line."})
+	reply, _ := hub.reply(callID, 2, 60*time.Second)
+	t.Logf("reply: %s", reply)
+	t.Log(a.waitLog("→ session, held until heard:", 5*time.Second))
+	check(t, "it doesn't end the call", !a.logged_("ends the call"), "\n"+strings.Join(a.log(), "\n"))
 }

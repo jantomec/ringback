@@ -129,6 +129,9 @@ const (
 	// you call its session (as every call does meanwhile). Until then, a call you didn't answer
 	// is held until its next try, a time.
 	callBack = "call back"
+	// declined is a held call's heldUntil after you declined it: the hub put the phones on
+	// hold, and it waits until you call its session; other calls ring once you take calls.
+	declined = "declined"
 	// cancelledBy starts what askHub gives for a call you cancelled, with where you did
 	// ("phone" or "portal"); it's never a held call's heldUntil.
 	cancelledBy = "cancelled by "
@@ -542,7 +545,7 @@ type Call struct {
 	Talker   *Talker
 	deadline context.CancelFunc // forgets it if it isn't answered
 	// Outside your work hours, or after you didn't answer it: when the hub said the call can
-	// ring (ISO 8601, with an offset), until it rings; onHold, noSpeech, inTurn or callBack with
+	// ring (ISO 8601, with an offset), until it rings; onHold, noSpeech, inTurn, callBack or declined with
 	// no time.
 	HeldUntil string
 	// It rang and you didn't answer: held to ring again, it can be called back.
@@ -746,7 +749,7 @@ func (c *Calls) askHub(call *Call, question bool) (string, error) {
 	if heldUntil, _ := reply["held_until"].(string); heldUntil != "" {
 		return heldUntil, nil
 	}
-	if reason, _ := reply["reason"].(string); reason == noSpeech || reason == inTurn || reason == callBack {
+	if reason, _ := reply["reason"].(string); reason == noSpeech || reason == inTurn || reason == callBack || reason == declined {
 		return reason, nil
 	}
 	if held, _ := reply["held"].(bool); held {
@@ -965,6 +968,10 @@ func missedNote(call *Call, heldUntil string, tries int) string {
 	if heldUntil == callBack {
 		return about + " wasn't answered after " + rings + ". It doesn't ring again: it waits until the developer " +
 			"calls the session back, and other calls wait with it."
+	}
+	if heldUntil == declined {
+		return about + " was declined, so the developer's calls are on hold until they take calls again. It doesn't " +
+			"ring again: it waits until the developer calls the session."
 	}
 	at := heldUntil
 	if t, err := time.Parse(time.RFC3339, heldUntil); err == nil {
@@ -1845,6 +1852,9 @@ func until(heldUntil string) string {
 	if heldUntil == callBack {
 		return "until you call its session back"
 	}
+	if heldUntil == declined {
+		return "declined, until you call its session"
+	}
 	return "until " + heldUntil
 }
 
@@ -1857,7 +1867,7 @@ func heldFields(heldUntil string) map[string]any {
 	if heldUntil == onHold {
 		return map[string]any{"held": true}
 	}
-	if heldUntil == noSpeech || heldUntil == inTurn || heldUntil == callBack {
+	if heldUntil == noSpeech || heldUntil == inTurn || heldUntil == callBack || heldUntil == declined {
 		return map[string]any{"held": true, "reason": heldUntil}
 	}
 	return map[string]any{"held": true, "held_until": heldUntil}

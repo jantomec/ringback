@@ -28,7 +28,7 @@ struct RootView: View {
                     .toolbarVisibility(.hidden, for: .tabBar)
             }
             Tab("Sessions", systemImage: "terminal.fill", value: Page.sessions) {
-                SessionsView(state: state, calls: calls)
+                SessionsView(state: state, push: push, calls: calls)
                     .toolbarVisibility(.hidden, for: .tabBar)
             }
         }

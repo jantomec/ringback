@@ -146,7 +146,7 @@ func TestLineRetries(t *testing.T) {
 	if why, _ := placeAs(t, callA, "session-a"); why != "" {
 		t.Fatalf("held: %s", why)
 	}
-	phoneSays(callA, "declined")
+	phoneSays(callA, "missed")
 	for i, after := range []time.Duration{20 * time.Minute, time.Hour, 150 * time.Minute, 6 * time.Hour} {
 		if !heldTill(t, callA, "session-a") {
 			t.Fatalf("before try %d, it didn't stay held", i+2)
@@ -293,5 +293,90 @@ func TestLineRests(t *testing.T) {
 	stateMu.Unlock()
 	if resting || len(rested) != 2 {
 		t.Errorf("a call you didn't answer makes the line rest: %v, %d", resting, len(rested))
+	}
+}
+
+// heldWhy places a call as its agent asks again, and says whether it's held, and why.
+func heldWhy(t *testing.T, callID, session string) (bool, string) {
+	t.Helper()
+	stateMu.Lock()
+	defer stateMu.Unlock()
+	answer, err := placeCall("line-mac", map[string]any{"project": "demo", "call_id": callID, "subject": "About " + session,
+		"session_id": session})
+	if err != nil {
+		t.Fatal(err)
+	}
+	why, _ := answer["reason"].(string)
+	return answer["held"] == true, why
+}
+
+func holdAll(on bool) {
+	stateMu.Lock()
+	defer stateMu.Unlock()
+	holdEveryPhone(on)
+}
+
+// A call you decline puts every phone on hold, and waits until you call its session; once you
+// take calls again, the others ring, and it still waits, however often its agent asks about it
+// while on hold.
+func TestLineDeclined(t *testing.T) {
+	resetLine(t)
+	saved := now()
+	defer setClock(saved)
+
+	if why, _ := placeAs(t, callA, "session-a"); why != "" {
+		t.Fatalf("held: %s", why)
+	}
+	phoneSays(callA, "declined")
+	if got := waitingEntry(callA); got["reason"] != declined || got["held_until"] != "" {
+		t.Fatalf("declined, it waits with no time to ring: %v", got)
+	}
+	if held, _ := heldUntil(now()); !held {
+		t.Fatal("declining doesn't put the phones on hold")
+	}
+	if held, why := heldWhy(t, callB, "session-b"); !held || why != "" {
+		t.Errorf("another call is held, on hold: %v %q", held, why)
+	}
+	for range 3 { // half an hour on hold, asked about as its agent does
+		advance(10 * time.Minute)
+		if held, _ := heldWhy(t, callA, "session-a"); !held {
+			t.Fatal("on hold, the declined call rings")
+		}
+	}
+	if got := waitingEntry(callA)["reason"]; got != declined {
+		t.Fatalf("on hold, it no longer waits as declined: %q", got)
+	}
+	holdAll(false)
+	if held, why := heldWhy(t, callA, "session-a"); !held || why != declined {
+		t.Errorf("taking calls again, it still waits: %v %q", held, why)
+	}
+	if held, why := heldWhy(t, callB, "session-b"); held {
+		t.Errorf("but the other call rings: %q", why)
+	}
+	phoneSays(callB, "answered")
+	phoneSays(callB, "ended")
+	lineOffered(callA, "now")
+	if waitingEntry(callA) != nil {
+		t.Error("called now, it no longer waits")
+	}
+}
+
+// A call past its last try still waits until you call its session after a time on hold.
+func TestLineCallBackThroughAHold(t *testing.T) {
+	resetLine(t)
+	saved := now()
+	defer setClock(saved)
+
+	stateMu.Lock()
+	holdCall(callA, "demo", "About session-a", "line-mac", "", false, "session-a", callBack)
+	stateMu.Unlock()
+	holdAll(true)
+	advance(10 * time.Minute)
+	if held, _ := heldWhy(t, callA, "session-a"); !held {
+		t.Fatal("on hold, it rings")
+	}
+	holdAll(false)
+	if held, why := heldWhy(t, callA, "session-a"); !held || why != callBack {
+		t.Errorf("taking calls again, it rings or waits otherwise: %v %q", held, why)
 	}
 }

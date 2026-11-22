@@ -60,3 +60,19 @@ func TestCallingTheSessionDropsMissed(t *testing.T) {
 	note := a.waitMessage("s8-session", "outcome", 3*time.Second)
 	check(t, "and its session hears why", note["text"] == `The call about "Deploy" wasn't answered, and the developer called the session since, so it doesn't ring again.`, note)
 }
+
+// A call you decline waits until you call its session: it doesn't ring again by itself, and
+// its session is told your calls are on hold.
+func TestDeclinedCallWaits(t *testing.T) {
+	hub := newFakeHub(t)
+	a := startAgent(t, hub, "")
+	a.collect("s9-session")
+	callID, _ := a.placeCall("s9-session", "Tests pass", "The tests pass.")
+	hub.send(map[string]any{"type": "missed", "call_id": callID, "reason": "declined", "tries": 1})
+	note := a.waitMessage("s9-session", "outcome", 3*time.Second)
+	check(t, "its session is told", note["text"] == `The call about "Tests pass" was declined, so the developer's calls are on hold `+
+		"until they take calls again. It doesn't ring again: it waits until the developer calls the session.", note)
+	a.waitLog("call "+callID[:8]+": not answered (ring 1), held declined, until you call its session", time.Second)
+	reply := hub.request(map[string]any{"type": "offer", "call_id": callID, "kind": "back"})
+	check(t, "and it can be called back", reply["ok"] == true, reply)
+}

@@ -184,6 +184,11 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 - [ ] Better speech models: Parakeet stays, writing down whole turns; the voice is now Qwen3; both to try on a call
 - [ ] The speech node's installer can't fetch ONNX Runtime's headers: Microsoft's repository answers 404; until it's back, copy the folder from another node
 - [ ] Words said just before a call ends reach the session: built, to try on a call
+- [ ] A call you decline puts calls on hold, and waits until you call it: built, to try on the phone
+- [ ] "Claude can't call you" on both tabs: built, to see on the phone
+- [ ] The voice calls back rather than wait on the line: built, to try on a call
+- [ ] The voice's style from real phone calls: being researched
+- [ ] The agent troubleshooting its link with a session: to design
 
 <details>
 <summary><b>Repository and development</b></summary>

@@ -10,7 +10,7 @@ simulator without signing, and a UI test. The app shows the samples only in a de
 when launched with `-RingbackSeed calls`, `problem`, `paired`, `speech` or `setup`
 (`app/Ringback/Seed.swift`); then it doesn't reach a hub and asks for no permissions. The
 test saves, for each appearance:
-- `recents`: waiting calls (one with a question, one without) under Waiting, and under
+- `recents`: waiting calls (one with a question, one without, and one you declined) under Waiting, and under
   Calls, calls answered, missed, declined, called back, called from Sessions, one that
   didn't connect, one on another call, from today, yesterday, this week and earlier; and the
   hold switch beside the tabs, on hold until tomorrow's work hours;
@@ -31,7 +31,7 @@ test saves, for each appearance:
   of what each showed you that you haven't opened; `session-shown`, what a card opens: what
   its session showed; `session-menu`, a card held, and `session-details`, from its Details;
 - `banner`: Recents while the hub can't be reached, with Try Again, and the hold
-  switch taking calls until 19:00;
+  switch taking calls until 19:00; `sessions-banner`, Sessions then, with the same banner;
 - `speech-banner`: no speech computer linked, a call waiting for it, and the microphone off:
   the speech banner with "1 More Problem", then `speech-banner-all` with both;
 - `paired`: the sheet a phone shows once it has paired from the hub's portal;

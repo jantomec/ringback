@@ -155,7 +155,11 @@ enum Switchboard {
     /// Reports a call event, stamped with when it happened here, and retries until the
     /// hub confirms it. Asks iOS for background time so a report from a locked phone
     /// can finish.
-    static func report(callID: String, event: String, extra: [String: String] = [:], at: Date = .now) {
+    /// then runs once the hub has it, as to fetch the hold a decline put on.
+    static func report(
+        callID: String, event: String, extra: [String: String] = [:], at: Date = .now,
+        then: (@MainActor () async -> Void)? = nil
+    ) {
         var body = extra
         body["call_id"] = callID
         body["event"] = event
@@ -165,7 +169,10 @@ enum Switchboard {
             defer { UIApplication.shared.endBackgroundTask(task) }
             for delay in retryDelays {
                 try? await Task.sleep(for: .seconds(delay))
-                if (try? await post("events", body)) != nil { return }
+                if (try? await post("events", body)) != nil {
+                    await then?()
+                    return
+                }
             }
         }
     }

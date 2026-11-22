@@ -491,6 +491,7 @@ async function showHeld($: EngineInterface, heldUntil: unknown, reason?: unknown
   const why: Record<string, string> = {
     'in turn': 'Another call rings or is on, or waits before this one: the call rings after them.',
     'call back': "A call you didn't answer waits for you to call its session back: the call rings after that.",
+    declined: 'You declined the call, so calls are on hold: it waits for you to call this session from the phone.',
     'no speech': "The speech computer isn't linked to the hub: the call rings once it is.",
   }
   if (typeof reason === 'string' && why[reason]) {

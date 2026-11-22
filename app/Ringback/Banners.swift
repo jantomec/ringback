@@ -1,13 +1,15 @@
 import SwiftUI
 import UIKit
 
-/// What Recents shows above the calls, only while something's wrong: the app isn't set up or
+/// What Recents shows above the calls, and Sessions above the sessions, only while something's wrong: the app isn't set up or
 /// the hub hasn't paired with it, calls can't reach the phone (the hub can't be reached, or Apple refused its push), calls
 /// can't be talked through (no speech computer), On-device voice isn't ready, or microphone
 /// access is off. Only the most serious shows, with the others a tap away.
 struct Banners: View {
     let state: AppState
     let push: PushService
+    /// Among Sessions' cards, on the grouped background, rather than in a plain list.
+    var onCards = false
     @AppStorage(ConnectionCheck.lastWarnedKey) private var lastConnectionWarning = 0.0
     /// Try Again is checking, after a failed check: the banner stays meanwhile.
     @State private var isRetrying = false
@@ -54,6 +56,7 @@ struct Banners: View {
     var body: some View {
         let found = problems
         ForEach(showsAll ? found : Array(found.prefix(1)), id: \.self, content: banner)
+            .environment(\.bannerOnCards, onCards)
             // So the banner goes once it's mended: ask again every 10 s while it shows.
             .task(id: hubProblem) {
                 while hubProblem, !Task.isCancelled {
@@ -173,6 +176,7 @@ private struct Banner<Action: View>: View {
     let title: String
     let message: String
     @ViewBuilder let action: Action
+    @Environment(\.bannerOnCards) private var onCards
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -185,8 +189,13 @@ private struct Banner<Action: View>: View {
             Spacer(minLength: 0)
         }
         .padding(14)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+        .background(Color(onCards ? .secondarySystemGroupedBackground : .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
         .listRowSeparator(.hidden)
         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
     }
+}
+
+extension EnvironmentValues {
+    /// A banner drawn among Sessions' cards takes their background.
+    @Entry var bannerOnCards = false
 }

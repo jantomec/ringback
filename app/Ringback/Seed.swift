@@ -70,6 +70,9 @@ enum Seed {
             WaitingCall(
                 id: "w2", project: "docs-site", subject: "Docs site rebuilt, three links fixed", voice: mac,
                 heldUntil: tomorrow, session: Self.ids["docs-site"]!),
+            WaitingCall(
+                id: "w4", project: "ringback", subject: "Weak signal stats ready", voice: mac, heldUntil: nil,
+                session: Self.ids["ringback"]!, reason: "declined"),
         ]
         state.contacts = [
             Contact(

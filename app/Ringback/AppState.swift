@@ -71,7 +71,9 @@ struct WaitingCall: Identifiable, Equatable {
     /// another call rings or is on, or waits before it, as one rings at a time, or, with
     /// heldUntil, the last call you were on ended less than a minute ago; "missed", you
     /// didn't answer it, and it rings again at heldUntil; "call back", you didn't answer its
-    /// last try, and it waits until you call its session, as every call does meanwhile.
+    /// last try, and it waits until you call its session, as every call does meanwhile;
+    /// "declined", you declined it, which put your calls on hold, and it waits until you call its
+    /// session.
     var reason: String?
 
     var callerName: String { project }
@@ -87,7 +89,7 @@ struct WaitingCall: Identifiable, Equatable {
                 return sentence ? heldUntil.ringsLabel : heldUntil.formatted(date: .omitted, time: .shortened)
             }
             return sentence ? "after the call before it" : "After the call before it"
-        case "call back": return nil
+        case "call back", "declined": return nil
         case "missed":
             let at = heldUntil?.formatted(date: .omitted, time: .shortened) ?? ""
             return sentence ? "again \(heldUntil?.ringsLabel ?? "soon")" : "Again at \(at)"

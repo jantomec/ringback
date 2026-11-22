@@ -126,6 +126,9 @@ struct WaitingDetailsView: View {
                     if call.reason == "call back" {
                         Text("You didn't answer it, nor when it rang again. No call rings until you call it, or its session, back.")
                     }
+                    if call.reason == "declined" {
+                        Text("You declined it, so your calls went on hold. It doesn't ring again: it waits until you call it, or its session.")
+                    }
                     if call.question {
                         Text("The session asks you a question, and waits for your answer.")
                     }

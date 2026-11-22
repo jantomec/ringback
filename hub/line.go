@@ -2,10 +2,11 @@ package main
 
 // The line: every Mac's calls ring one at a time. While a call rings or you're on one, a call
 // that would ring is held in turn, as a held call is (its agent keeps it and asks again), and
-// once the line is free the first of those is asked again, so it rings. A call you decline or
-// miss rings again 5 min, 20 min, 1 h, 2½ h and 6 h after it first rang (held, missed, until
-// then), and until it does nothing else rings; after its last try it waits until you call its
-// session back, and so does every other call. Calling the session back, or calling the waiting
+// once the line is free the first of those is asked again, so it rings. A call you miss rings
+// again 5 min, 20 min, 1 h, 2½ h and 6 h after it first rang (held, missed, until then), and
+// until it does nothing else rings; after its last try it waits until you call its session
+// back, and so does every other call. A call you decline puts every phone on hold, and waits
+// until you call its session (declined); the others ring once you take calls again. Calling the session back, or calling the waiting
 // call now, takes it off the waiting calls (state.go), which keep the calls held in turn and
 // those missed, with when each was first held, how often it has rung and when it first did.
 //
@@ -24,6 +25,7 @@ const (
 	inTurn   = "in turn"   // the line is busy, or calls wait before it
 	missed   = "missed"    // you didn't answer: it rings again at held_until
 	callBack = "call back" // you didn't answer its last try: it waits until you call its session
+	declined = "declined"  // you declined it: the phones went on hold, and it waits until you call its session
 )
 
 // retries are when a call you didn't answer rings again, after its first ring; at least
@@ -81,8 +83,8 @@ func resting(t time.Time) string {
 func lineWaits(callID string, entry map[string]string, waiting map[string]map[string]string) (string, string) {
 	t := now()
 	switch entry["reason"] {
-	case callBack:
-		return callBack, ""
+	case callBack, declined:
+		return entry["reason"], ""
 	case missed:
 		if due, ok := parseISO8601(entry["held_until"]); ok && t.Before(due) {
 			return missed, entry["held_until"]
@@ -207,8 +209,9 @@ func lineEnded(callID string) {
 
 // lineUnanswered: the phone declined or missed the call on the line, or said nothing of it in
 // time: it's held to ring again at its next try, or after its last until you call its session
-// back, and its agent is told. The line is free, but nothing rings meanwhile. The caller holds
-// stateMu.
+// back, and its agent is told. The line is free, but nothing rings meanwhile. Declined, every
+// phone goes on hold, and it waits until you call its session, without holding the others up.
+// The caller holds stateMu.
 func lineUnanswered(callID, how string) {
 	lineMu.Lock()
 	c := onLine
@@ -219,7 +222,14 @@ func lineUnanswered(callID, how string) {
 	onLine = nil
 	lineMu.Unlock()
 	reason, next := callBack, ""
-	if c.tries <= len(retries) {
+	if how == "declined" {
+		reason = declined
+		if n, err := holdEveryPhone(true); err != nil {
+			log("call " + prefix(callID, 8) + ": declined, but the phones can't go on hold: " + err.Error())
+		} else if n > 0 {
+			log(fmt.Sprintf("call %s: declined, so %s on hold", prefix(callID, 8), plural(n, "phone goes", "phones go")))
+		}
+	} else if c.tries <= len(retries) {
 		at := c.firstRang.Add(retries[c.tries-1])
 		if gap := now().Add(retryGap); at.Before(gap) {
 			at = gap
@@ -245,7 +255,9 @@ func lineUnanswered(callID, how string) {
 		log("call " + prefix(callID, 8) + ": can't keep it waiting: " + err.Error())
 	}
 	tries := plural(c.tries, "ring", "rings")
-	if next != "" {
+	if reason == declined {
+		log(fmt.Sprintf("call %s: declined, after %s; it waits until you call its session", prefix(callID, 8), tries))
+	} else if next != "" {
 		at, _ := parseISO8601(next)
 		log(fmt.Sprintf("call %s: not answered (%s), after %s; rings again at %s, nothing else rings meanwhile",
 			prefix(callID, 8), how, tries, timeOfDay(at.Local())))

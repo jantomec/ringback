@@ -564,6 +564,8 @@ func waitingViews(calls []map[string]any) []waitingView {
 			wv.Why, wv.Rings = "Not answered", "Rings again at "+isoAhead(until)+"; nothing else rings before"
 		case call["reason"] == callBack:
 			wv.Why, wv.Rings = "Not answered after its last try", "Waits until you call its session; so does every call"
+		case call["reason"] == declined:
+			wv.Why, wv.Rings = "Declined", "Waits until you call its session"
 		case until != "":
 			wv.Why, wv.Rings = "On hold", "Rings at "+isoAhead(until)
 		default:

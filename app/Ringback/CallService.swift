@@ -243,7 +243,10 @@ final class CallService: NSObject, CXProviderDelegate {
     // MARK: Ending calls
 
     /// Ends our record of a call and tells the hub, with what its audio did.
-    private func finish(_ uuid: UUID, _ outcome: CallRecord.Outcome, event: String, extra: [String: String] = [:]) {
+    private func finish(
+        _ uuid: UUID, _ outcome: CallRecord.Outcome, event: String, extra: [String: String] = [:],
+        then: (@MainActor () async -> Void)? = nil
+    ) {
         let link = links.removeValue(forKey: uuid)
         connecting.removeValue(forKey: uuid)?.cancel()
         ringingAudio[uuid] = nil
@@ -266,9 +269,9 @@ final class CallService: NSObject, CXProviderDelegate {
             call.endedAt = .now
             if let duration = call.duration { extra["duration_s"] = String(format: "%.1f", duration) }
         }
-        guard let link else { return Switchboard.report(callID: callID, event: event, extra: extra) }
+        guard let link else { return Switchboard.report(callID: callID, event: event, extra: extra, then: then) }
         link.stop { [extra] stats in
-            Switchboard.report(callID: callID, event: event, extra: extra.merging(stats) { mine, _ in mine })
+            Switchboard.report(callID: callID, event: event, extra: extra.merging(stats) { mine, _ in mine }, then: then)
         }
     }
 
@@ -853,7 +856,14 @@ final class CallService: NSObject, CXProviderDelegate {
                 }
             }
             let outcome = answered ? endedOutcome(action.callUUID) : .declined
-            finish(action.callUUID, outcome, event: answered ? "ended" : "declined")
+            if answered {
+                finish(action.callUUID, outcome, event: "ended")
+            } else {
+                // Declining puts your calls on hold, as the hub does when it hears of it: the pill
+                // shows it at once, and what the hub says once it has.
+                state.hold = HoldSwitch.remember(HoldState(on: true, until: nil))
+                finish(action.callUUID, outcome, event: "declined") { [state] in await state.refreshWaiting() }
+            }
         }
         action.fulfill()
     }

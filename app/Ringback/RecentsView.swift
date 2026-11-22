@@ -169,7 +169,7 @@ private struct WaitingRow: View {
     }
 
     /// "Rings at 08:00 · subject", or "Question · rings at 08:00 · subject"; "Not answered ·
-    /// call it back" after a call's last try.
+    /// call it back" after a call's last try, and "Declined · call it back" after you declined it.
     private var detail: String {
         if isSending { return "Sending its question to the Claude app…" }
         if isCancelling { return "Cancelling…" }
@@ -177,7 +177,8 @@ private struct WaitingRow: View {
         if let when = call.rings(sentence: true) {
             rings = call.question ? "Question · rings \(when)" : "Rings \(when)"
         } else {
-            rings = call.question ? "Question · not answered · call it back" : "Not answered · call it back"
+            let why = call.reason == "declined" ? "Declined" : "Not answered"
+            rings = call.question ? "Question · \(why.lowercased()) · call it back" : "\(why) · call it back"
         }
         return [rings, call.subject].compactMap { $0 }.joined(separator: " · ")
     }

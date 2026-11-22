@@ -6,9 +6,11 @@ import SwiftUI
 /// many of the things it showed you you haven't opened. Tapping a card opens what it showed
 /// you; its green phone calls it; holding it offers its details. Fetched from the hub every
 /// 3 s while it shows, and on pull to refresh; an agent tells the hub within a
-/// second of a session starting or stopping to listen, and every 30 s.
+/// second of a session starting or stopping to listen, and every 30 s. The banners Recents
+/// shows when something's wrong, as calls that can't reach the phone, show above the cards too.
 struct SessionsView: View {
     let state: AppState
+    let push: PushService
     let calls: CallService
     @Environment(\.scenePhase) private var scenePhase
     @State private var opened: Opened?
@@ -23,6 +25,7 @@ struct SessionsView: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 12) {
+                    Banners(state: state, push: push, onCards: true)
                     ForEach(state.contacts) { contact in
                         SessionCard(
                             contact: contact, waiting: state.waiting.first { $0.session == contact.session },

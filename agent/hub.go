@@ -376,10 +376,11 @@ func (a *agent) handle(m map[string]any) {
 		status, why := a.calls.cancel(id, by)
 		a.hub.answer(m, status, why)
 	case "missed":
-		// You didn't answer a call the hub rang, or declined it: it's held to ring again.
+		// You didn't answer a call the hub rang, or declined it: it's held to ring again, or to
+		// wait until you call its session.
 		heldUntil, _ := m["held_until"].(string)
-		if reason, _ := m["reason"].(string); reason == callBack {
-			heldUntil = callBack
+		if reason, _ := m["reason"].(string); reason == callBack || reason == declined {
+			heldUntil = reason
 		}
 		tries, _ := m["tries"].(float64)
 		a.calls.missed(id, heldUntil, int(tries))

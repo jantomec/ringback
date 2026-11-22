@@ -148,6 +148,9 @@ final class AppScreensUITests: XCTestCase {
         let problem = launch("problem")
         note("connection banner", problem.buttons["Try Again"].waitForExistence(timeout: 10))
         shot("banner")
+        problem.buttons["Sessions"].firstMatch.tap()
+        note("connection banner in Sessions", problem.buttons["Try Again"].waitForExistence(timeout: 5))
+        shot("sessions-banner")
         problem.terminate()
 
         let paired = launch("paired")

@@ -247,7 +247,12 @@ func placeCall(mac string, body map[string]any) (map[string]any, error) {
 			with = ", with a question"
 		}
 		log("call " + prefix(callID, 8) + ": held " + holding + ", every phone on hold" + with)
-		notify, err := holdCall(callID, project, subject, voice, until, question, session, "")
+		// One that waits until you call its session waits so after the hold too (line.go).
+		reason := freshWaiting()[callID]["reason"]
+		if reason != callBack && reason != declined {
+			reason = ""
+		}
+		notify, err := holdCall(callID, project, subject, voice, until, question, session, reason)
 		if err != nil {
 			return nil, err
 		}
@@ -262,6 +267,9 @@ func placeCall(mac string, body map[string]any) (map[string]any, error) {
 		answer := map[string]any{"ok": true, "held": true}
 		if until != "" {
 			answer["held_until"] = until
+		}
+		if reason != "" {
+			answer["reason"] = reason
 		}
 		return answer, nil
 	}
@@ -292,7 +300,8 @@ func placeCall(mac string, body map[string]any) (map[string]any, error) {
 			return nil, err
 		}
 		if entry["reason"] != why || entry["held_until"] != until {
-			how := map[string]string{inTurn: "in turn", missed: "missed, until " + until, callBack: "until you call its session back"}[why]
+			how := map[string]string{inTurn: "in turn", missed: "missed, until " + until, callBack: "until you call its session back",
+				declined: "declined, until you call its session"}[why]
 			if why == inTurn && until != "" {
 				how = "in turn, until the line has rested after the last call, " + until
 			}

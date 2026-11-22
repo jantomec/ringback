@@ -313,10 +313,18 @@ similar-sounding words wrong, technical ones especially.
 The voice hangs up too, through the model, so its goodbye is its own words, not a script:
 
 - **You say goodbye:** it says a short goodbye back, and hangs up. It doesn't sum anything up.
-- **Only the session's work is left,** and you'd only be waiting for its results: the model
-  ends the call itself, without waiting for a goodbye, unless something still waits for your
-  answer. It doesn't sum up the call: it says in a sentence or two what you agreed and what
-  the session will do, then a goodbye. What it passes on in the same reply goes first.
+- **Only the session's work is left,** and you'd only be waiting for its results or its answer:
+  the model ends the call itself, without waiting for a goodbye, unless something still waits
+  for your answer, or you've asked to wait on the line. It doesn't sum up the call: it says in
+  a sentence or two what you agreed and what the session will do, that it'll call you back
+  when the session has answered, then a goodbye. What it passes on in the same reply goes
+  first. On 13 real calls the session's answer came 7 to 63 s after the voice passed your words
+  on, 9 s at the median, and the model's own fillers meanwhile ("While we wait to hear back, is
+  there anything else?") weren't spoken, as nothing after a tool is. Asked about the next release,
+  the model said "Sure, I'll ask the session about the next release and call you back when it
+  answers. Bye for now!", and with "I'll wait on the line" it stayed on (`TestRealCallsBack`
+  and `TestRealStaysOn` in `agent/real_test.go`, Opus 5.5, once each). The session's answer
+  then comes as its next call, which waits out the minute between calls.
 
 The model calls `end_call` last, after its goodbye. Like the other tools, it's held until
 you've heard the reply to its end, and dropped if you speak first: then the call goes on, and
@@ -330,7 +338,7 @@ hanging up. Without that message, the phone would only find its audio lost.
 **If you hang up first,** before hearing the voice answer what you said last, or say it would
 pass something on, the model gets one more turn once the call has ended, told that you hung up,
 and what it passes then goes to the session at once, with your words as they were heard. A turn
-it was still writing is stopped first: with Haiku the stop took 0.01 s, and your request reached
+it was still writing is stopped first: with Opus 5.5 the stop took 0.01 s, and your request reached
 the session 3.6 and 3.9 s after you hung up, in two runs (`TestRealHangUp` in
 `agent/real_test.go`). If it hasn't finished within 20 s, your words go anyway, as heard. A
 goodbye and nothing else ("Thanks, bye.") passes nothing, without asking the model; words with
@@ -455,7 +463,7 @@ yourself doesn't wait, and starts the rest again when it ends; one you didn't an
 start it, as nothing rings until it does again anyway. The rest is kept in the hub's memory
 only, so a hub restarted meanwhile forgets it.
 
-**A call you don't answer**, or decline, rings again 5 min, 20 min, 1 h, 2½ h and 6 h after it
+**A call you don't answer** rings again 5 min, 20 min, 1 h, 2½ h and 6 h after it
 first rang (at least 5 min after its last ring), and until it does, nothing else rings: you
 weren't there, so other calls would only pile up. After its last try it doesn't ring again; it
 waits until you call its session, and so does every other call. The phone says whether you
@@ -464,6 +472,14 @@ counts as missed. Meanwhile the call waits under Waiting in the app ("Rings agai
 its session is told each time, and calling it now, calling it back from Recents, or calling
 its session from Sessions ends the wait: it doesn't ring again, and the next call in turn
 rings once you hang up. Each ring starts a fresh model, as the opening is written for it.
+
+**A call you decline** puts every phone on hold, as the hold switch does, so nothing else rings
+until you take calls again, from the pill or at the next start of your work hours. The call
+itself doesn't ring again: it waits under Waiting ("Declined · call it back") until you call it,
+or its session, or cancel it, and the calls after it ring once you take calls. The app shows
+the hold at once, and its session is told. A call past its last try, or declined, keeps
+waiting so through a time on hold: before, the agent asking about it while on hold made it an
+ordinary held call, which rang once you took calls again.
 
 **Calling back.** Tapping any call in Recents calls its session straight away, without
 ringing, answered calls too. The agent remembers each call for a day, across restarts, and
@@ -481,8 +497,8 @@ with iOS's own Hold & Accept, End & Accept and Decline.
 **The connection check.** If the phone can't reach the hub (its VPN off, say), calls ring
 but can't connect. So every 30 min the hub wakes the app with a background push, and the app
 checks in with the hub. If three tries in about 25 s fail, the app shows a notification
-("Claude can't call you"), again after 3 h if the problem stays, and a banner in Recents until
-the hub is reachable.
+("Claude can't call you"), again after 3 h if the problem stays, and a banner in Recents and
+Sessions until the hub is reachable.
 
 ## What a session asks
 
@@ -979,6 +995,9 @@ with a certificate, or a private certificate authority installed on each device 
   than going to the Claude app at once. You choose from the app.
 - **A missed call holds the others up** until its next try, and after its last until you call
   back, rather than letting them ring meanwhile: you weren't there for the first.
+- **A call you decline puts the phones on hold** and waits for you to call it, rather than
+  ringing again in 5 min: you were there and chose not to take it, so the others wait for you
+  too, and ring once you take calls.
 
 **The app**
 - **Like the Phone app:** Recents and Sessions, with settings in the Settings app, which
@@ -1239,9 +1258,17 @@ how things look):
 - a stop with no words making the voice carry on;
 - your last words reaching the session when you hang up before the voice has answered them, or
   before you've heard it say it would pass something on (the agent's tests, and
-  `TestRealHangUp` with the real Haiku, stopped mid-turn: it passed your request on itself
+  `TestRealHangUp` with the real model, Opus 5.5, stopped mid-turn: it passed your request on itself
   3.6–3.9 s after the hang-up), and the call not ending on a goodbye you went on before hearing (the
-  hub's and the agent's tests); not on a call yet.
+  hub's and the agent's tests); not on a call yet;
+- a call you decline putting the phones on hold and waiting until you call it, with the others
+  ringing once you take calls, and a call past its last try still waiting after a time on hold
+  (the hub's and the agent's tests, the declined row in `tools/app-screens`); not on the phone
+  yet;
+- the banners in Sessions as well as Recents (`tools/app-screens`);
+- the voice saying it'll call back once the session has answered, and hanging up, rather than
+  waiting on the line (`TestRealCallsBack` and `TestRealStaysOn`, Opus 5.5, once each); not on
+  a call yet.
 
 ## Next
 
@@ -1357,3 +1384,16 @@ host unable to read their calls.
   agent then took "not cut off" for "heard it all", hung up, and answered you. The hub now names
   the next reply after both (`nextReply` in `hub/call.go`), and the agent counts only what you
   heard. Built; left: trying it on a call.
+- [ ] **A call you decline puts calls on hold** (A call you decline), and waits under Waiting
+  until you call it. Built; left: trying it on the phone.
+- [ ] **"Claude can't call you" on both tabs**: the banners show in Sessions too. Built; left:
+  seeing it on the phone.
+- [ ] **The voice calls back rather than wait on the line** (Ending the call): once only the
+  session's answer is left, it says it'll call back when the session has answered, and hangs
+  up. Built; left: trying it on a call.
+- [ ] **The voice's style from real phone calls:** a message in parts, each answered before
+  the next, with replies of the length that keeps you in step without waits, and the model
+  getting ready for your likely answer. Being researched.
+- [ ] **The agent troubleshooting its link with a session:** when the session shows in the app
+  but the agent's messages don't reach it, or its answers don't come back, the agent finds
+  where they stop. To design.
