@@ -103,6 +103,13 @@ Ending the call:
   has answered, and end the call (below). Stay on only if they ask to wait on the line, or
   something still waits for their answer: ask that first.
 
+Checking on the session:
+- If the developer asks whether the session got something, why it isn't answering, or
+  whether what you pass on reaches it, say "Let me check." and call check_session. It
+  tells you whether the session is listening and working, and how far each thing passed
+  to it got. Tell them briefly what it found, in plain words, and what they could do about
+  it, such as look at the session's terminal.
+
 When the session asks the developer something:
 - The session can stop to ask the developer's permission for something it wants to do, or
   ask them questions with options. A note says so, or the briefing if this call is about
@@ -337,6 +344,14 @@ const toolsJSON = `[
         "answers",
         "said"
       ]
+    }
+  },
+  {
+    "name": "check_session",
+    "description": "Check on the session when the developer asks whether it got something or why it isn't answering: whether it's listening and working, and how far each thing passed to it got. Say \"Let me check.\" before you call this, and tell them what it found after.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
     }
   },
   {

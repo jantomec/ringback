@@ -144,6 +144,7 @@ const (
 // answer what it asks. Its fields are guarded by the Calls' mu, which the voice takes.
 type Link struct {
 	calls      *Calls
+	call       string // its call's ID
 	session    string
 	transcript *Transcript
 	// Its transcript's path in the project, read from the state file after a restart.
@@ -172,6 +173,7 @@ func (l *Link) send(text string) {
 		transcript = &l.transcript.Relative
 	}
 	l.calls.sendLocked(l.session, text, transcript, "message")
+	l.calls.delivered(l.session, l.call, text, "")
 	if l.transcript != nil {
 		l.transcript.add("Passed to the session", text)
 	}
@@ -189,6 +191,7 @@ const newsPrefix = "The session: "
 
 func (l *Link) news(text string) {
 	delete(l.calls.owed, l.session)
+	l.calls.answered(l.session)
 	if l.transcript != nil {
 		l.transcript.add("The session's answer", text)
 	}
@@ -632,8 +635,12 @@ type Calls struct {
 	seen ordered[time.Time] // when each session's mod last collected
 	// The sessions that owe you an answer to what a call's voice passed on, until when: their
 	// next call brings it (Call.Answers).
-	owed    map[string]time.Time
-	started time.Time // when the agent started, as the sessions' mods find it again
+	owed map[string]time.Time
+	// What was passed to each session and how far it got, and whether it's working, for
+	// check_session (deliveries.go).
+	deliveries map[string][]*delivery
+	turning    map[string]turning
+	started    time.Time // when the agent started, as the sessions' mods find it again
 	// Since when each session listens (Unix seconds), and its project and folder, as its mod
 	// says them when it collects: the app's Sessions tab.
 	since   map[string]float64
@@ -653,7 +660,7 @@ func newCalls(hub placer, log func(string), state string) *Calls {
 	return &Calls{
 		hub: hub, log: log, state: state, waiting: map[string][]Message{}, pool: map[string]*ordered[*Ask]{},
 		since: map[string]float64{}, named: map[string][2]string{}, changed: make(chan struct{}, 1), started: time.Now(),
-		owed: map[string]time.Time{},
+		owed: map[string]time.Time{}, deliveries: map[string][]*delivery{}, turning: map[string]turning{},
 	}
 }
 
@@ -728,7 +735,7 @@ func (c *Calls) callAgain(session, project, cwd string, news []string) {
 
 // newLink is a call's link to its session. The transcript joins it when you answer.
 func (c *Calls) newLink(call *Call) *Link {
-	return &Link{calls: c, session: call.Session, listening: true}
+	return &Link{calls: c, call: call.ID, session: call.Session, listening: true}
 }
 
 // askHub asks the hub to ring the phone for a call: "" if it rings, or when it can ring if it
@@ -1457,7 +1464,7 @@ func (c *Calls) sendLocked(session, text string, transcript *string, kind string
 
 // collect is what waits for a session, which its mod collects while ringback is on in it: so
 // it listens. The mod says its project and folder, for the app's Sessions tab.
-func (c *Calls) collect(session, project, cwd string) []Message {
+func (c *Calls) collect(session, project, cwd, turning string) []Message {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.listening(session) {
@@ -1471,9 +1478,11 @@ func (c *Calls) collect(session, project, cwd string) []Message {
 		}
 		c.named[session] = [2]string{project, cwd}
 	}
+	c.working(session, turning)
 	messages := c.waiting[session]
 	if len(messages) > 0 {
 		delete(c.waiting, session)
+		c.taken(session, messages)
 		c.save()
 	}
 	if messages == nil {

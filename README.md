@@ -188,7 +188,7 @@ What each item means is under "Next" in [docs/design.md](docs/design.md).
 - [ ] "Claude can't call you" on both tabs: built, to see on the phone
 - [ ] The voice calls back rather than wait on the line, without the minute between calls: built, to try on a call
 - [ ] The voice's style from real phone calls: telling in parts, the next ready for your mm-hmm: built, to try on calls
-- [ ] The agent troubleshooting its link with a session: to design
+- [ ] The agent troubleshooting its link with a session: built, to try on a call
 
 <details>
 <summary><b>Repository and development</b></summary>

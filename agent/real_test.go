@@ -184,3 +184,34 @@ func TestRealInstallments(t *testing.T) {
 		}
 	}
 }
+
+// You ask whether the session got what you asked for: the real model checks with
+// check_session, and tells you what it found. Three turns of the default model.
+// RINGBACK_REAL_CLAUDE=1 go test -run RealCheck -v
+func TestRealCheck(t *testing.T) {
+	if os.Getenv("RINGBACK_REAL_CLAUDE") == "" {
+		t.Skip("RINGBACK_REAL_CLAUDE=1 runs it, with three turns of the default model")
+	}
+	old := claudeCommand
+	claudeCommand = "claude"
+	t.Cleanup(func() { claudeCommand = old })
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	os.Unsetenv("CLAUDE_CONFIG_DIR")
+	hub := newFakeHub(t)
+	a := startAgent(t, hub, "")
+	a.collect("real-check")
+	callID, _ := a.placeCall("real-check", "Parser fix merged",
+		"The parser fix is merged, and the nightly build passes. Nothing waits for the developer.")
+	a.played(callID, a.answer(callID))
+	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "Have it run the full test suite. I'll stay on the line."})
+	reply, _ := hub.reply(callID, 2, 60*time.Second)
+	t.Logf("reply: %s", reply)
+	a.played(callID, reply)
+	a.waitLog("passed to the session", 5*time.Second)
+	a.mod("GET", "/sessions/real-check/messages?project=demo&cwd="+a.project()+"&turning=1", nil)
+	hub.send(map[string]any{"type": "turn", "call_id": callID, "text": "Did the session actually get that?"})
+	reply, _ = hub.reply(callID, 3, 60*time.Second)
+	t.Logf("reply: %s", reply)
+	check(t, "it checked", a.logged_("checks on the session"), "\n"+strings.Join(a.log(), "\n"))
+	check(t, "and said what it found", len(strings.Fields(reply)) > 4, reply)
+}

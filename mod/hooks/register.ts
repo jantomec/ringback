@@ -386,7 +386,8 @@ async function collect($: EngineInterface): Promise<void> {
   isCollecting = true
   try {
     const root = await $.session.root()
-    const where = `project=${encodeURIComponent(projectOf(root))}&cwd=${encodeURIComponent(root)}`
+    // Whether a turn runs, so the voice can say whether the session is working (check_session).
+    const where = `project=${encodeURIComponent(projectOf(root))}&cwd=${encodeURIComponent(root)}&turning=${isTurning ? 1 : 0}`
     const response = await voice($, `/sessions/${await $.session.id()}/messages?${where}`)
     if (!response.ok) return
     for (const m of JSON.parse(response.text).messages as { kind?: string; text: string; transcript?: string }[]) {

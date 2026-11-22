@@ -58,11 +58,12 @@ var claudeArgs = []string{
 	"--tools", "", "--strict-mcp-config", "--disable-slash-commands", "--setting-sources", "",
 }
 
-var sessionTools = []string{"pass_to_session", "answer_permission", "answer_question"}
+var sessionTools = []string{"pass_to_session", "answer_permission", "answer_question", checkSession}
 
 const (
-	betterModel = "better_model"
-	endCall     = "end_call"
+	betterModel  = "better_model"
+	endCall      = "end_call"
+	checkSession = "check_session"
 )
 
 // event is one line Claude Code writes (stream-json); nil once the session has ended.

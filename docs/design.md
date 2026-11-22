@@ -274,10 +274,11 @@ Isolation (switched on once in Control Center) more of it.
 
 ### Acting on the call
 
-On a call for a session, the model has three tools, served by a small MCP server the agent starts
-with each `claude -p`: `pass_to_session` for what you want the session to do or know, and
-`answer_permission` and `answer_question` for what the session asks you. Every call also has
-`better_model` and `end_call` (Ending the call, below).
+On a call for a session, the model has four tools, served by a small MCP server the agent starts
+with each `claude -p`: `pass_to_session` for what you want the session to do or know,
+`answer_permission` and `answer_question` for what the session asks you, and `check_session`
+(Checking on the session, below). Every call also has `better_model` and `end_call` (Ending the
+call, below).
 
 - The model says what it's passing on, or what it will answer, then calls the tool. The message
   is held until you've heard the voice say so, and dropped if you cut it off before; the model is
@@ -332,6 +333,28 @@ parts, it opened with "Three things since we last talked. First, the parser fix 
 main, and the nightly build passes." and the next parts came with no turn at all
 (`TestRealInstallments` in `agent/real_test.go`, Opus 5.5, once each). The second's pause was
 timed by the hub at 1.00 s after the part had played (`tools/hub-check`).
+
+### Checking on the session
+
+When the session shows in the app but seems not to hear the call, or its answer doesn't come,
+you can ask the voice ("Did the session get that?", "Why isn't it answering?"). It says "Let
+me check." and calls `check_session`, which tells it what the agent knows, and it says what it
+found:
+- whether the session listens: its mod asks the agent for messages once a second, and one that
+  hasn't for 10 s isn't listening, as when Claude Code there is closed or stuck;
+- whether it's working on a turn, and for how long, or since when it's been idle, which the mod
+  says as it asks;
+- for each of the last eight things the voice passed to it, on this call or earlier ones: when,
+  whether the session took it and how soon, and whether its answer came back; or that it
+  wasn't passed, and why, as when you cut the voice off before hearing it say so. A message the
+  session took, whose turn has since ended with no answer back, is pointed out: the session may
+  have answered in its terminal only.
+
+It's kept in the agent's memory only, so a restart forgets it. Asked whether the session had
+the full test suite it had been passed, Opus checked and said "The session got it. It's working
+on the test suite right now, and it hasn't sent anything back yet." (`TestRealCheck` in
+`agent/real_test.go`, once). What the voice says after `check_session` is spoken, unlike after
+its other tools.
 
 ### Ending the call
 
@@ -1301,7 +1324,9 @@ how things look):
   the agent's tests); not on a call yet;
 - the voice telling several things in parts, the next said at your "mm-hmm" or after a second
   of silence, without a turn of the model's (the agent's tests, `tools/hub-check` for the
-  pause, and `TestRealInstallments` with Opus 5.5, once); not on a call yet.
+  pause, and `TestRealInstallments` with Opus 5.5, once); not on a call yet;
+- the voice checking on the session (`check_session`: the agent's tests and `TestRealCheck`
+  with Opus 5.5, once); not on a call yet.
 
 ## Next
 
@@ -1428,6 +1453,7 @@ host unable to read their calls.
   each answered before the next, with the next ready for your "mm-hmm". Built; left: trying
   it on calls. Not tried: a short "Mm." while the model writes, and replies made ready for a
   yes or a no to the voice's question, which would cost a model turn and a take each.
-- [ ] **The agent troubleshooting its link with a session:** when the session shows in the app
-  but the agent's messages don't reach it, or its answers don't come back, the agent finds
-  where they stop. To design.
+- [ ] **The agent troubleshooting its link with a session** (Checking on the session): asked
+  whether the session got something or why it isn't answering, the voice checks how far each
+  thing passed to it got, and whether the session listens and works. Built; left: trying it on
+  a call.

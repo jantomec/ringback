@@ -24,7 +24,8 @@ const longestWait = 25 * time.Second
 //   - `GET /sessions/{id}/messages` collects what waits for a session: each message has a
 //     `kind`, `message` for what the voice passed on and `outcome` for how a call went, its
 //     `text`, and the call's `transcript` if there is one. `?project=…&cwd=…` say the
-//     session's project and folder, for the app's Sessions tab;
+//     session's project and folder, for the app's Sessions tab, and `turning=1` (or 0) whether
+//     a turn runs in it, for check_session;
 //   - `POST /sessions/{id}/messages` leaves one, as the voice does (for tools);
 //   - `POST /sessions/{id}/news` brings a session's answer: `{"live": true}` if the voice
 //     told the call you're on, false if the session should call you. If you hang up on that
@@ -70,7 +71,7 @@ func sessionSide(c *Calls) http.Handler {
 	})
 	mux.HandleFunc("GET /sessions/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		reply(w, 200, map[string]any{"messages": c.collect(r.PathValue("id"), q.Get("project"), q.Get("cwd"))})
+		reply(w, 200, map[string]any{"messages": c.collect(r.PathValue("id"), q.Get("project"), q.Get("cwd"), q.Get("turning"))})
 	})
 	mux.HandleFunc("POST /sessions/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 		body, ok := bodyOf(r, "text")

@@ -644,8 +644,10 @@ func (v *voice) nextText(e event) string {
 			said = v.flush()
 			v.breakNow = true
 		}
+		// check_session only tells the model something, which it says after the tool.
+		informs := kind == "tool_use" && strings.HasSuffix(fmt.Sprint(block["name"]), checkSession)
 		switch {
-		case kind == "tool_use" && words(skip(v.reply, utf8.RuneCountInString(v.ack))) > 0:
+		case kind == "tool_use" && !informs && words(skip(v.reply, utf8.RuneCountInString(v.ack))) > 0:
 			// The model has said it's passing something on. Told so or not, it tends to say it
 			// again after the tool, so the rest of this reply isn't spoken.
 			v.quiet = true
@@ -1064,6 +1066,11 @@ func (v *voice) tool(name string, arguments map[string]any) string {
 		return v.betterModel()
 	case endCall:
 		return v.endCall()
+	case checkSession:
+		v.calls.mu.Lock()
+		defer v.calls.mu.Unlock()
+		v.log("checks on the session")
+		return v.calls.sessionReport(v.link.session, v.callID)
 	}
 	v.calls.mu.Lock()
 	listening := v.link.listening
@@ -1309,6 +1316,9 @@ func (v *voice) pass(goes func(*held) bool, dropped string) string {
 			}
 			v.log(fmt.Sprintf("not %s, %s: %s", what, dropped, text))
 			if message {
+				v.calls.mu.Lock()
+				v.calls.delivered(v.link.session, v.callID, h.text, dropped)
+				v.calls.mu.Unlock()
 				v.addTranscript("Not passed to the session, "+dropped, h.text)
 				note += fmt.Sprintf("[Not passed to the session, because the developer cut you off before hearing you say "+
 					"so: \"%s\". Pass it again only if they still want it.]\n", h.text)
